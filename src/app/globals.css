@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-ink text-slate-100 antialiased;
+  font-feature-settings: "cv02", "cv03", "cv04";
+}
+
+@layer components {
+  .panel {
+    @apply rounded-xl border border-edge bg-panel;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm
+           font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  .btn-primary {
+    @apply btn bg-accent text-ink hover:bg-sky-300;
+  }
+
+  .btn-danger {
+    @apply btn bg-bad text-white hover:bg-red-400;
+  }
+
+  .btn-ghost {
+    @apply btn border border-edge text-slate-300 hover:bg-edge hover:text-white;
+  }
+
+  .field {
+    @apply w-full rounded-lg border border-edge bg-ink px-3 py-2 text-sm text-slate-100
+           placeholder:text-slate-600 focus:border-accent focus:outline-none;
+  }
+
+  .label {
+    @apply mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted;
+  }
+}
