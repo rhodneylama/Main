@@ -45,7 +45,7 @@ export default function CallSetup({ personas }: { personas: Persona[] }) {
       rep: repName.trim(),
       bargeIn: String(bargeIn),
     });
-    router.push(`/call?${params.toString()}`);
+    router.push(`/training/call?${params.toString()}`);
   }
 
   return (

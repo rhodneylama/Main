@@ -83,7 +83,7 @@ export default function CallConsole({
     setSaveError(null);
     try {
       await persist();
-      router.push(`/review/${callId}`);
+      router.push(`/training/review/${callId}`);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Could not save the call.");
       setSaving(false);
@@ -192,7 +192,7 @@ export default function CallConsole({
                 >
                   {saving ? "Saving…" : "Review this call"}
                 </button>
-                <button className="btn-ghost" onClick={() => router.push("/")}>
+                <button className="btn-ghost" onClick={() => router.push("/training/practice")}>
                   New call
                 </button>
               </>

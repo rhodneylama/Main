@@ -1,29 +1,37 @@
-# Cold Call Trainer
+# Sales Floor
 
-An internal sales-training tool. Reps practise live cold calls against AI
-prospects that push back, object, and hang up — then get a coached scorecard on
-every call.
+A sales performance screen for the office wall, built on top of your
+GoHighLevel pipeline. Reps see where they stand, managers see where the money
+is, and everybody sees a deal the moment it closes.
 
-Built to replace a per-seat AI roleplay subscription with something you run
-yourself. The only running cost is Anthropic API usage, which is typically a
-few cents per practice call.
+It is also where the team trains — a materials library plus live voice roleplay
+against AI prospects, with practice scores feeding the same leaderboard as real
+revenue.
 
 ## What it does
 
-- **Voice roleplay.** You talk, the prospect talks back. They pick up first,
-  just like a real dial.
-- **Six built-in prospects**, from a curious ops lead who lets you ramble to an
-  IT director who opens with "you've got ten seconds." Add your own.
-- **Four call types** — cold call, discovery, closing, follow-up.
-- **The prospect controls the call.** They hang up if you waste their time, and
-  they agree to a meeting only if you clear a bar defined per persona.
-- **Post-call scorecard** — scored on opener, objection handling, discovery,
-  talk/listen balance and closing, with specific "you said X, try Y instead"
-  coaching tied to real moments in the transcript.
-- **History and leaderboard** — per-rep averages, best scores and meetings
-  booked over time.
-- **Your pitch, not a generic one.** Enter your product, ICP and the objections
-  you actually hear, and prospects react to your real offer.
+**Performance**
+
+- **The floor** — closed revenue, open pipeline, activity, win rate and quota
+  attainment, with a 30-day trend and the open pipeline broken down by stage.
+- **Leaderboards** — reps or teams, over today / week / month / quarter / all
+  time, ranked by points, revenue, deals or raw activity.
+- **Points, levels and badges.** Effort earns points, outcomes earn more, and a
+  won deal scales with its value so a big close outranks a small one without
+  swamping the board.
+- **Competitions.** Run a sprint on any measure the board tracks, between reps
+  or between teams, with an optional target and a prize.
+- **TV mode** at `/tv` — a chrome-free wall display that rotates between boards
+  on its own and throws a full-width celebration when a deal lands.
+
+**Training**
+
+- **Materials library.** Upload PDFs, videos, images and audio, or link to
+  whatever already lives in Drive or Loom. Mark materials required, and track
+  who has completed what.
+- **AI voice roleplay.** Practise live cold calls against prospects that push
+  back, object, and hang up on you, then get a coached scorecard on every call.
+  A 90+ call is worth three times a bare pass; an unscored one is worth nothing.
 
 ## Setup
 
@@ -31,15 +39,13 @@ Requires Node 20+.
 
 ```bash
 npm install
-cp .env.example .env.local     # then add your ANTHROPIC_API_KEY
+cp .env.example .env.local
 npm run dev                    # http://localhost:3000
 ```
 
-Get an API key at [console.anthropic.com](https://console.anthropic.com/settings/keys).
-
-For the team, deploy it anywhere that runs a Node process and give everyone the
-URL. Reps type their name on the practice screen — there is no login, because
-this is an internal tool with no sensitive data in it.
+It runs immediately with a seeded demo team — eight reps, three teams, 90 days
+of activity and a live competition — so you can see what it looks like populated
+before connecting anything. Set `SALESFLOOR_SEED_DEMO=false` to start empty.
 
 ```bash
 npm run build && npm start     # production
@@ -47,90 +53,129 @@ npm test                       # unit tests
 npm run typecheck
 ```
 
+## Connecting GoHighLevel
+
+Go to **Settings → GoHighLevel** and enter a location id and a private
+integration token (GoHighLevel: Settings → Private Integrations). Saving with
+"Use GoHighLevel as the source" ticked tests the credentials immediately.
+
+**Sync** pulls pipelines, users and opportunities. Won and lost opportunities
+become leaderboard activity, so GHL revenue lands on the board without anyone
+logging it twice. Syncing is idempotent — everything is upserted by its GHL id,
+and each opportunity's outcome is recorded against that id, so re-running a sync
+never pays a rep twice.
+
+GHL users are matched to existing reps by name before a new rep is created, so
+connecting an account that already has reps on the board links them rather than
+duplicating them.
+
+**For live updates**, add a webhook action to your GoHighLevel workflows
+pointing at `/api/ghl/webhook` (the Settings page shows the full URL). These
+events are understood:
+
+| GoHighLevel event | Becomes |
+|---|---|
+| `OpportunityStatusUpdate` → won | Deal won, with its value and a celebration |
+| `OpportunityStatusUpdate` → lost / abandoned | Deal lost |
+| `AppointmentCreate` | Appointment set, with a celebration |
+| `AppointmentUpdate` → showed | Appointment held |
+| `OutboundMessage` | Dial, email or text, by channel |
+| `InboundMessage` (call) | Conversation |
+
+Anything else is acknowledged and ignored — an unmapped event is not an error,
+and a webhook that returns a failure gets retried by GoHighLevel forever. Each
+event is deduplicated on its id, so a redelivery does not pay out twice.
+
+Set `GHL_WEBHOOK_SECRET` (or fill it in on the Settings page) and the endpoint
+requires it as an `x-webhook-secret` header. Without one the endpoint is open,
+which is only appropriate behind a private network.
+
+Nothing about the rest of the app depends on GoHighLevel — activity can be
+logged by hand from the floor screen, and the demo data works standalone.
+
+## Points
+
+| Activity | Points |
+|---|---|
+| Dial | 2 |
+| Conversation | 5 |
+| Email / text | 1 |
+| Appointment set | 25 |
+| Appointment held | 40 |
+| Proposal sent | 30 |
+| Deal won | 100 + 10 per 1,000 of value |
+| Deal lost | 5 |
+| Practice call | 5–30, by scorecard |
+| Training material completed | Per material, 15 by default |
+
+Levels run from Rookie at 0 to Legend at 32,000 lifetime points — roughly two
+years for a rep on a full desk. Badges are awarded automatically and never taken
+away.
+
 ## Browser and audio requirements
 
-Speech recognition uses the browser's built-in Web Speech API.
+The practice-call feature uses the browser's built-in Web Speech API.
 
 - **Works:** Chrome, Edge, Safari 16.4+
 - **Does not work:** Firefox (no speech recognition)
-- Grant microphone access when prompted.
 
-**Headphones are strongly recommended.** On speakers, the microphone hears the
+**Headphones are strongly recommended.** On speakers the microphone hears the
 prospect's synthesised voice and transcribes it as if the rep said it. The app
-defaults to muting the mic while the prospect speaks, which avoids the problem
-but means you cannot interrupt. Tick **Allow interruptions** on the practice
-screen to keep the mic live and talk over them — only do that with headphones on.
+mutes the mic while the prospect speaks by default, which avoids the problem but
+means you cannot interrupt. Tick **Allow interruptions** to talk over them.
 
-## How a call flows
-
-1. The prospect picks up and speaks first.
-2. You talk. Pause for ~1.5 seconds and your turn is sent, or press
-   **Done speaking** to send immediately.
-3. The prospect's reply streams back and is spoken aloud.
-4. Repeat until someone ends the call.
-5. **Review this call** saves the transcript and generates the scorecard.
-
-The prospect ends the call by emitting a hidden control marker
-(`[[HANGUP]]` or `[[MEETING_BOOKED]]`) that the server strips before anything
-reaches the screen or the speech synthesiser. `tests/markers.test.ts` covers
-the case where a marker arrives split across two stream chunks.
-
-## Costs
-
-Two API calls shape the bill:
-
-- **Each turn of a call** runs at `effort: "low"` so replies come back fast, and
-  the persona system prompt is cached across turns — it is resent every turn, so
-  caching it is the main saving.
-- **The scorecard** runs once per call at full effort, since quality matters
-  more than latency there and it only happens once.
-
-Both models are configurable via `PROSPECT_MODEL` and `SCORING_MODEL`.
-
-## Upgrading the voice
-
-The browser's speech synthesis is free but sounds robotic, and its recognition
-is decent rather than great. Everything voice-related sits behind the
-`VoiceProvider` interface in `src/voice/types.ts`, and nothing else in the app
-touches the Web Speech API directly.
-
-To use a paid provider (ElevenLabs for a natural prospect voice, Deepgram for
-better transcription, or a realtime speech-to-speech API), implement that
-interface in a new module under `src/voice/` and return it from
-`getVoiceProvider()` in `src/voice/index.ts`. The call console needs no changes.
+The rest of the app has no audio requirements and works in any browser.
 
 ## Layout
 
 ```
 src/
 ├── app/
-│   ├── page.tsx              Practice setup
-│   ├── call/                 Live call screen
-│   ├── review/[id]/          Scorecard
-│   ├── personas/             Prospect management
-│   ├── history/              Calls + leaderboard
-│   ├── settings/             Your pitch and product context
-│   └── api/
-│       ├── chat/             Streams one prospect turn (NDJSON)
-│       ├── score/            Generates the scorecard (structured output)
-│       └── …                 Personas, calls, settings, stats
+│   ├── page.tsx              The floor — dashboard
+│   ├── leaderboard/          Reps and teams, by period and measure
+│   ├── competitions/         Sprints and their standings
+│   ├── training/             Materials library
+│   │   ├── practice/         Start a practice call
+│   │   ├── call/             Live call screen
+│   │   ├── review/[id]/      Scorecard
+│   │   ├── personas/         AI prospect management
+│   │   └── history/          Past practice calls
+│   ├── team/                 Reps, teams and quotas
+│   ├── tv/                   Wall display
+│   ├── settings/             GoHighLevel, scoring, your pitch
+│   └── api/                  …one route per resource, plus ghl/{sync,webhook}
 ├── lib/
-│   ├── prompts.ts            Persona system prompt + scoring rubric
-│   ├── seed-personas.ts      The six built-in prospects
-│   ├── use-call-session.ts   Call state machine (turn-taking, barge-in)
-│   ├── db.ts                 SQLite storage
-│   └── types.ts
+│   ├── schema.ts             Every table, as CREATE ... IF NOT EXISTS
+│   ├── sales-db.ts           Reps, deals, activity, leaderboards, competitions
+│   ├── training-db.ts        Materials and completion
+│   ├── points.ts             Point rules, levels, badge criteria
+│   ├── analytics.ts          Dashboard aggregation
+│   ├── seed-demo.ts          The demo floor
+│   ├── ghl/                  GoHighLevel client, mapping and sync
+│   └── prompts.ts            Persona system prompt + scoring rubric
+├── components/               Charts, boards, forms
 └── voice/                    Swappable speech layer
 ```
 
-Data lives in a SQLite file at `data/trainer.db` (override with
-`TRAINER_DB_PATH`). It is gitignored. Back it up by copying the file.
+Data lives in a SQLite file at `data/salesfloor.db` (override with
+`SALESFLOOR_DB_PATH`), and uploaded training files in `data/uploads`. Both are
+gitignored. Back them up by copying the directory.
 
-## Notes
+## Notes on the design
 
-- Prospects never break character. Asking them for feedback mid-call gets you a
-  confused prospect — feedback comes from the scorecard.
-- The **What wins them over** panel is shown to the rep during practice as a
-  training aid. The prospect will not tell you this on the call.
-- Built-in personas cannot be deleted, so the seed set is always available.
-- This tool does not dial anyone. Every call is a simulation.
+- **Chart colours are validated, not chosen by eye.** The five categorical
+  series colours in `tailwind.config.ts` clear the lightness band, chroma floor,
+  3:1 contrast and adjacent-pair colour-vision separation against the app's
+  chart surface. Status colours are reserved and never reused as a series.
+- **No dual-axis charts.** The trend chart shows one measure at a time, because
+  activity counts and revenue don't share a scale and putting them on two axes
+  would invent a crossover that isn't in the data.
+- **There is no login.** This is an internal wall board — reps pick their name
+  once and it sticks in that browser. Don't put anything in it you wouldn't put
+  on a screen in the office.
+- **Reps are deactivated, never deleted**, so past leaderboards and finished
+  competitions still add up.
+- **Voice is swappable.** Everything speech-related sits behind the
+  `VoiceProvider` interface in `src/voice/types.ts`. To use ElevenLabs or
+  Deepgram, implement that interface and return it from `getVoiceProvider()`.
+- This tool does not dial anyone. Every practice call is a simulation.

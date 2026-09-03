@@ -33,10 +33,10 @@ export default async function ReviewPage({
           </div>
         </div>
         <div className="flex gap-2">
-          <Link href="/history" className="btn-ghost">
+          <Link href="/training/history" className="btn-ghost">
             History
           </Link>
-          <Link href="/" className="btn-primary">
+          <Link href="/training/practice" className="btn-primary">
             Practise again
           </Link>
         </div>
