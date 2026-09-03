@@ -22,11 +22,10 @@ RUN npm run build
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# The database and uploaded training files. Mount a persistent volume here or
-# everything is wiped on every deploy.
+# The database and uploaded training files. Mount a Railway Volume at /data
+# (Settings -> Volumes in the dashboard) or everything is wiped on every deploy.
 ENV SALESFLOOR_DB_PATH=/data/salesfloor.db
 ENV SALESFLOOR_UPLOAD_DIR=/data/uploads
-VOLUME ["/data"]
 
 EXPOSE 3000
 CMD ["npm", "start"]
