@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { SEED_PERSONAS } from "./seed-personas";
 import { SCHEMA_SQL } from "./schema";
+import { nonEmpty } from "./env";
 import type {
   CallRecord,
   CallType,
@@ -15,8 +16,8 @@ import type {
 } from "./types";
 
 const DB_PATH =
-  process.env.SALESFLOOR_DB_PATH ??
-  process.env.TRAINER_DB_PATH ??
+  nonEmpty(process.env.SALESFLOOR_DB_PATH) ??
+  nonEmpty(process.env.TRAINER_DB_PATH) ??
   path.join(process.cwd(), "data", "salesfloor.db");
 
 let db: Database.Database | null = null;
@@ -25,6 +26,11 @@ export function connect(): Database.Database {
   if (db) return db;
 
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+
+  // Says out loud where the data is going. When a deploy "loses everything",
+  // it is almost always because this path is not on a mounted volume.
+  console.log(`[salesfloor] database: ${DB_PATH}`);
+
   db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
 

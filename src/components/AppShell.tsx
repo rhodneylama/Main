@@ -13,7 +13,8 @@ import RepPicker from "./RepPicker";
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-  if (pathname.startsWith("/tv")) return <>{children}</>;
+  // TV mode and the sign-in page both render without the app chrome.
+  if (pathname.startsWith("/tv") || pathname === "/login") return <>{children}</>;
 
   return (
     <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-6">

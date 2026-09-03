@@ -53,6 +53,23 @@ npm test                       # unit tests
 npm run typecheck
 ```
 
+## Putting it online
+
+See **[DEPLOY.md](DEPLOY.md)** for a step-by-step walkthrough written for
+someone who has not deployed anything before.
+
+The short version: this app stores its data in a file on disk, so it needs a
+host that provides a **permanent disk mounted at `/data`** — Railway, Render,
+Fly.io or your own server. **Vercel and Netlify will not work**, because they
+give the app a blank filesystem on every deploy. A `Dockerfile` is included and
+is the recommended way to run it anywhere.
+
+Set `SALESFLOOR_PASSWORD` when hosting anywhere public. It puts the whole site
+behind one shared team password — the app has no per-rep login, so without it
+anyone with the URL can read your revenue and log activity as any rep. The
+GoHighLevel webhook endpoint stays reachable either way, since it carries its
+own secret.
+
 ## Connecting GoHighLevel
 
 Go to **Settings → GoHighLevel** and enter a location id and a private
@@ -170,9 +187,11 @@ gitignored. Back them up by copying the directory.
 - **No dual-axis charts.** The trend chart shows one measure at a time, because
   activity counts and revenue don't share a scale and putting them on two axes
   would invent a crossover that isn't in the data.
-- **There is no login.** This is an internal wall board — reps pick their name
-  once and it sticks in that browser. Don't put anything in it you wouldn't put
-  on a screen in the office.
+- **There is no per-rep login.** This is an internal wall board — reps pick
+  their name once and it sticks in that browser, and the board trusts them.
+  `SALESFLOOR_PASSWORD` puts one shared password in front of the whole site,
+  which is a front door rather than an identity system: it keeps strangers out,
+  it does not stop one rep logging activity as another.
 - **Reps are deactivated, never deleted**, so past leaderboards and finished
   competitions still add up.
 - **Voice is swappable.** Everything speech-related sits behind the

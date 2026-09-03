@@ -1,4 +1,5 @@
 import { getSetting, setSetting } from "../db";
+import { nonEmpty } from "../env";
 import type { GhlConfig } from "../types";
 
 const KEY = "ghl_config";
@@ -22,9 +23,9 @@ export function getGhlConfig(): GhlConfig {
   return {
     ...EMPTY,
     ...stored,
-    apiToken: stored.apiToken || process.env.GHL_API_TOKEN || "",
-    locationId: stored.locationId || process.env.GHL_LOCATION_ID || "",
-    webhookSecret: stored.webhookSecret || process.env.GHL_WEBHOOK_SECRET || "",
+    apiToken: stored.apiToken || nonEmpty(process.env.GHL_API_TOKEN) || "",
+    locationId: stored.locationId || nonEmpty(process.env.GHL_LOCATION_ID) || "",
+    webhookSecret: stored.webhookSecret || nonEmpty(process.env.GHL_WEBHOOK_SECRET) || "",
   };
 }
 

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { nonEmpty } from "./env";
 
 /**
  * Uploaded training files live next to the database rather than in the public
@@ -8,7 +9,7 @@ import { randomUUID } from "node:crypto";
  * anyone can list.
  */
 export const UPLOAD_DIR =
-  process.env.SALESFLOOR_UPLOAD_DIR ?? path.join(process.cwd(), "data", "uploads");
+  nonEmpty(process.env.SALESFLOOR_UPLOAD_DIR) ?? path.join(process.cwd(), "data", "uploads");
 
 /** 100 MB — enough for a training video, small enough to keep the disk sane. */
 export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
