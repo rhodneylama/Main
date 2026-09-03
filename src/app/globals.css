@@ -41,4 +41,44 @@ body {
   .label {
     @apply mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted;
   }
+
+  /* A row of mutually exclusive filters — period, metric, scope. */
+  .segmented {
+    @apply inline-flex rounded-lg border border-edge bg-panel p-0.5;
+  }
+
+  .segmented-item {
+    @apply rounded-md px-3 py-1.5 text-xs font-medium text-muted transition-colors
+           hover:text-white;
+  }
+
+  .segmented-item-active {
+    @apply bg-edge text-white;
+  }
+
+  .stat-label {
+    @apply text-xs font-medium uppercase tracking-wide text-muted;
+  }
+
+  .stat-value {
+    @apply mt-1 text-2xl font-semibold tabular-nums tracking-tight text-white;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-edge px-2 py-0.5
+           text-[11px] font-medium text-muted;
+  }
+
+  /* Chart tooltip. Positioned by the chart, never wider than its content. */
+  .viz-tooltip {
+    @apply pointer-events-none absolute z-20 whitespace-nowrap rounded-lg border border-edge
+           bg-ink/95 px-2.5 py-1.5 text-xs shadow-lg backdrop-blur;
+  }
+}
+
+@layer utilities {
+  /* Charts and tables scroll inside their own box; the page never does. */
+  .scroll-x {
+    @apply -mx-1 overflow-x-auto px-1;
+  }
 }

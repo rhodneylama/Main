@@ -37,7 +37,7 @@ export default function HistoryPage() {
       {calls.length === 0 ? (
         <div className="panel p-8 text-center">
           <p className="text-sm text-slate-300">No calls yet.</p>
-          <Link href="/" className="btn-primary mt-4">
+          <Link href="/training/practice" className="btn-primary mt-4">
             Make the first one
           </Link>
         </div>

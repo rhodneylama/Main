@@ -1,47 +1,98 @@
-import { listPersonas, getProductContext } from "@/lib/db";
-import { hasCredentials } from "@/lib/anthropic";
-import CallSetup from "@/components/CallSetup";
 import Link from "next/link";
+import { dashboard } from "@/lib/analytics";
+import { ensureSeeded, isSeeded } from "@/lib/seed-demo";
+import { isGhlConfigured } from "@/lib/ghl/config";
+import { money, number, percent } from "@/lib/format";
+import StatTile from "@/components/charts/StatTile";
+import ProgressMeter from "@/components/charts/ProgressMeter";
+import TrendChart from "@/components/charts/TrendChart";
+import StageFunnel from "@/components/charts/StageFunnel";
+import Leaderboard from "@/components/Leaderboard";
+import CelebrationFeed from "@/components/CelebrationFeed";
+import ActivityLogger from "@/components/ActivityLogger";
 
-// Reads the database on every request — prerendering this would freeze the
-// page at build-time data.
 export const dynamic = "force-dynamic";
 
-export default function HomePage() {
-  const personas = listPersonas();
-  const ctx = getProductContext();
-  const pitchConfigured = Object.values(ctx).some((v) => v.trim().length > 0);
+export default function FloorPage() {
+  ensureSeeded();
+  const data = dashboard("month");
+  const ghlConnected = isGhlConfigured();
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Start a practice call</h1>
-        <p className="mt-1 text-sm text-muted">
-          Pick a prospect, dial in, and talk. They pick up first — just like a real call.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">The floor</h1>
+          <p className="mt-1 text-sm text-muted">
+            Month to date, across every rep on the board.
+          </p>
+        </div>
+        {!ghlConnected && (
+          <Link href="/settings" className="btn-ghost text-xs">
+            {isSeeded() ? "Showing demo data — connect GoHighLevel" : "Connect GoHighLevel"}
+          </Link>
+        )}
       </div>
 
-      {!hasCredentials() && (
-        <div className="panel border-warn/40 bg-warn/10 p-4 text-sm text-amber-200">
-          <strong className="font-semibold">No API key configured.</strong> Copy{" "}
-          <code className="rounded bg-ink px-1.5 py-0.5 text-xs">.env.example</code> to{" "}
-          <code className="rounded bg-ink px-1.5 py-0.5 text-xs">.env.local</code>, add your
-          Anthropic API key, and restart the dev server.
-        </div>
-      )}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile
+          label="Closed revenue"
+          value={money(data.wonRevenueCents, { compact: true })}
+          sublabel={`${number(data.wonDeals)} deals won this month`}
+          accent="text-status-good"
+        >
+          <div className="mt-3">
+            <ProgressMeter
+              fraction={data.quotaAttainment}
+              label="Team quota"
+              caption={
+                data.quotaCents > 0
+                  ? `${money(data.quotaCents, { compact: true })} target`
+                  : "No quotas set yet"
+              }
+            />
+          </div>
+        </StatTile>
+        <StatTile
+          label="Open pipeline"
+          value={money(data.openPipelineCents, { compact: true })}
+          sublabel={`${number(data.openDeals)} deals in flight`}
+        />
+        <StatTile
+          label="Activity today"
+          value={number(data.activitiesToday)}
+          sublabel={`${number(data.appointmentsSet)} appointments this month`}
+        />
+        <StatTile
+          label="Win rate"
+          value={percent(data.winRate)}
+          sublabel={
+            data.avgDealCents > 0
+              ? `${money(data.avgDealCents, { compact: true })} average deal`
+              : "No closed deals yet"
+          }
+        />
+      </div>
 
-      {!pitchConfigured && (
-        <div className="panel p-4 text-sm text-slate-300">
-          Prospects will react to whatever you pitch them. To make them push back on{" "}
-          <em>your</em> actual offer, fill in{" "}
-          <Link href="/settings" className="text-accent hover:underline">
-            your pitch and product details
-          </Link>
-          .
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
+          <TrendChart data={data.trend} />
+          <StageFunnel stages={data.stages} />
         </div>
-      )}
-
-      <CallSetup personas={personas} />
+        <div className="space-y-6">
+          <div>
+            <div className="mb-2 flex items-baseline justify-between">
+              <h2 className="text-sm font-semibold text-white">Top of the board</h2>
+              <Link href="/leaderboard" className="text-xs text-accent hover:underline">
+                Full leaderboard
+              </Link>
+            </div>
+            <Leaderboard initialEntries={data.topReps} compact />
+          </div>
+          <CelebrationFeed celebrations={data.celebrations} />
+          <ActivityLogger />
+        </div>
+      </div>
     </div>
   );
 }

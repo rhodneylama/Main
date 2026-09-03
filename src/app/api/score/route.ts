@@ -5,6 +5,7 @@ import * as z from "zod/v4";
 import { anthropic, SCORING_MODEL, hasCredentials } from "@/lib/anthropic";
 import { getCall, getPersona, getProductContext, saveCall } from "@/lib/db";
 import { buildScoringPrompt } from "@/lib/prompts";
+import { awardPracticeCall } from "@/lib/trainer-rewards";
 import type { Scorecard } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -97,7 +98,11 @@ export async function POST(req: NextRequest) {
     }
 
     const scorecard = parsed as Scorecard;
-    saveCall({ ...call, scorecard });
+    const scored = { ...call, scorecard };
+    saveCall(scored);
+
+    // A scored call earns points on the floor leaderboard, weighted by the score.
+    awardPracticeCall(scored);
 
     return Response.json({ scorecard });
   } catch (err) {

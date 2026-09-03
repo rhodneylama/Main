@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { SEED_PERSONAS } from "./seed-personas";
+import { SCHEMA_SQL } from "./schema";
 import type {
   CallRecord,
   CallType,
@@ -13,56 +14,21 @@ import type {
   Turn,
 } from "./types";
 
-const DB_PATH = process.env.TRAINER_DB_PATH ?? path.join(process.cwd(), "data", "trainer.db");
+const DB_PATH =
+  process.env.SALESFLOOR_DB_PATH ??
+  process.env.TRAINER_DB_PATH ??
+  path.join(process.cwd(), "data", "salesfloor.db");
 
 let db: Database.Database | null = null;
 
-function connect(): Database.Database {
+export function connect(): Database.Database {
   if (db) return db;
 
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS personas (
-      id           TEXT PRIMARY KEY,
-      name         TEXT NOT NULL,
-      title        TEXT NOT NULL,
-      company      TEXT NOT NULL,
-      industry     TEXT NOT NULL,
-      difficulty   INTEGER NOT NULL,
-      mood         TEXT NOT NULL,
-      personality  TEXT NOT NULL,
-      objections   TEXT NOT NULL,
-      win_condition TEXT NOT NULL,
-      call_types   TEXT NOT NULL,
-      voice_hint   TEXT,
-      built_in     INTEGER NOT NULL DEFAULT 0,
-      created_at   TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS calls (
-      id           TEXT PRIMARY KEY,
-      rep_name     TEXT NOT NULL,
-      persona_id   TEXT NOT NULL,
-      persona_name TEXT NOT NULL,
-      call_type    TEXT NOT NULL,
-      difficulty   INTEGER NOT NULL,
-      started_at   TEXT NOT NULL,
-      duration_sec INTEGER NOT NULL,
-      transcript   TEXT NOT NULL,
-      scorecard    TEXT
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_calls_rep ON calls(rep_name);
-    CREATE INDEX IF NOT EXISTS idx_calls_started ON calls(started_at DESC);
-
-    CREATE TABLE IF NOT EXISTS settings (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-  `);
+  db.exec(SCHEMA_SQL);
 
   seedPersonas(db);
   return db;
@@ -290,4 +256,27 @@ export function setProductContext(ctx: ProductContext): void {
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     )
     .run(JSON.stringify(ctx));
+}
+
+/* ------------------------------------------------------- generic settings */
+
+export function getSetting<T>(key: string, fallback: T): T {
+  const row = connect()
+    .prepare("SELECT value FROM settings WHERE key = ?")
+    .get(key) as { value: string } | undefined;
+  if (!row) return fallback;
+  try {
+    return JSON.parse(row.value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+export function setSetting(key: string, value: unknown): void {
+  connect()
+    .prepare(
+      `INSERT INTO settings (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    )
+    .run(key, JSON.stringify(value));
 }
