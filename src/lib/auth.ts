@@ -9,6 +9,8 @@
  * open, which is only appropriate on a private network.
  */
 
+import { nonEmpty } from "./env";
+
 export const AUTH_COOKIE = "salesfloor_auth";
 
 /** Runs in both the Edge middleware and Node route handlers. */
@@ -27,5 +29,5 @@ export function safeEqual(a: string, b: string): boolean {
 }
 
 export function sitePassword(): string {
-  return process.env.SALESFLOOR_PASSWORD ?? "";
+  return nonEmpty(process.env.SALESFLOOR_PASSWORD) ?? "";
 }

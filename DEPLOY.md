@@ -52,7 +52,28 @@ finished the next two steps — that's expected, keep going.
 
 That path matters — the app is already configured to read and write there.
 
-### 3. Set your password
+### 3. Clean up the variables Railway invented
+
+Open **Variables**. Railway reads this repo's `.env.example` and pre-creates a
+variable for every name it finds — you'll see a long list of empty rows, and
+possibly a couple with junk in them.
+
+**Delete every row you are not actually setting.** An empty variable is not the
+same as an absent one: your host sends the empty value to the app, where it
+overrides the built-in default. That is how a deploy ends up writing its
+database somewhere other than `/data` and losing everything on the next push.
+
+Two in particular to look for:
+
+- **`ANTHROPIC_API_KEY` with a value like `sk-ant-...`** — that's a placeholder,
+  not a key. Delete the row, or paste a real key from
+  [console.anthropic.com](https://console.anthropic.com/settings/keys).
+- **`ANTHROPIC_AUTH_TOKEN`** — if your host generated one, delete it. The
+  Anthropic SDK will try to authenticate with it and fail.
+
+When you're done you should have only the handful of rows from the next step.
+
+### 4. Set your password
 
 Still on the service, open **Variables** and add:
 
@@ -76,7 +97,7 @@ wait until later):
 You do **not** need to set the GoHighLevel variables here — those are easier to
 enter in the app's own Settings page once it's running.
 
-### 4. Get your web address
+### 5. Get your web address
 
 1. Open **Settings** → **Networking**.
 2. Click **Generate Domain**.
@@ -85,7 +106,7 @@ You'll get something like `main-production-a1b2.up.railway.app`. That's your
 app. Open it, enter your password, and you should land on the floor dashboard
 with the demo team on it.
 
-### 5. Make it yours
+### 6. Make it yours
 
 - **Settings → GoHighLevel** in the app: paste your location ID and private
   integration token, tick the box, and hit **Sync**. Your real reps and deals
@@ -99,8 +120,12 @@ with the demo team on it.
 Paste them to Claude — most first-time failures are a missing Node version or a
 typo in a variable name.
 
+**Every page errors with something about a currency code.** You have an empty
+`NEXT_PUBLIC_CURRENCY` variable. Delete the row or give it a real code.
+
 **It loads but everything resets after a deploy.** The volume isn't mounted, or
-isn't mounted at `/data`. Go back to step 2.
+isn't mounted at `/data`. Go back to step 2 — and check step 3, since an empty
+`SALESFLOOR_DB_PATH` variable overrides the correct default.
 
 **It asks for a password you never set.** You set `SALESFLOOR_PASSWORD` and
 forgot it. Change it in Variables and redeploy — nothing else is lost.

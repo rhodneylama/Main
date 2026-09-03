@@ -1,4 +1,5 @@
 import { getGhlConfig } from "./config";
+import { nonEmpty } from "../env";
 
 /**
  * Minimal client for the GoHighLevel v2 API. Only the read endpoints the
@@ -6,7 +7,8 @@ import { getGhlConfig } from "./config";
  *
  * Docs: https://highlevel.stoplight.io/docs/integrations
  */
-const BASE_URL = process.env.GHL_API_BASE ?? "https://services.leadconnectorhq.com";
+const BASE_URL =
+  nonEmpty(process.env.GHL_API_BASE) ?? "https://services.leadconnectorhq.com";
 
 /** The API version header GoHighLevel requires on every v2 request. */
 const API_VERSION = "2021-07-28";

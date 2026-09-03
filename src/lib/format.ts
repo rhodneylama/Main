@@ -1,6 +1,11 @@
+import { nonEmpty } from "./env";
+
 /** Formatting helpers shared by every screen, so numbers read the same way. */
 
-const CURRENCY = process.env.NEXT_PUBLIC_CURRENCY ?? "USD";
+// The literal process.env reference is deliberate — Next inlines NEXT_PUBLIC_*
+// at build time by matching on it, so it cannot be looked up dynamically.
+// An empty or bogus code would throw a RangeError on every money value.
+const CURRENCY = nonEmpty(process.env.NEXT_PUBLIC_CURRENCY) ?? "USD";
 
 export function money(cents: number, opts: { compact?: boolean } = {}): string {
   const value = cents / 100;
