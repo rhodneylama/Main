@@ -175,7 +175,7 @@ function drawGame(ctx, game, view) {
     ctx.globalAlpha = 1;
   }
 
-  if (view.placing && view.mouseWorld) drawPlacement(ctx, game, view);
+  if (view.placing && (view.placeAt || view.mouseWorld)) drawPlacement(ctx, game, view);
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (view.drag) {
@@ -211,7 +211,7 @@ function drawTerritory(ctx, game, team) {
 
 function drawPlacement(ctx, game, view) {
   const T = CONFIG.TILE, def = BUILDING_TYPES[view.placing];
-  const { tx, ty } = placementTile(view.mouseWorld, def.size);
+  const { tx, ty } = placementTile(view.placeAt || view.mouseWorld, def.size);
   const ok = canPlaceBuilding(game, view.team, view.placing, tx, ty).ok;
   ctx.fillStyle = ok ? 'rgba(120,255,140,0.25)' : 'rgba(255,90,80,0.3)';
   ctx.strokeStyle = ok ? '#8cffa0' : '#ff6a5a'; ctx.lineWidth = 2;

@@ -6,6 +6,9 @@
 // =============================================================================
 
 const $ = id => document.getElementById(id);
+// Phones and tablets get touch controls and touch wording in the help text.
+const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+document.body.classList.toggle('touch', isTouch);
 const canvas = $('game'), ctx = canvas.getContext('2d');
 const mini = $('minimap'), miniCtx = mini.getContext('2d');
 
@@ -30,11 +33,13 @@ function startGame(difficulty, watch = false) {
   view.selected = []; view.placing = null; view.revealAll = watch; view.pings = []; view.alerts = [];
   input.groups = {};
   resize();
+  // Small screens start zoomed out so more of the battlefield fits.
+  view.cam.zoom = Math.max(0.55, Math.min(1, Math.min(view.screenW, view.screenH) / 700));
   centerOn(game.entities.find(e => e.team === 1 && e.type === 'recycler'));
   $('menu').classList.add('hidden');
   $('end').classList.add('hidden');
   $('log').innerHTML = '';
-  paused = false; speed = 1;
+  paused = false; speed = 1; $('speedval').textContent = '×1';
   logMessage(watch ? 'Spectating: two AI commanders fight it out.' : 'Capture the flags. Protect your Recycler. Good luck, Commander.', 'info');
   refreshPanel();
 }
@@ -65,6 +70,9 @@ function resize() {
   const dpr = 1;
   canvas.width = window.innerWidth * dpr; canvas.height = window.innerHeight * dpr;
   view.screenW = canvas.width; view.screenH = canvas.height;
+  const root = document.documentElement.style;
+  root.setProperty('--top-h', `${$('topbar').offsetHeight}px`);
+  root.setProperty('--panel-h', `${$('panel').offsetHeight}px`);
   clampCamera();
 }
 
@@ -107,19 +115,19 @@ function updateCamera(dt) {
 // Mouse
 // -----------------------------------------------------------------------------
 
-function entityAt(wx, wy) {
+function entityAt(wx, wy, pad = 0) {
   let best = null, bd = Infinity;
   for (const e of game.entities) {
     if (e.team !== view.team && !view.revealAll && !isVisibleTo(game, view.team, e)) continue;
     const d = Math.hypot(e.x - wx, e.y - wy);
-    const r = e.kind === 'building' ? e.radius : e.radius + 6;
+    const r = (e.kind === 'building' ? e.radius : e.radius + 6) + pad;
     if (d < r && d < bd) { bd = d; best = e; }
   }
   return best;
 }
 
-function scrapAt(wx, wy) {
-  return game.scrap.find(s => Math.hypot(s.x - wx, s.y - wy) < 18);
+function scrapAt(wx, wy, pad = 0) {
+  return game.scrap.find(s => Math.hypot(s.x - wx, s.y - wy) < 18 + pad);
 }
 
 function mine(ents) { return ents.filter(e => e.team === view.team && e.hp > 0); }
@@ -136,17 +144,7 @@ canvas.addEventListener('mousedown', e => {
   }
   if (e.button !== 0) return;
   if (view.placing) { placeBuilding(w, e.shiftKey); return; }
-  if (view.attackMode) {
-    const ids = mine(view.selected).filter(u => u.kind === 'unit').map(u => u.id);
-    if (ids.length) {
-      const t = entityAt(w.x, w.y);
-      if (t && t.team !== view.team) issueCommand(game, view.team, { type: 'attack', ids, targetId: t.id });
-      else issueCommand(game, view.team, { type: 'move', ids, x: w.x, y: w.y, attackMove: true });
-      ping(w, '#ff7a6a'); sound('ack');
-    }
-    view.attackMode = false; refreshPanel();
-    return;
-  }
+  if (view.attackMode) { attackMoveAt(w); return; }
   view.drag = { x0: e.offsetX, y0: e.offsetY, x1: e.offsetX, y1: e.offsetY, shift: e.shiftKey };
 });
 
@@ -169,29 +167,164 @@ window.addEventListener('mouseup', e => {
   if (e.button === 1) input.panning = null;
   if (e.button !== 0 || !view.drag || !game) return;
   const d = view.drag; view.drag = null;
-  const additive = d.shift;
-  let picked = [];
   if (Math.abs(d.x1 - d.x0) < 5 && Math.abs(d.y1 - d.y0) < 5) {
     const w = toWorld(d.x0, d.y0);
     const hit = entityAt(w.x, w.y);
-    if (hit) {
-      const now = performance.now();
-      if (hit.team === view.team && hit.kind === 'unit' && now - input.lastClick < 300 && input.lastType === hit.type) {
-        // Double-click: select every unit of this type on screen.
-        picked = mine(game.entities).filter(u => u.type === hit.type && onScreen(u));
-      } else picked = [hit];
-      input.lastClick = now; input.lastType = hit.type;
-    }
-  } else {
-    const a = toWorld(Math.min(d.x0, d.x1), Math.min(d.y0, d.y1));
-    const b = toWorld(Math.max(d.x0, d.x1), Math.max(d.y0, d.y1));
-    picked = mine(game.entities).filter(u => u.kind === 'unit' && u.x >= a.x && u.x <= b.x && u.y >= a.y && u.y <= b.y);
-    // Box-selecting prefers fighting units over workers.
-    if (picked.some(u => u.def.role === 'combat')) picked = picked.filter(u => u.def.role === 'combat');
-  }
+    let picked = hit ? pickWithDoubleTap(hit) : [];
+    if (d.shift) picked = [...new Set([...view.selected, ...picked])].filter(e => e.team === view.team);
+    select(picked);
+  } else boxSelect(d, d.shift);
+});
+
+// Clicking the same kind of unit twice quickly selects every one on screen.
+function pickWithDoubleTap(hit) {
+  const now = performance.now();
+  const double = hit.team === view.team && hit.kind === 'unit' && now - input.lastClick < 350 && input.lastType === hit.type;
+  input.lastClick = now; input.lastType = hit.type;
+  return double ? mine(game.entities).filter(u => u.type === hit.type && onScreen(u)) : [hit];
+}
+
+function boxSelect(d, additive) {
+  const a = toWorld(Math.min(d.x0, d.x1), Math.min(d.y0, d.y1));
+  const b = toWorld(Math.max(d.x0, d.x1), Math.max(d.y0, d.y1));
+  let picked = mine(game.entities).filter(u => u.kind === 'unit' && u.x >= a.x && u.x <= b.x && u.y >= a.y && u.y <= b.y);
+  // Box-selecting prefers fighting units over workers.
+  if (picked.some(u => u.def.role === 'combat')) picked = picked.filter(u => u.def.role === 'combat');
   if (additive) picked = [...new Set([...view.selected, ...picked])].filter(e => e.team === view.team);
   select(picked);
-});
+}
+
+function attackMoveAt(w, pad = 0) {
+  const ids = mine(view.selected).filter(u => u.kind === 'unit').map(u => u.id);
+  if (ids.length) {
+    const t = entityAt(w.x, w.y, pad);
+    if (t && t.team !== view.team) issueCommand(game, view.team, { type: 'attack', ids, targetId: t.id });
+    else issueCommand(game, view.team, { type: 'move', ids, x: w.x, y: w.y, attackMove: true });
+    ping(w, '#ff7a6a'); sound('ack');
+  }
+  view.attackMode = false; refreshPanel();
+}
+
+function selectArmy() {
+  const army = mine(game.entities).filter(u => u.kind === 'unit' && u.def.role === 'combat');
+  if (!army.length) { logMessage('You have no combat vehicles', 'info'); return; }
+  select(army);
+}
+
+// -----------------------------------------------------------------------------
+// Touch screens (phones and tablets)
+//   tap = select your own vehicle, or give selected vehicles an order
+//   one-finger drag = scroll · pinch = zoom · press and hold, then drag = box select
+// -----------------------------------------------------------------------------
+
+const touch = { points: new Map(), mode: null, start: null, pinch: null, holdTimer: null };
+const TOUCH_PAD = 14;  // fingers are less precise than a mouse pointer
+
+function touchPos(t) {
+  const r = canvas.getBoundingClientRect();
+  return { x: t.clientX - r.left, y: t.clientY - r.top };
+}
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  unlockAudio();
+  if (!game) return;
+  for (const t of e.changedTouches) touch.points.set(t.identifier, touchPos(t));
+  clearTimeout(touch.holdTimer);
+  const pts = [...touch.points.values()];
+  if (pts.length === 1) {
+    const p = pts[0];
+    touch.start = { x: p.x, y: p.y, cx: view.cam.x, cy: view.cam.y };
+    touch.mode = 'pending';
+    touch.holdTimer = setTimeout(() => {
+      if (touch.mode !== 'pending') return;
+      touch.mode = 'box';
+      view.drag = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+      try { navigator.vibrate && navigator.vibrate(15); } catch (err) { /* optional */ }
+    }, 450);
+  } else if (pts.length >= 2) {
+    view.drag = null;
+    const [a, b] = pts;
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    touch.mode = 'pinch';
+    touch.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, zoom: view.cam.zoom, world: toWorld(mid.x, mid.y) };
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (!game) return;
+  for (const t of e.changedTouches) if (touch.points.has(t.identifier)) touch.points.set(t.identifier, touchPos(t));
+  const pts = [...touch.points.values()];
+  if (touch.mode === 'pinch' && pts.length >= 2) {
+    const [a, b] = pts;
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    view.cam.zoom = Math.max(0.45, Math.min(1.8, touch.pinch.zoom * d / touch.pinch.d));
+    view.cam.x = touch.pinch.world.x - mid.x / view.cam.zoom;
+    view.cam.y = touch.pinch.world.y - mid.y / view.cam.zoom;
+    clampCamera();
+    return;
+  }
+  if (pts.length !== 1 || !touch.start) return;
+  const p = pts[0];
+  if (touch.mode === 'box') { view.drag.x1 = p.x; view.drag.y1 = p.y; return; }
+  if (touch.mode === 'pending' && Math.hypot(p.x - touch.start.x, p.y - touch.start.y) > 10) {
+    touch.mode = 'pan'; clearTimeout(touch.holdTimer);
+  }
+  if (touch.mode === 'pan') {
+    view.cam.x = touch.start.cx - (p.x - touch.start.x) / view.cam.zoom;
+    view.cam.y = touch.start.cy - (p.y - touch.start.y) / view.cam.zoom;
+    clampCamera();
+  }
+}, { passive: false });
+
+function touchEnd(e) {
+  e.preventDefault();
+  if (!game) return;
+  const ended = [];
+  for (const t of e.changedTouches) { if (touch.points.has(t.identifier)) ended.push(touch.points.get(t.identifier)); touch.points.delete(t.identifier); }
+  clearTimeout(touch.holdTimer);
+  if (touch.points.size > 0) {
+    // Lifting one finger of a pinch: don't let the other one start a scroll jump.
+    if (touch.mode === 'pinch') touch.mode = 'done';
+    return;
+  }
+  if (e.type === 'touchend' && touch.mode === 'pending' && ended.length) handleTap(ended[0]);
+  if (touch.mode === 'box' && view.drag) {
+    const d = view.drag; view.drag = null;
+    if (Math.abs(d.x1 - d.x0) > 12 || Math.abs(d.y1 - d.y0) > 12) boxSelect(d, false);
+  }
+  touch.mode = null; touch.start = null;
+}
+canvas.addEventListener('touchend', touchEnd, { passive: false });
+canvas.addEventListener('touchcancel', touchEnd, { passive: false });
+
+function handleTap(p) {
+  const w = toWorld(p.x, p.y);
+  if (view.placing) {
+    // First tap positions the building; the "Build here" button confirms it.
+    view.placeAt = w; view.placeReady = true; refreshPanel();
+    return;
+  }
+  if (view.attackMode) { attackMoveAt(w, TOUCH_PAD); return; }
+  const hit = entityAt(w.x, w.y, TOUCH_PAD);
+  const sel = mine(view.selected);
+  const hasBuilder = sel.some(u => u.kind === 'unit' && u.def.role === 'builder');
+  const needsWork = hit && hit.team === view.team && hit.kind === 'building' && (hit.built < 1 || hit.hp < hit.maxHp);
+  if (hit && hit.team === view.team && !(hasBuilder && needsWork)) { select(pickWithDoubleTap(hit)); return; }
+  if (sel.length && !spectating) {
+    // Tap targets are a little bigger for fingers.
+    const node = scrapAt(w.x, w.y, TOUCH_PAD);
+    rightClick(hit ? { x: hit.x, y: hit.y } : node ? { x: node.x, y: node.y } : w);
+    return;
+  }
+  select(hit ? [hit] : []);
+}
+
+// Minimap works with a finger too: touch or drag to move the camera.
+mini.addEventListener('touchstart', e => { e.preventDefault(); if (game) centerOn(minimapWorld(e.touches[0])); }, { passive: false });
+mini.addEventListener('touchmove', e => { e.preventDefault(); if (game) centerOn(minimapWorld(e.touches[0])); }, { passive: false });
 
 canvas.addEventListener('wheel', e => {
   if (!game) return;
@@ -242,6 +375,11 @@ function rightClick(w) {
   sound('ack');
 }
 
+function confirmPlacement() {
+  // Use the spot tapped on the map, not wherever the finger is now (the button).
+  if (view.placing && view.placeAt) placeBuilding(view.placeAt, false);
+}
+
 function placeBuilding(w, keepPlacing) {
   const builder = mine(view.selected).find(u => u.kind === 'unit' && u.def.role === 'builder');
   const def = BUILDING_TYPES[view.placing];
@@ -252,7 +390,7 @@ function placeBuilding(w, keepPlacing) {
   if (game.teams[view.team].scrap < def.cost) { logMessage('Not enough scrap', 'warn'); sound('error'); return; }
   issueCommand(game, view.team, { type: 'build', ids: [builder.id], building: view.placing, tx, ty });
   sound('build');
-  if (!keepPlacing) view.placing = null;
+  if (!keepPlacing) { view.placing = null; view.placeReady = false; view.placeAt = null; }
   refreshPanel();
 }
 
@@ -314,6 +452,7 @@ window.addEventListener('keydown', e => {
     }
     return;
   }
+  if (e.key === 'Enter' && view.placing) { confirmPlacement(); return; }
   if (key === 'P' || e.key === 'Pause') { togglePause(); return; }
   if (key === 'H') { centerOn(game.entities.find(x => x.team === view.team && x.type === 'recycler')); return; }
   if (key === 'M') { toggleMute(); return; }
@@ -328,6 +467,13 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => input.keys.delete(e.key));
 window.addEventListener('blur', () => input.keys.clear());
 window.addEventListener('resize', resize);
+// On small screens the bars change height with their content; keep overlays clear of them.
+const barObserver = window.ResizeObserver && new ResizeObserver(() => {
+  const root = document.documentElement.style;
+  root.setProperty('--top-h', `${$('topbar').offsetHeight}px`);
+  root.setProperty('--panel-h', `${$('panel').offsetHeight}px`);
+});
+if (window.ResizeObserver) for (const el of [$('topbar'), $('panel')]) barObserver.observe(el);
 
 function idleWorker() {
   const idle = mine(game.entities).filter(u => u.kind === 'unit' && u.def.role !== 'combat' &&
@@ -350,7 +496,7 @@ function select(list) {
   // Buildings can only be selected one at a time.
   const units = list.filter(e => e.kind === 'unit');
   view.selected = units.length ? units : list.slice(0, 1);
-  view.placing = null; view.attackMode = false;
+  view.placing = null; view.placeReady = false; view.attackMode = false;
   if (view.selected.length && view.selected[0].team === view.team) sound('select');
   refreshPanel();
 }
@@ -366,7 +512,7 @@ function refreshPanel() {
   const info = $('selinfo'), cmds = $('commands');
   const sel = view.selected.filter(e => e.hp > 0);
   // Only rebuild the buttons when something about them actually changed.
-  const key = game ? JSON.stringify([sel.map(e => e.id), view.placing, view.attackMode, spectating,
+  const key = game ? JSON.stringify([sel.map(e => e.id), view.placing, view.placeReady, view.attackMode, spectating,
     sel.map(e => [e.built >= 1, e.queue && e.queue.join(), e.queue && e.queue.length && Math.floor(e.prodTime), e.blocked]),
     Object.values(UNIT_TYPES).concat(Object.values(BUILDING_TYPES)).map(d => game.teams[view.team].scrap >= d.cost)]) : '';
   const rebuild = key !== panelKey;
@@ -400,6 +546,7 @@ function refreshPanel() {
     b.innerHTML = `<span class="hk">${hotkey}</span><span class="lbl">${label}</span>${cost !== null ? `<span class="cost">${cost}</span>` : ''}`;
     if (opts.title) b.title = opts.title;
     if (opts.active) b.classList.add('active');
+    if (opts.primary) b.classList.add('primary');
     if (cost && game.teams[view.team].scrap < cost) b.classList.add('poor');
     onPress(b, () => { onClick(); sound('click'); });
     cmds.appendChild(b);
@@ -437,14 +584,18 @@ function refreshPanel() {
       addBtn(d.name, d.cost, HOTKEYS[i], () => { view.placing = type; refreshPanel(); },
         { active: view.placing === type, title: `${d.name} — ${d.cost} scrap\n${d.desc}` });
     });
+    if (view.placing && isTouch && view.placeReady) addBtn('Build here', null, '↵', confirmPlacement, { primary: true });
+    if (view.placing) addBtn('Cancel', null, 'Esc', () => { view.placing = null; view.placeReady = false; refreshPanel(); });
     const tip = document.createElement('div'); tip.className = 'dim small tip';
-    tip.textContent = view.placing ? 'Click inside the green zone to build. Shift-click to place several. Right-click cancels.'
-      : 'Pick a building, then click where it should go.';
+    tip.textContent = !view.placing ? `Pick a building, then ${isTouch ? 'tap' : 'click'} where it should go.`
+      : isTouch ? 'Tap inside the green zone to position it, then press Build here.'
+      : 'Click inside the green zone to build. Shift-click to place several. Right-click cancels.';
     cmds.appendChild(tip);
     return;
   }
   if (sel.some(e => e.kind === 'unit' && e.def.weapon)) {
     addBtn('Attack-move', null, 'A', () => { view.attackMode = true; refreshPanel(); }, { active: view.attackMode, title: 'Move, but stop to fight anything on the way' });
+    if (view.attackMode) addBtn('Cancel', null, 'Esc', () => { view.attackMode = false; refreshPanel(); });
   }
   if (sel.some(e => e.kind === 'unit')) addBtn('Stop', null, 'S', () => issueCommand(game, view.team, { type: 'stop', ids: sel.map(e => e.id) }));
 }
@@ -484,6 +635,14 @@ function logMessage(text, kind = 'info') {
 }
 
 let audio = null, muted = false;
+// Phones only allow sound after the player touches the screen.
+function unlockAudio() {
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === 'suspended') audio.resume();
+  } catch (err) { /* sound is optional */ }
+}
+window.addEventListener('pointerdown', unlockAudio);
 function toggleMute() { muted = !muted; logMessage(muted ? 'Sound off' : 'Sound on', 'info'); }
 // Tiny synthesised sound effects — no audio files needed.
 function sound(kind, vol = 1) {
@@ -574,7 +733,11 @@ $('again').onclick = () => { $('end').classList.add('hidden'); $('menu').classLi
 $('helpbtn').onclick = () => $('help').classList.toggle('hidden');
 $('helpclose').onclick = () => $('help').classList.add('hidden');
 $('pausebtn').onclick = togglePause;
-$('speedbtn').onclick = () => { speed = speed === 1 ? 2 : speed === 2 ? 4 : 1; $('speedbtn').textContent = `Speed ×${speed}`; };
+onPress($('q-army'), () => game && selectArmy());
+onPress($('q-base'), () => game && centerOn(game.entities.find(x => x.team === view.team && x.type === 'recycler')));
+onPress($('q-idle'), () => game && idleWorker());
+onPress($('q-clear'), () => game && select([]));
+$('speedbtn').onclick = () => { speed = speed === 1 ? 2 : speed === 2 ? 4 : 1; $('speedval').textContent = `×${speed}`; };
 
 resize();
 requestAnimationFrame(frame);

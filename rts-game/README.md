@@ -38,7 +38,21 @@ Add `?seed=42` to get the same map every time.
   difference. Every combat vehicle destroyed costs its side 1 ticket.
 - **Or destroy the enemy Recycler** (their HQ, in the top-right corner).
 
-## Controls
+## Playing on a phone or tablet
+
+The game works on touch screens. Turning your phone sideways gives the best view.
+
+| Action | How |
+| --- | --- |
+| Select a vehicle | Tap it. Tap the same kind twice quickly to select all of that kind on screen. |
+| Move / attack / gather | With vehicles selected, tap the ground, an enemy, or a scrap pile |
+| Select a group | Press and hold on the map, then drag a box |
+| Select every fighter | **Army** button |
+| Scroll / zoom | Drag one finger / pinch |
+| Build | Select the Constructor, pick a building, tap where it goes, then press **Build here** |
+| Deselect, jump home, find an idle worker | **Deselect**, **Base**, **Idle worker** buttons |
+
+## Controls (mouse and keyboard)
 
 | Action | How |
 | --- | --- |

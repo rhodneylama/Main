@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>Scrapline Command</title>
 <style>
   :root {
@@ -15,11 +17,21 @@
     --bad: #ff6a5a;
     --blue: #4aa3ff;
     --red: #ff5a4a;
+    --top-h: 45px;
+    --panel-h: 133px;
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d0a; color: var(--text);
-    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; user-select: none; }
-  canvas#game { position: fixed; inset: 0; display: block; }
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; user-select: none; -webkit-user-select: none;
+    overscroll-behavior: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  canvas#game { position: fixed; inset: 0; display: block; touch-action: none; }
+  button { touch-action: manipulation; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  body.touch .only-mouse, body:not(.touch) .only-touch { display: none !important; }
   .hidden { display: none !important; }
   .dim { color: var(--dim); }
   .small { font-size: 12px; }
@@ -30,8 +42,8 @@
   button.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 
   /* Top bar */
-  #topbar { position: fixed; top: 0; left: 0; right: 0; height: 44px; display: flex; align-items: center; gap: 22px;
-    padding: 0 14px; background: var(--panel); border-bottom: 1px solid var(--edge); z-index: 5; }
+  #topbar { position: fixed; top: 0; left: 0; right: 0; min-height: 44px; display: flex; align-items: center; gap: 22px;
+    padding: var(--safe-t) calc(14px + var(--safe-r)) 0 calc(14px + var(--safe-l)); background: var(--panel); border-bottom: 1px solid var(--edge); z-index: 5; }
   .stat { display: flex; flex-direction: column; line-height: 1.1; }
   .stat b { font-size: 17px; }
   .stat .label { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
@@ -47,13 +59,15 @@
   #topbar button { padding: 4px 9px; font-size: 12px; }
 
   /* Bottom panel */
-  #panel { position: fixed; left: 0; bottom: 0; right: 232px; height: 132px; display: flex; gap: 12px; padding: 10px 14px;
+  #panel { position: fixed; left: 0; bottom: 0; right: 232px; height: calc(132px + var(--safe-b)); display: flex; gap: 12px;
+    padding: 10px 14px calc(10px + var(--safe-b)) calc(14px + var(--safe-l));
     background: var(--panel); border-top: 1px solid var(--edge); z-index: 5; }
   #selinfo { width: 260px; flex-shrink: 0; overflow: hidden; }
   .selname { font-weight: 700; font-size: 16px; }
   #commands { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; }
   #commands > button { display: flex; flex-direction: column; align-items: flex-start; min-width: 104px; padding: 5px 9px; position: relative; }
   #commands > button.poor .cost { color: var(--bad); }
+  #commands > button.primary { background: #2c4a2c; border-color: var(--accent); }
   .hk { position: absolute; top: 3px; right: 6px; font-size: 10px; color: var(--dim); }
   .lbl { font-weight: 600; }
   .cost { font-size: 12px; color: #e8cf82; }
@@ -61,12 +75,15 @@
   .queue { width: 100%; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
   .chip { padding: 2px 7px; font-size: 12px; }
   .tip { width: 100%; }
-  #minimap-wrap { position: fixed; right: 0; bottom: 0; width: 232px; height: 176px; padding: 8px; background: var(--panel);
+  #minimap-wrap { position: fixed; right: 0; bottom: 0; width: calc(232px + var(--safe-r)); height: calc(176px + var(--safe-b));
+    padding: 8px calc(8px + var(--safe-r)) calc(8px + var(--safe-b)) 8px; background: var(--panel);
     border-top: 1px solid var(--edge); border-left: 1px solid var(--edge); z-index: 5; }
-  #minimap { width: 216px; height: 162px; display: block; cursor: pointer; image-rendering: auto; }
+  #minimap { width: 216px; height: 162px; display: block; cursor: pointer; image-rendering: auto; touch-action: none; }
+  #quickbar { position: fixed; left: calc(10px + var(--safe-l)); bottom: calc(var(--panel-h) + 8px); z-index: 5; display: flex; gap: 6px; }
+  #quickbar button { background: var(--panel); padding: 6px 11px; font-size: 13px; }
 
   /* Messages */
-  #log { position: fixed; top: 54px; left: 14px; z-index: 4; pointer-events: none; display: flex; flex-direction: column; gap: 3px; }
+  #log { position: fixed; top: calc(var(--top-h) + 10px); left: calc(14px + var(--safe-l)); max-width: 60vw; z-index: 4; pointer-events: none; display: flex; flex-direction: column; gap: 3px; }
   .msg { background: rgba(0,0,0,.6); padding: 3px 9px; border-radius: 3px; border-left: 3px solid var(--dim); transition: opacity 1s; }
   .msg.good { border-color: var(--accent); }
   .msg.bad { border-color: var(--bad); }
@@ -102,6 +119,39 @@
     .tbar { width: 60px; }
     #topbar { gap: 12px; }
   }
+
+  /* Phones: minimap moves to the top corner, the panel spans the full width,
+     and buttons get bigger so they are easy to hit with a thumb. */
+  @media (max-width: 760px), (max-height: 520px) {
+    #topbar { gap: 10px; min-height: 38px; flex-wrap: wrap; row-gap: 2px; padding-bottom: 3px; }
+    .stat b { font-size: 15px; }
+    .stat .label { font-size: 9px; }
+    #income-stat, .tbar, .wide { display: none; }
+    .tickets { gap: 10px; }
+    .flagdot { width: 17px; height: 17px; margin-right: 2px; font-size: 10px; }
+    #topbar button { padding: 6px 9px; }
+    #panel { right: 0; height: auto; max-height: 42vh; flex-direction: row; gap: 10px; padding: 6px 10px calc(6px + var(--safe-b)) calc(10px + var(--safe-l)); overflow-y: auto; }
+    #selinfo { width: 34%; max-width: 190px; font-size: 12px; line-height: 1.3; }
+    .selname { font-size: 14px; }
+    #selinfo .small { display: none; }
+    #commands { flex: 1; gap: 5px; }
+    #commands > button { min-width: 88px; min-height: 44px; padding: 4px 8px; font-size: 13px; }
+    #commands > button .hk { display: none; }
+    .chip { min-height: 32px; }
+    .tip { font-size: 11px; }
+    #minimap-wrap { top: calc(var(--top-h) + 6px); bottom: auto; right: calc(6px + var(--safe-r)); width: auto; height: auto; padding: 4px;
+      border: 1px solid var(--edge); border-radius: 4px; }
+    #minimap { width: 132px; height: 99px; }
+    #quickbar button { min-height: 40px; padding: 6px 12px; }
+    #log { font-size: 12px; max-width: calc(100vw - 170px); }
+    .card { padding: 18px 18px; }
+    .card h1 { font-size: 26px; }
+  }
+  @media (max-width: 460px) {
+    #topbar { gap: 8px; }
+    #clock { display: none; }
+    #topbar button { padding: 6px 7px; }
+  }
 </style>
 </head>
 <body>
@@ -109,20 +159,20 @@
 
 <div id="topbar">
   <div class="stat"><span class="label">Scrap</span><b id="scrap">0</b></div>
-  <div class="stat"><span class="label">Income</span><span id="income" class="small dim"></span></div>
+  <div class="stat" id="income-stat"><span class="label">Income</span><span id="income" class="small dim"></span></div>
   <div class="stat"><span class="label">Units</span><b id="units">0</b></div>
   <div class="stat"><span class="label">Flags</span><div id="flags"></div></div>
   <div class="tickets">
-    <div class="stat"><span class="label" style="color:var(--blue)">Your tickets</span><b id="tix-me">0</b></div>
+    <div class="stat"><span class="label" style="color:var(--blue)"><span class="wide">Your </span>tickets</span><b id="tix-me">0</b></div>
     <div class="tbar"><div id="tix-me-bar" style="background:var(--blue)"></div></div>
     <div class="tbar"><div id="tix-foe-bar" style="background:var(--red)"></div></div>
-    <div class="stat"><span class="label" style="color:var(--red)">Enemy tickets</span><b id="tix-foe">0</b></div>
+    <div class="stat"><span class="label" style="color:var(--red)">Enemy<span class="wide"> tickets</span></span><b id="tix-foe">0</b></div>
   </div>
   <div class="spacer"></div>
   <b id="clock">0:00</b>
-  <button id="speedbtn">Speed ×1</button>
-  <button id="pausebtn">Pause (P)</button>
-  <button id="helpbtn">Help (F1)</button>
+  <button id="speedbtn" title="Game speed"><span class="wide">Speed </span><span id="speedval">×1</span></button>
+  <button id="pausebtn" title="Pause">Pause<span class="only-mouse"> (P)</span></button>
+  <button id="helpbtn" title="Help">Help<span class="only-mouse"> (F1)</span></button>
 </div>
 
 <div id="log"></div>
@@ -131,6 +181,12 @@
 <div id="panel">
   <div id="selinfo"></div>
   <div id="commands"></div>
+</div>
+<div id="quickbar">
+  <button id="q-army" title="Select all your combat vehicles">Army</button>
+  <button id="q-base" title="Jump to your Recycler (H)">Base</button>
+  <button id="q-idle" title="Find an idle worker (X)">Idle worker</button>
+  <button id="q-clear" title="Deselect (Esc)">Deselect</button>
 </div>
 <div id="minimap-wrap"><canvas id="minimap" width="216" height="162"></canvas></div>
 
@@ -147,10 +203,17 @@
       <li><b>Win</b> by draining the enemy's tickets to zero or destroying their <b>Recycler</b> (their HQ).</li>
     </ul>
     <h2>Basic controls</h2>
-    <ul>
+    <ul class="only-mouse">
       <li><b>Left-click</b> or <b>drag a box</b> to select. <b>Right-click</b> to move, attack or gather.</li>
       <li>Scroll the map with the <b>arrow keys</b>, by touching the screen edge, or by clicking the minimap. <b>Mouse wheel</b> zooms.</li>
       <li>Select your <b>Constructor</b> to build a <b>Factory</b>, then use the Factory to build tanks.</li>
+    </ul>
+    <ul class="only-touch">
+      <li><b>Tap</b> one of your vehicles to select it. Then <b>tap the map</b> to move, tap an enemy to attack, or tap scrap to gather.</li>
+      <li><b>Drag</b> one finger to scroll. <b>Pinch</b> to zoom. <b>Press and hold, then drag</b> to select a group.</li>
+      <li>The <b>Army</b> button selects all your fighters at once. Tap the minimap to jump around.</li>
+      <li>Select your <b>Constructor</b> to build a <b>Factory</b>, then use the Factory to build tanks.</li>
+      <li class="dim">Tip: turn your phone sideways for the best view.</li>
     </ul>
     <h2>Difficulty</h2>
     <div class="row">
@@ -161,7 +224,7 @@
     <div class="row" style="margin-top:20px">
       <button id="start" class="big">Start battle</button>
       <button id="watch">Watch AI vs AI</button>
-      <span class="dim small">Press <kbd>F1</kbd> in game for all controls.</span>
+      <span class="dim small only-mouse">Press <kbd>F1</kbd> in game for all controls.</span>
     </div>
   </div>
 </div>
@@ -170,7 +233,17 @@
 <div id="help" class="overlay hidden">
   <div class="card">
     <h1>Field <span>Manual</span></h1>
-    <table>
+    <table class="only-touch">
+      <tr><td><b>Tap your vehicle</b></td><td>Select it. Tap the same kind twice quickly to select all of that kind on screen.</td></tr>
+      <tr><td><b>Tap the map</b></td><td>With vehicles selected: move there · tap an enemy to attack · tap scrap to gather (scavengers) · tap a damaged building to repair (constructor) · with a Factory selected, set where new vehicles go</td></tr>
+      <tr><td><b>Press, hold, drag</b></td><td>Draw a box to select a group</td></tr>
+      <tr><td><b>One-finger drag</b></td><td>Scroll the map</td></tr>
+      <tr><td><b>Pinch</b></td><td>Zoom in and out</td></tr>
+      <tr><td><b>Attack-move</b></td><td>Press the button, then tap: vehicles travel there and fight anything on the way</td></tr>
+      <tr><td><b>Army · Base · Idle worker · Deselect</b></td><td>Quick buttons above the bottom panel</td></tr>
+      <tr><td><b>Building</b></td><td>Pick a building, tap where it should go, then press <b>Build here</b></td></tr>
+    </table>
+    <table class="only-mouse">
       <tr><td><b>Left-click / drag</b></td><td>Select vehicles. Double-click selects all of that type on screen. Hold <kbd>Shift</kbd> to add.</td></tr>
       <tr><td><b>Right-click</b></td><td>Move · attack an enemy · gather scrap (scavengers) · repair (constructor) · set rally point (buildings)</td></tr>
       <tr><td><kbd>A</kbd> then click</td><td>Attack-move: travel there, fighting anything met on the way</td></tr>
