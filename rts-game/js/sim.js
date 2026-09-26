@@ -260,7 +260,9 @@ function stepGame(game) {
     tm.scrap += CONFIG.FLAG_INCOME * tm.incomeMult * dt;
   }
 
-  for (const e of game.entities) {
+  // Alternate the update order every tick so neither side always acts first.
+  const order = game.tick % 2 ? game.entities.slice().reverse() : game.entities.slice();
+  for (const e of order) {
     if (e.hp <= 0) continue;
     if (e.hitFlash > 0) e.hitFlash -= dt;
     if (e.kind === 'building') updateBuilding(game, e, dt);
@@ -386,6 +388,7 @@ function moveWithCollision(game, u, dx, dy) {
 // Keep units from overlapping each other or driving inside buildings.
 function separateUnits(game) {
   const units = game.entities.filter(e => e.kind === 'unit' && e.hp > 0);
+  if (game.tick % 2) units.reverse();
   for (let i = 0; i < units.length; i++) {
     const a = units[i];
     for (let j = i + 1; j < units.length; j++) {

@@ -543,7 +543,8 @@ function frame(now) {
     const step = 1 / CONFIG.TICK_RATE;
     let n = 0;
     while (accumulator >= step && n < 12) {
-      for (const t of game.aiTeams) aiUpdate(game, t);
+      const ais = game.tick % 2 ? game.aiTeams.slice().reverse() : game.aiTeams;
+      for (const t of ais) aiUpdate(game, t);
       stepGame(game); accumulator -= step; n++;
     }
     if (game.winner) setTimeout(showEnd, 1200);
