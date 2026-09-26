@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scrapline Command</title>
+<style>
+  :root {
+    --panel: rgba(16, 20, 16, 0.88);
+    --edge: #3a4a38;
+    --text: #dfe8da;
+    --dim: #93a08e;
+    --accent: #8cffa0;
+    --warn: #f0c040;
+    --bad: #ff6a5a;
+    --blue: #4aa3ff;
+    --red: #ff5a4a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d0a; color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; user-select: none; }
+  canvas#game { position: fixed; inset: 0; display: block; }
+  .hidden { display: none !important; }
+  .dim { color: var(--dim); }
+  .small { font-size: 12px; }
+  .warn { color: var(--warn); }
+  button { font: inherit; color: var(--text); background: #243024; border: 1px solid var(--edge);
+    border-radius: 4px; padding: 6px 10px; cursor: pointer; }
+  button:hover { background: #2f3f2e; border-color: #5a7a56; }
+  button.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+
+  /* Top bar */
+  #topbar { position: fixed; top: 0; left: 0; right: 0; height: 44px; display: flex; align-items: center; gap: 22px;
+    padding: 0 14px; background: var(--panel); border-bottom: 1px solid var(--edge); z-index: 5; }
+  .stat { display: flex; flex-direction: column; line-height: 1.1; }
+  .stat b { font-size: 17px; }
+  .stat .label { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+  #scrap { color: #e8cf82; }
+  .flagdot { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-right: 3px;
+    border-radius: 3px; font-size: 11px; font-weight: 700; color: #111; }
+  .flagdot.contested { outline: 2px solid var(--warn); animation: blink 0.6s infinite alternate; }
+  @keyframes blink { to { outline-color: transparent; } }
+  .tickets { display: flex; align-items: center; gap: 8px; }
+  .tbar { width: 110px; height: 8px; background: #222; border-radius: 4px; overflow: hidden; }
+  .tbar div { height: 100%; transition: width .3s; }
+  #topbar .spacer { flex: 1; }
+  #topbar button { padding: 4px 9px; font-size: 12px; }
+
+  /* Bottom panel */
+  #panel { position: fixed; left: 0; bottom: 0; right: 232px; height: 132px; display: flex; gap: 12px; padding: 10px 14px;
+    background: var(--panel); border-top: 1px solid var(--edge); z-index: 5; }
+  #selinfo { width: 260px; flex-shrink: 0; overflow: hidden; }
+  .selname { font-weight: 700; font-size: 16px; }
+  #commands { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; }
+  #commands > button { display: flex; flex-direction: column; align-items: flex-start; min-width: 104px; padding: 5px 9px; position: relative; }
+  #commands > button.poor .cost { color: var(--bad); }
+  .hk { position: absolute; top: 3px; right: 6px; font-size: 10px; color: var(--dim); }
+  .lbl { font-weight: 600; }
+  .cost { font-size: 12px; color: #e8cf82; }
+  .cost::after { content: " scrap"; color: var(--dim); }
+  .queue { width: 100%; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .chip { padding: 2px 7px; font-size: 12px; }
+  .tip { width: 100%; }
+  #minimap-wrap { position: fixed; right: 0; bottom: 0; width: 232px; height: 176px; padding: 8px; background: var(--panel);
+    border-top: 1px solid var(--edge); border-left: 1px solid var(--edge); z-index: 5; }
+  #minimap { width: 216px; height: 162px; display: block; cursor: pointer; image-rendering: auto; }
+
+  /* Messages */
+  #log { position: fixed; top: 54px; left: 14px; z-index: 4; pointer-events: none; display: flex; flex-direction: column; gap: 3px; }
+  .msg { background: rgba(0,0,0,.6); padding: 3px 9px; border-radius: 3px; border-left: 3px solid var(--dim); transition: opacity 1s; }
+  .msg.good { border-color: var(--accent); }
+  .msg.bad { border-color: var(--bad); }
+  .msg.warn { border-color: var(--warn); }
+  .msg.fade { opacity: 0; }
+  #paused { position: fixed; top: 40%; left: 0; right: 0; text-align: center; font-size: 42px; font-weight: 800;
+    letter-spacing: .2em; color: rgba(255,255,255,.85); pointer-events: none; z-index: 6; text-shadow: 0 2px 10px #000; }
+
+  /* Overlays */
+  .overlay { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at center, rgba(20,30,20,.9), rgba(5,7,5,.97)); overflow-y: auto; padding: 20px; }
+  .card { max-width: 720px; width: 100%; background: #131913; border: 1px solid var(--edge); border-radius: 8px; padding: 26px 30px; }
+  .card h1 { margin: 0 0 4px; font-size: 34px; letter-spacing: .06em; text-transform: uppercase; }
+  .card h1 span { color: var(--accent); }
+  .card h2 { margin: 18px 0 6px; font-size: 15px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); }
+  .card p, .card li { color: #c6d1c1; }
+  .card ul { margin: 4px 0; padding-left: 20px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .big { font-size: 17px; padding: 10px 22px; background: #2c4a2c; border-color: #5c9a5a; }
+  .big:hover { background: #386038; }
+  kbd { background: #2a322a; border: 1px solid #4a5a48; border-radius: 3px; padding: 0 5px; font: 12px ui-monospace, monospace; }
+  #help { background: rgba(5,7,5,.85); }
+  #help table { border-collapse: collapse; width: 100%; }
+  #help td { padding: 3px 8px 3px 0; vertical-align: top; }
+  #help td:first-child { white-space: nowrap; }
+  #end-title.win { color: var(--accent); }
+  #end-title.lose { color: var(--bad); }
+  #end-stats { border-collapse: collapse; margin-top: 10px; }
+  #end-stats td, #end-stats th { padding: 4px 14px 4px 0; text-align: left; }
+
+  @media (max-width: 900px) {
+    #selinfo { width: 160px; }
+    .tbar { width: 60px; }
+    #topbar { gap: 12px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="topbar">
+  <div class="stat"><span class="label">Scrap</span><b id="scrap">0</b></div>
+  <div class="stat"><span class="label">Income</span><span id="income" class="small dim"></span></div>
+  <div class="stat"><span class="label">Units</span><b id="units">0</b></div>
+  <div class="stat"><span class="label">Flags</span><div id="flags"></div></div>
+  <div class="tickets">
+    <div class="stat"><span class="label" style="color:var(--blue)">Your tickets</span><b id="tix-me">0</b></div>
+    <div class="tbar"><div id="tix-me-bar" style="background:var(--blue)"></div></div>
+    <div class="tbar"><div id="tix-foe-bar" style="background:var(--red)"></div></div>
+    <div class="stat"><span class="label" style="color:var(--red)">Enemy tickets</span><b id="tix-foe">0</b></div>
+  </div>
+  <div class="spacer"></div>
+  <b id="clock">0:00</b>
+  <button id="speedbtn">Speed ×1</button>
+  <button id="pausebtn">Pause (P)</button>
+  <button id="helpbtn">Help (F1)</button>
+</div>
+
+<div id="log"></div>
+<div id="paused" class="hidden">PAUSED</div>
+
+<div id="panel">
+  <div id="selinfo"></div>
+  <div id="commands"></div>
+</div>
+<div id="minimap-wrap"><canvas id="minimap" width="216" height="162"></canvas></div>
+
+<!-- Title screen -->
+<div id="menu" class="overlay">
+  <div class="card">
+    <h1>Scrapline <span>Command</span></h1>
+    <div class="dim">A top-down battle for scrap, flags and survival.</div>
+    <h2>Your mission</h2>
+    <ul>
+      <li><b>Collect scrap.</b> Scavengers gather it automatically. Scrap pays for everything.</li>
+      <li><b>Capture flags.</b> Park vehicles inside a flag's circle. Flags give income, let you build nearby,
+        and drain enemy <b>tickets</b>.</li>
+      <li><b>Win</b> by draining the enemy's tickets to zero or destroying their <b>Recycler</b> (their HQ).</li>
+    </ul>
+    <h2>Basic controls</h2>
+    <ul>
+      <li><b>Left-click</b> or <b>drag a box</b> to select. <b>Right-click</b> to move, attack or gather.</li>
+      <li>Scroll the map with the <b>arrow keys</b>, by touching the screen edge, or by clicking the minimap. <b>Mouse wheel</b> zooms.</li>
+      <li>Select your <b>Constructor</b> to build a <b>Factory</b>, then use the Factory to build tanks.</li>
+    </ul>
+    <h2>Difficulty</h2>
+    <div class="row">
+      <button data-difficulty="easy">Easy</button>
+      <button data-difficulty="normal" class="active">Normal</button>
+      <button data-difficulty="hard">Hard</button>
+    </div>
+    <div class="row" style="margin-top:20px">
+      <button id="start" class="big">Start battle</button>
+      <button id="watch">Watch AI vs AI</button>
+      <span class="dim small">Press <kbd>F1</kbd> in game for all controls.</span>
+    </div>
+  </div>
+</div>
+
+<!-- Help -->
+<div id="help" class="overlay hidden">
+  <div class="card">
+    <h1>Field <span>Manual</span></h1>
+    <table>
+      <tr><td><b>Left-click / drag</b></td><td>Select vehicles. Double-click selects all of that type on screen. Hold <kbd>Shift</kbd> to add.</td></tr>
+      <tr><td><b>Right-click</b></td><td>Move · attack an enemy · gather scrap (scavengers) · repair (constructor) · set rally point (buildings)</td></tr>
+      <tr><td><kbd>A</kbd> then click</td><td>Attack-move: travel there, fighting anything met on the way</td></tr>
+      <tr><td><kbd>S</kbd></td><td>Stop</td></tr>
+      <tr><td><kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd></td><td>The command buttons in the bottom panel</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>1</kbd>–<kbd>9</kbd></td><td>Save the selection as a squad. Press the number to reselect; press twice to jump to it.</td></tr>
+      <tr><td><kbd>H</kbd> / <kbd>Space</kbd></td><td>Jump to your base / to the selection</td></tr>
+      <tr><td><kbd>X</kbd></td><td>Find an idle worker</td></tr>
+      <tr><td>Arrows · edge · middle-drag</td><td>Scroll the map. Mouse wheel zooms.</td></tr>
+      <tr><td><kbd>P</kbd> · <kbd>M</kbd> · <kbd>Esc</kbd></td><td>Pause · mute · cancel</td></tr>
+    </table>
+    <h2>Tips</h2>
+    <ul>
+      <li><b>Scouts</b> are fast and see far: send them to grab flags early.</li>
+      <li><b>Artillery</b> hits from very far, but only what your side can see. Pair it with scouts.</li>
+      <li>Destroyed vehicles leave <b>salvage</b>. Scavengers can collect it.</li>
+      <li>You can only build near your buildings or flags you hold. Capturing flags expands your territory.</li>
+      <li>Every combat vehicle you lose costs 1 ticket. Holding more flags than the enemy drains theirs.</li>
+    </ul>
+    <div class="row"><button id="helpclose" class="big">Back to battle</button></div>
+  </div>
+</div>
+
+<!-- End screen -->
+<div id="end" class="overlay hidden">
+  <div class="card">
+    <h1 id="end-title">Victory</h1>
+    <div id="end-reason" class="dim"></div>
+    <table id="end-stats"></table>
+    <div class="row" style="margin-top:20px"><button id="again" class="big">Play again</button></div>
+  </div>
+</div>
+
+<!-- The game code. Order matters: each file uses things from the ones above it. -->
+<script src="js/config.js"></script>
+<script src="js/map.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/render.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

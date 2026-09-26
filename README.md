@@ -1,5 +1,8 @@
 # Sales Floor
 
+> This repository also holds **Scrapline Command**, a browser strategy game.
+> See [`rts-game/README.md`](rts-game/README.md).
+
 A sales performance screen for the office wall, built on top of your
 GoHighLevel pipeline. Reps see where they stand, managers see where the money
 is, and everybody sees a deal the moment it closes.
