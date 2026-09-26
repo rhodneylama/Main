@@ -26,7 +26,8 @@ function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams
     entities: [], byId: new Map(), nextId: 1,
     projectiles: [], effects: [], events: [],
     occupied: new Uint8Array(map.W * map.H),
-    scrap: map.scrap,
+    scrap: map.scrap, geysers: map.geysers,
+    packs: {}, nextPackId: 1,
     teams: {},
     winner: 0,
     ai: {},
@@ -106,6 +107,10 @@ function canPlaceBuilding(game, team, type, tx, ty) {
     if (!tm.explored[i]) return { ok: false, why: 'Unexplored ground' };
     if (isBlockedTile(game, x, y)) return { ok: false, why: 'Something is in the way' };
   }
+  for (const g of game.geysers) {
+    if (g.tx > tx - 1 && g.tx < tx + def.size + 1 && g.ty > ty - 1 && g.ty < ty + def.size + 1)
+      return { ok: false, why: 'Leave scrap geysers free for Extractors' };
+  }
   const cx = tx + def.size / 2, cy = ty + def.size / 2;
   for (const e of game.entities) {
     if (e.kind === 'unit' && e.team !== team && dist(e, { x: cx * CONFIG.TILE, y: cy * CONFIG.TILE }) < def.size * CONFIG.TILE)
@@ -163,7 +168,7 @@ function issueCommand(game, team, cmd) {
     case 'build': {
       const u = units.find(x => x.def.role === 'builder');
       const def = BUILDING_TYPES[cmd.building];
-      if (!u || !def || cmd.building === 'recycler') return;
+      if (!u || !def || def.buildable === false) return;
       const tm = game.teams[team];
       if (tm.scrap < def.cost) { pushEvent(game, team, 'Not enough scrap', 'warn'); return; }
       const check = canPlaceBuilding(game, team, cmd.building, cmd.tx, cmd.ty);
@@ -197,6 +202,53 @@ function issueCommand(game, team, cmd) {
       const [type] = b.queue.splice(cmd.index, 1);
       game.teams[team].scrap += UNIT_TYPES[type].cost;
       if (cmd.index === 0) b.prodTime = 0;
+      break;
+    }
+    case 'scout': {
+      // Several scouts together roam as one pack; otherwise each goes alone.
+      const scouts = units.filter(u => u.def.weapon);
+      if (cmd.pack && scouts.length > 1) {
+        const id = game.nextPackId++;
+        game.packs[id] = { target: null, chosenAt: 0, members: scouts.map(u => u.id) };
+        scouts.forEach((u, i) => { u.order = { type: 'scout', packId: id, slot: i }; u.path = []; u.target = null; });
+      } else {
+        for (const u of scouts) { u.order = { type: 'scout', target: null, chosenAt: 0 }; u.path = []; u.target = null; }
+      }
+      break;
+    }
+    case 'patrol': {
+      const route = patrolRoute(game, team);
+      if (!route.length || !units.length) return;
+      // Start everyone at the stop nearest the group, so they travel together.
+      const cx = units.reduce((a, u) => a + u.x, 0) / units.length, cy = units.reduce((a, u) => a + u.y, 0) / units.length;
+      let start = 0, bd = Infinity;
+      route.forEach((p, i) => { const d = Math.hypot(p.x - cx, p.y - cy); if (d < bd) { bd = d; start = i; } });
+      for (const u of units) if (u.def.weapon) { u.order = { type: 'patrol', stop: start }; u.path = []; u.target = null; }
+      break;
+    }
+    case 'guard': {
+      const b = own(cmd.targetId);
+      if (!b || b.kind !== 'building') return;
+      const guards = units.filter(u => u.def.weapon);
+      const T = CONFIG.TILE;
+      guards.forEach((u, i) => {
+        // Spread the defenders evenly around the building.
+        const a = angleTo(b, u) + (i - (guards.length - 1) / 2) * (Math.PI * 2 / Math.max(3, guards.length)) * 0.5;
+        let px = b.x + Math.cos(a) * (b.radius + 60), py = b.y + Math.sin(a) * (b.radius + 60);
+        const t = nearestOpenTile(game, Math.floor(px / T), Math.floor(py / T), 4);
+        if (t) { px = (t.x + 0.5) * T; py = (t.y + 0.5) * T; }
+        u.order = { type: 'guard', targetId: b.id, px, py }; u.target = null;
+        planPath(game, u, px, py);
+      });
+      break;
+    }
+    case 'deploy': {
+      const g = game.geysers.find(x => x.id === cmd.geyserId);
+      const scav = units.filter(u => u.def.role === 'harvester').sort((a, b) => dist(a, g) - dist(b, g))[0];
+      if (!g || !scav) return;
+      if (geyserTaken(game, g)) { pushEvent(game, team, 'That geyser already has an Extractor', 'warn'); return; }
+      scav.order = { type: 'deploy', geyserId: g.id }; scav.target = null;
+      planPath(game, scav, g.x, g.y);
       break;
     }
     case 'rally': {
@@ -269,7 +321,20 @@ function stepGame(game) {
 }
 
 function updateBuilding(game, b, dt) {
-  if (b.built < 1) return;
+  if (b.built < 1) {
+    // Extractors set themselves up after a Scavenger deploys.
+    if (b.selfBuild) {
+      b.built = Math.min(1, b.built + dt / b.def.buildTime);
+      b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.9 * dt / b.def.buildTime);
+      if (b.built >= 1) pushEvent(game, b.team, `${b.def.name} online`, 'good', b.x, b.y);
+    }
+    return;
+  }
+  if (b.cooldown > 0) b.cooldown -= dt;  // reload the gun (towers, Recycler)
+  if (b.def.income) {
+    const tm = game.teams[b.team], amt = b.def.income * tm.incomeMult * dt;
+    tm.scrap += amt; tm.stats.scrapGathered += amt;
+  }
   if (b.queue.length) {
     const def = UNIT_TYPES[b.queue[0]];
     const count = game.entities.filter(e => e.kind === 'unit' && e.team === b.team).length;
@@ -340,7 +405,141 @@ function updateUnit(game, u, dt) {
     }
     case 'harvest': updateHarvester(game, u, dt); break;
     case 'build': updateBuilder(game, u, dt); break;
+    case 'scout': updateScout(game, u, dt); break;
+    case 'patrol': updatePatrol(game, u, dt); break;
+    case 'guard': updateGuard(game, u, dt); break;
+    case 'deploy': updateDeploy(game, u, dt); break;
   }
+}
+
+const goIdle = u => { u.order = { type: 'idle', gx: u.x, gy: u.y }; u.path = []; };
+
+// Shoot at anything in range without stopping or chasing.
+function shootWhileMoving(game, u, dt) {
+  const w = u.def.weapon;
+  u.retarget -= dt;
+  if (u.target && (u.target.hp <= 0 || edgeDist(u, u.target) > w.range || !isVisibleTo(game, u.team, u.target))) u.target = null;
+  if (!u.target && u.retarget <= 0) { u.retarget = 0.4; u.target = findTarget(game, u, w.range); }
+  if (u.target) aimAndFire(game, u, u.target, dt);
+  else u.turret = turnToward(u.turret, u.angle, 3 * dt);
+}
+
+// --- Scouting ---------------------------------------------------------------
+// Pick somewhere worth looking at: unexplored ground first, then places
+// under fog that we can't currently see.
+function pickScoutTarget(game, team, from) {
+  const { W, H } = game.map, T = CONFIG.TILE, tm = game.teams[team];
+  let best = null, bestScore = -Infinity;
+  for (let k = 0; k < 40; k++) {
+    const tx = 1 + Math.floor(game.rng() * (W - 2)), ty = 1 + Math.floor(game.rng() * (H - 2));
+    if (isBlockedTile(game, tx, ty)) continue;
+    const i = ty * W + tx, x = (tx + 0.5) * T, y = (ty + 0.5) * T;
+    const d = Math.hypot(x - from.x, y - from.y);
+    const score = (tm.explored[i] ? 0 : 1000) + (tm.vis[i] ? -600 : 0) - Math.abs(d - 1100) * 0.3 + game.rng() * 150;
+    if (score > bestScore) { bestScore = score; best = { x, y }; }
+  }
+  return best;
+}
+
+function updateScout(game, u, dt) {
+  const o = u.order;
+  shootWhileMoving(game, u, dt);
+  if (o.packId) {
+    const pack = game.packs[o.packId];
+    const alive = pack.members.map(id => game.byId.get(id)).filter(m => m && m.hp > 0 && m.order.packId === o.packId);
+    // The pack picks a new destination once anyone arrives, or after a while.
+    const arrived = pack.target && alive.some(m => dist(m, pack.target) < 110);
+    if (!pack.target || arrived || game.time - pack.chosenAt > 40) {
+      pack.target = pickScoutTarget(game, u.team, u); pack.chosenAt = game.time;
+    }
+    if (!pack.target) return;
+    if (o.goal !== pack.target) {
+      o.goal = pack.target;
+      const a = (o.slot % 6) * Math.PI / 3, r = o.slot ? 34 : 0;
+      planPath(game, u, pack.target.x + Math.cos(a) * r, pack.target.y + Math.sin(a) * r);
+    }
+    followPath(game, u, dt, 20);
+    return;
+  }
+  if (!o.target || game.time - o.chosenAt > 45) {
+    o.target = pickScoutTarget(game, u.team, u); o.chosenAt = game.time;
+    if (o.target) planPath(game, u, o.target.x, o.target.y);
+  }
+  if (!o.target) return;
+  if (followPath(game, u, dt, 30)) o.target = null;
+}
+
+// --- Patrolling ---------------------------------------------------------------
+// A loop around all of this team's finished buildings, just outside each one.
+function patrolRoute(game, team) {
+  const bs = game.entities.filter(e => e.kind === 'building' && e.team === team && e.built >= 1);
+  if (!bs.length) return [];
+  const cx = bs.reduce((a, b) => a + b.x, 0) / bs.length, cy = bs.reduce((a, b) => a + b.y, 0) / bs.length;
+  let stops = bs.map(b => {
+    const a = Math.atan2(b.y - cy, b.x - cx) || 0;
+    return { x: b.x + Math.cos(a) * (b.radius + 70), y: b.y + Math.sin(a) * (b.radius + 70), a };
+  });
+  if (stops.length === 1) {
+    const b = bs[0];
+    stops = [0, 1, 2, 3].map(k => ({ x: b.x + Math.cos(k * Math.PI / 2) * (b.radius + 110), y: b.y + Math.sin(k * Math.PI / 2) * (b.radius + 110), a: k }));
+  }
+  return stops.sort((p, q) => p.a - q.a);
+}
+
+function updatePatrol(game, u, dt) {
+  const o = u.order;
+  if (combatThink(game, u, dt, true)) { o.moving = false; return; }
+  const route = patrolRoute(game, u.team);
+  if (!route.length) { goIdle(u); return; }
+  const stop = route[o.stop % route.length];
+  if (!o.moving || !u.path.length) { planPath(game, u, stop.x, stop.y); o.moving = true; }
+  if (followPath(game, u, dt, 24)) { o.stop = (o.stop + 1) % route.length; o.moving = false; }
+  else aimAtNearby(game, u, dt);
+}
+
+// --- Defending a building -------------------------------------------------------
+// Hold a post beside the building and fire at anything in range. No chasing.
+function updateGuard(game, u, dt) {
+  const o = u.order, b = game.byId.get(o.targetId);
+  if (!b || b.hp <= 0) { goIdle(u); return; }
+  const w = u.def.weapon;
+  u.retarget -= dt;
+  if (u.target && (u.target.hp <= 0 || !isVisibleTo(game, u.team, u.target) || edgeDist(u, u.target) > w.range ||
+      (w.minRange && edgeDist(u, u.target) < w.minRange))) u.target = null;
+  if (!u.target && u.retarget <= 0) { u.retarget = 0.4 + game.rng() * 0.2; u.target = findTarget(game, u, w.range); }
+  if (Math.hypot(u.x - o.px, u.y - o.py) > 30) {
+    if (!u.path.length) planPath(game, u, o.px, o.py);
+    followPath(game, u, dt, 12);
+    if (u.target) aimAndFire(game, u, u.target, dt);
+    return;
+  }
+  u.path = [];
+  if (u.target) aimAndFire(game, u, u.target, dt);
+  else u.turret = turnToward(u.turret, angleTo(b, u), 2 * dt);
+}
+
+// --- Scavenger deploying onto a geyser -------------------------------------------
+function geyserTaken(game, g) {
+  const b = g.extractorId && game.byId.get(g.extractorId);
+  return !!(b && b.hp > 0);
+}
+
+function updateDeploy(game, u, dt) {
+  const g = game.geysers.find(x => x.id === u.order.geyserId);
+  if (!g || geyserTaken(game, g)) { pushEvent(game, u.team, 'Geyser already taken', 'warn', u.x, u.y); goIdle(u); return; }
+  if (dist(u, g) > 28) {
+    if (followPath(game, u, dt, 10) && dist(u, g) > 60) planPath(game, u, g.x, g.y);
+    return;
+  }
+  const tx = g.tx - 1, ty = g.ty - 1;
+  for (let y = ty; y < ty + 2; y++) for (let x = tx; x < tx + 2; x++) {
+    if (isBlockedTile(game, x, y)) { pushEvent(game, u.team, 'Something is blocking the geyser', 'warn', u.x, u.y); goIdle(u); return; }
+  }
+  const b = addBuilding(game, 'extractor', u.team, tx, ty, false);
+  b.selfBuild = true; b.geyserId = g.id;
+  g.extractorId = b.id;
+  u.hp = 0; u.deployed = true;  // the Scavenger becomes the Extractor
+  pushEvent(game, u.team, 'Scavenger deploying as an Extractor', 'good', b.x, b.y);
 }
 
 // Move along the current path. Returns true once the end is reached.
@@ -422,8 +621,11 @@ function isVisibleTo(game, team, e) {
   return game.teams[team].vis[ty * W + tx] === 1;
 }
 
+// Distance between the edges of two things, so a gun on a big building
+// reaches as far past its walls as a vehicle's gun does.
 function edgeDist(a, b) {
-  return Math.max(0, dist(a, b) - (b.kind === 'building' ? b.radius * 0.8 : 0));
+  const edge = e => e.kind === 'building' ? e.radius * 0.8 : 0;
+  return Math.max(0, dist(a, b) - edge(a) - edge(b));
 }
 
 // Pick the best nearby enemy. Prefers things that can shoot back.
@@ -560,7 +762,9 @@ function removeDead(game) {
   if (!dead.length) return;
   for (const e of dead) {
     game.byId.delete(e.id);
+    if (e.deployed) continue;
     if (e.kind === 'building') {
+      if (e.geyserId) { const g = game.geysers.find(x => x.id === e.geyserId); if (g) g.extractorId = 0; }
       setOccupied(game, e, -1);
       game.effects.push({ kind: 'boom', x: e.x, y: e.y, t: 0, life: 1.2, size: e.radius * 1.6 });
       pushEvent(game, e.team, `${e.def.name} destroyed`, 'bad', e.x, e.y);

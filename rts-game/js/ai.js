@@ -6,7 +6,8 @@
 // it plays is set by DIFFICULTY in config.js.
 //
 // Its plan: gather scrap, build a base and defences, expand toward scrap
-// fields with Silos, then attack in waves until your Recycler falls.
+// by deploying Scavengers onto scrap geysers, then attack in waves until
+// your Recycler falls.
 // =============================================================================
 
 function aiUpdate(game, team) {
@@ -36,30 +37,39 @@ function aiUpdate(game, team) {
     else if (count('scavenger') < scavWanted && tm.scrap >= UNIT_TYPES.scavenger.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'scavenger' });
   }
 
+  // --- Expansion: turn a Scavenger into an Extractor on a free geyser --------
+  const easy = game.difficulty === 'easy';
+  const deploying = units.some(u => u.order.type === 'deploy');
+  if (!deploying && has('extractor') < diff.maxExtractors && game.time > (easy ? 360 : 90) && game.time - (ai.lastDeploy || -99) > 30) {
+    const geyser = expansionTarget(game, team, hq);
+    const scavs = units.filter(u => u.type === 'scavenger');
+    if (geyser && scavs.length >= 3) {
+      const scav = scavs.sort((a, b) => dist(a, geyser) - dist(b, geyser))[0];
+      cmd({ type: 'deploy', ids: [scav.id], geyserId: geyser.id });
+      ai.lastDeploy = game.time;
+    }
+  }
+
   // --- Construction --------------------------------------------------------
   const builder = units.find(u => u.type === 'constructor' && u.order.type === 'idle');
   if (builder) {
     const damaged = buildings.find(b => b.built >= 1 && b.hp < b.maxHp * 0.6);
     const unfinished = buildings.find(b => b.built < 1);
-    const easy = game.difficulty === 'easy';
     let want = null, near = null;
     if (unfinished) cmd({ type: 'repair', ids: [builder.id], targetId: unfinished.id });
     else if (damaged) cmd({ type: 'repair', ids: [builder.id], targetId: damaged.id });
     else if (!has('factory')) want = 'factory';
     else if (has('tower') < 1 && game.time > (easy ? 300 : 90)) want = 'tower';
-    else if (game.time > (easy ? 420 : 150) && has('silo') < diff.maxSilos && (near = expansionTarget(game, team, hq))) want = 'silo';
     else if (diff.secondFactory && has('factory') < 2 && game.time > 300) want = 'factory';
-    else if (has('tower') < 1 + has('silo') && game.time > 200) {
+    else if (has('tower') < 1 + has('extractor') && game.time > 200) {
       // Guard the outpost that has the fewest towers nearby.
       want = 'tower';
-      const silos = buildings.filter(b => b.type === 'silo' && b.built >= 1);
-      near = silos.find(s => !buildings.some(t => t.type === 'tower' && dist(t, s) < 260)) || null;
+      const outposts = buildings.filter(b => b.type === 'extractor' && b.built >= 1);
+      near = outposts.find(s => !buildings.some(t => t.type === 'tower' && dist(t, s) < 260)) || null;
     }
     if (want && tm.scrap >= BUILDING_TYPES[want].cost) {
       const spot = findBuildSpot(game, team, want, hq, toCenter, near);
-      // An outpost is only worth it if it ends up next to the scrap.
-      const useful = !spot || want !== 'silo' || Math.hypot((spot.x + 1) * CONFIG.TILE - near.x, (spot.y + 1) * CONFIG.TILE - near.y) < 420;
-      if (spot && useful) cmd({ type: 'build', ids: [builder.id], building: want, tx: spot.x, ty: spot.y });
+      if (spot) cmd({ type: 'build', ids: [builder.id], building: want, tx: spot.x, ty: spot.y });
     }
   }
 
@@ -124,18 +134,15 @@ function pickObjective(game, team, hq) {
   return best;
 }
 
-// The richest scrap field that no drop-off point of ours is close to.
+// The nearest free scrap geyser on our side of the map.
 function expansionTarget(game, team, hq) {
-  const drops = game.entities.filter(e => e.team === team && e.kind === 'building' && e.def.dropoff);
-  let best = null, bestScore = Infinity;
-  for (const s of game.scrap) {
-    if (s.amount < 100 || s.wreck) continue;
-    if (drops.some(d => dist(d, s) < 420)) continue;
-    // Stay on our half of the map: don't build outposts next to the enemy.
-    const foe = game.entities.find(e => e.team !== team && e.type === 'recycler');
-    if (foe && dist(foe, s) < dist(hq, s)) continue;
-    const score = dist(hq, s);
-    if (score < bestScore) { bestScore = score; best = s; }
+  const foe = game.entities.find(e => e.team !== team && e.type === 'recycler');
+  let best = null, bd = Infinity;
+  for (const g of game.geysers) {
+    if (geyserTaken(game, g)) continue;
+    if (foe && dist(foe, g) < dist(hq, g)) continue;
+    const d = dist(hq, g);
+    if (d < bd) { bd = d; best = g; }
   }
   return best;
 }

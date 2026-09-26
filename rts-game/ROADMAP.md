@@ -6,11 +6,12 @@ you're never months away from seeing progress.
 ## ✅ Stage 1: Single-player skirmish (done)
 
 - Top-down battlefield with fog of war, a minimap, and mirrored random maps
-- Scrap economy: Scavengers, salvage from wrecks, Scrap Silos
+- Scrap economy: Scavengers, salvage from wrecks, and scrap geysers that Scavengers deploy onto as Extractors
 - Base building with a Constructor; you can only build inside your territory
 - Five combat and support vehicles, four buildings
 - Win by destroying the enemy Recycler; lose if yours falls
-- Expand your territory outward with Scrap Silos to claim distant scrap fields
+- Expand your territory outward by claiming geysers
+- Unit orders: Scout (solo or as a pack), Patrol, Defend, Deploy
 - An AI opponent with three difficulty levels
 - AI-vs-AI spectator mode (`?watch`)
 

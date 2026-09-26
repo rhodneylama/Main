@@ -52,7 +52,7 @@ The game works on touch screens. Turning your phone sideways gives the best view
 | Select a vehicle | Tap it. Tap the same kind twice quickly to select all of that kind on screen. |
 | Move / attack / gather | With vehicles selected, tap the ground, an enemy, or a scrap pile |
 | Select a group | Press and hold on the map, then drag a box |
-| Select every fighter | **Army** button |
+| Select fighters | **Army** button, then All, Scouts, Tanks or Artillery |
 | Scroll / zoom | Drag one finger / pinch |
 | Build | Select the Constructor, pick a building, tap where it goes, then press **Build here** |
 | Deselect, jump home, find an idle worker | **Deselect**, **Base**, **Idle worker** buttons |
@@ -75,26 +75,27 @@ The game works on touch screens. Turning your phone sideways gives the best view
 
 ## Your forces
 
-| Unit | Cost | Role |
-| --- | --- | --- |
-| Scavenger | 60 | Collects scrap automatically. More scavengers means more income. |
-| Constructor | 80 | Builds and repairs buildings. |
-| Scout | 50 | Fast, sees far. Good for scouting and spotting for artillery. |
-| Tank | 100 | Tough all-rounder. |
-| Artillery | 140 | Very long range and splash damage, but it can only hit what your side can see. |
+| Unit | Cost | Role | Special order |
+| --- | --- | --- | --- |
+| Scavenger | 60 | Collects loose scrap automatically. | **Deploy on geyser**: drives onto a scrap geyser and becomes an Extractor. |
+| Constructor | 80 | Builds and repairs buildings. | |
+| Scout | 50 | Fast, sees far. Spots targets for artillery. | **Scout**: explores the map. With several selected, **Scout as pack** keeps them together; **Scout solo** spreads them out. |
+| Tank | 100 | Tough all-rounder. | **Patrol**: loops around your buildings and fights anything it meets. |
+| Artillery | 140 | Very long range and splash damage, but very slow, and it can only hit what your side can see. | **Defend**: digs in beside one of your buildings and shells anything in range. |
 
 | Building | Cost | Role |
 | --- | --- | --- |
-| Recycler | — | Your HQ. Makes Scavengers and Constructors. Has a light defence gun. |
+| Recycler | — | Your HQ. Makes Scavengers and Constructors. Has a defence gun. |
 | Factory | 150 | Makes Scouts, Tanks and Artillery. |
-| Scrap Silo | 80 | A closer drop-off point for Scavengers working far from home. Also expands the area you can build in. |
+| Extractor | a Scavenger | Made by deploying a Scavenger onto a scrap geyser. Pumps about 72 scrap a minute forever, is a drop-off point, and expands the area you can build in. |
 | Gun Tower | 110 | Defensive turret. |
 
 **A good first few minutes:** select the Constructor and build a Factory near
 your Recycler. Build a third Scavenger from the Recycler, then start making
-Tanks. Put a Gun Tower on the side of your base facing the enemy. Later, build a
-Scrap Silo next to a scrap field further out to grow your territory, and guard
-it with a tower.
+Tanks. Put a Gun Tower on the side of your base facing the enemy. Send a
+Scavenger to the glowing scrap geyser near your base to make an Extractor. Loose
+scrap runs out, but geysers never do, so claim the geysers further out too and
+guard each one with a Gun Tower.
 
 ---
 

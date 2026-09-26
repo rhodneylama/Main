@@ -79,6 +79,12 @@ function generateMap(seed) {
     fieldTiles.push({ x, y });
   }
 
+  // Scrap geysers: fixed spots where a Scavenger can deploy as an Extractor.
+  // Given as tile corners; the Extractor sits on the 2x2 tiles around each.
+  const halfGeysers = [{ x: 16, y: 54 }, { x: 22, y: 20 }, { x: 34, y: 50 }, { x: 44, y: 34 }];
+  const geyserTiles = [];
+  for (const g of halfGeysers) { geyserTiles.push(g); geyserTiles.push({ x: W - g.x, y: H - g.y }); }
+
   const clear = (cx, cy, r, type) => {
     for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) {
       if (x < 0 || y < 0 || x >= W || y >= H) continue;
@@ -91,6 +97,7 @@ function generateMap(seed) {
   for (const t of [1, 2]) clear(bases[t].x, bases[t].y, 10, TILE_DIRT);
   for (const f of clearings) clear(f.x, f.y, 4, TILE_DIRT);
   for (const f of fieldTiles) clear(f.x, f.y, 4, TILE_GRASS);
+  for (const g of geyserTiles) { clear(g.x, g.y, 3, TILE_DIRT); clear(g.x - 1, g.y - 1, 3, TILE_DIRT); }
 
   // Map edge is a rock wall.
   for (let x = 0; x < W; x++) { tiles[idx(x, 0)] = TILE_ROCK; tiles[idx(x, H - 1)] = TILE_ROCK; }
@@ -98,7 +105,7 @@ function generateMap(seed) {
 
   // Make sure everything important can be driven to from both bases.
   const passable = i => tiles[i] !== TILE_ROCK && tiles[i] !== TILE_WATER;
-  const important = [bases[2], ...clearings, ...fieldTiles];
+  const important = [bases[2], ...clearings, ...fieldTiles, ...geyserTiles];
   for (let pass = 0; pass < 20; pass++) {
     const reach = new Uint8Array(W * H);
     const stack = [idx(bases[1].x, bases[1].y)];
@@ -143,7 +150,9 @@ function generateMap(seed) {
     }
   }
 
-  return { W, H, tiles, bases, scrap, seed };
+  const geysers = geyserTiles.map((g, i) => ({ id: i + 1, x: g.x * T, y: g.y * T, tx: g.x, ty: g.y, extractorId: 0 }));
+
+  return { W, H, tiles, bases, scrap, geysers, seed };
 }
 
 // -----------------------------------------------------------------------------
@@ -165,12 +174,15 @@ function isBlockedAt(game, x, y) {
 
 function nearestOpenTile(game, tx, ty, maxR = 12) {
   if (!isBlockedTile(game, tx, ty)) return { x: tx, y: ty };
+  // Ties go to the square nearer the map centre. Both bases face the
+  // centre, so this rule treats the two sides as exact mirror images.
+  const cx = game.map.W / 2 - 0.5 - tx, cy = game.map.H / 2 - 0.5 - ty;
   for (let r = 1; r <= maxR; r++) {
     let best = null, bestD = Infinity;
     for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
       if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
       if (!isBlockedTile(game, tx + dx, ty + dy)) {
-        const d = dx * dx + dy * dy;
+        const d = dx * dx + dy * dy - (dx * cx + dy * cy) * 1e-6;
         if (d < bestD) { bestD = d; best = { x: tx + dx, y: ty + dy }; }
       }
     }

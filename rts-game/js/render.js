@@ -99,6 +99,12 @@ function drawGame(ctx, game, view) {
   // Territory edges (where you're allowed to build) while placing a building.
   if (view.placing) drawTerritory(ctx, game, team);
 
+  // Scrap geysers (free ones glow; claimed ones sit under an Extractor)
+  for (const g of game.geysers) {
+    if (!onScreen(g.x, g.y) || !exploredAt(g.x, g.y) || geyserTaken(game, g)) continue;
+    drawGeyser(ctx, g, game.time, view.aim === 'deploy');
+  }
+
   // Scrap piles
   for (const s of game.scrap) {
     if (!onScreen(s.x, s.y) || !exploredAt(s.x, s.y)) continue;
@@ -226,6 +232,27 @@ function placementTile(world, size) {
   return { tx: Math.round(world.x / T - size / 2), ty: Math.round(world.y / T - size / 2) };
 }
 
+function drawGeyser(ctx, g, time, highlight) {
+  const pulse = 0.5 + 0.5 * Math.sin(time * 3 + g.id);
+  ctx.save(); ctx.translate(g.x, g.y);
+  const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, 30);
+  grad.addColorStop(0, `rgba(255,214,110,${0.55 + pulse * 0.3})`); grad.addColorStop(1, 'rgba(255,214,110,0)');
+  ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#2a241a'; ctx.beginPath(); ctx.ellipse(0, 0, 13, 10, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#8a7440'; ctx.lineWidth = 3; ctx.stroke();
+  // Puffs of scrap dust rising out of the vent
+  for (let k = 0; k < 3; k++) {
+    const t = (time * 0.8 + k / 3 + g.id * 0.37) % 1;
+    ctx.fillStyle = `rgba(230,210,150,${0.45 * (1 - t)})`;
+    ctx.beginPath(); ctx.arc(Math.sin(k * 2.1 + g.id) * 5, -t * 26, 3 + t * 6, 0, Math.PI * 2); ctx.fill();
+  }
+  if (highlight) {
+    ctx.strokeStyle = '#8cffa0'; ctx.lineWidth = 2; ctx.setLineDash([5, 5]);
+    ctx.beginPath(); ctx.arc(0, 0, 36 + pulse * 4, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
 function drawScrap(ctx, s) {
   const k = 0.45 + 0.55 * s.amount / s.max;
   const seed = s.id * 9301;
@@ -285,9 +312,17 @@ function drawBuilding(ctx, b, selected, ghost) {
       ctx.fillStyle = '#555'; ctx.fillRect(s * 0.18, -s * 0.44, s * 0.12, s * 0.2);
       break;
     }
-    case 'silo': {
-      ctx.fillStyle = '#6d6a55'; ctx.beginPath(); ctx.arc(0, 0, s * 0.3, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = tc.color; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, s * 0.18, 0, Math.PI * 2); ctx.stroke();
+    case 'extractor': {
+      // A pump over the geyser: a turning drill head and scrap-coloured glow.
+      const spin = performance.now() / 500;
+      ctx.fillStyle = 'rgba(232,190,90,0.35)'; ctx.beginPath(); ctx.arc(0, 0, s * 0.34, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#2b2e2a'; ctx.beginPath(); ctx.arc(0, 0, s * 0.26, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#e8cf82'; ctx.lineWidth = 3;
+      for (let k = 0; k < 3; k++) {
+        const a = spin + k * Math.PI * 2 / 3;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * s * 0.22, Math.sin(a) * s * 0.22); ctx.stroke();
+      }
+      ctx.fillStyle = tc.color; ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2); ctx.fill();
       break;
     }
     case 'tower': {
@@ -455,6 +490,11 @@ function drawMinimap(ctx, game, view) {
   if (!view.revealAll) {
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(Render.fog, 0, 0, cw, ch);
+  }
+  for (const g of game.geysers) {
+    if (!view.revealAll && !game.teams[view.team].explored[Math.floor(g.y / T) * W + Math.floor(g.x / T)]) continue;
+    ctx.strokeStyle = '#e8cf82'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(g.x * sx, g.y * sy, 3, 0, Math.PI * 2); ctx.stroke();
   }
   for (const e of game.entities) {
     if (e.team !== view.team && !view.revealAll) {

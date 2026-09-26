@@ -15,7 +15,7 @@ const mini = $('minimap'), miniCtx = mini.getContext('2d');
 let game = null;
 const view = {
   team: 1, cam: { x: 0, y: 0, zoom: 1 }, selected: [], placing: null, mouseWorld: null,
-  drag: null, pings: [], alerts: [], revealAll: false, screenW: 0, screenH: 0, attackMode: false,
+  drag: null, pings: [], alerts: [], revealAll: false, screenW: 0, screenH: 0, attackMode: false, aim: null,
 };
 const input = { keys: new Set(), mouseX: 0, mouseY: 0, inside: false, groups: {}, lastClick: 0, panning: null };
 let paused = false, speed = 1, accumulator = 0, lastFrame = 0, spectating = false;
@@ -137,13 +137,14 @@ canvas.addEventListener('mousedown', e => {
   const w = toWorld(e.offsetX, e.offsetY);
   if (e.button === 1) { input.panning = { x: e.offsetX, y: e.offsetY, cx: view.cam.x, cy: view.cam.y }; e.preventDefault(); return; }
   if (e.button === 2) {
-    if (view.placing || view.attackMode) { view.placing = null; view.attackMode = false; refreshPanel(); return; }
+    if (view.placing || view.attackMode || view.aim) { cancelModes(); return; }
     rightClick(w);
     return;
   }
   if (e.button !== 0) return;
   if (view.placing) { placeBuilding(w, e.shiftKey); return; }
   if (view.attackMode) { attackMoveAt(w); return; }
+  if (view.aim) { aimAt(w, 0); return; }
   view.drag = { x0: e.offsetX, y0: e.offsetY, x1: e.offsetX, y1: e.offsetY, shift: e.shiftKey };
 });
 
@@ -202,6 +203,56 @@ function attackMoveAt(w, pad = 0) {
     ping(w, '#ff7a6a'); sound('ack');
   }
   view.attackMode = false; refreshPanel();
+}
+
+function cancelModes() {
+  view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null;
+  refreshPanel();
+}
+
+function geyserAt(wx, wy, pad = 0) {
+  return game.geysers.find(g => Math.hypot(g.x - wx, g.y - wy) < 30 + pad && !geyserTaken(game, g));
+}
+
+const ofType = (list, type) => mine(list).filter(e => e.kind === 'unit' && e.type === type);
+
+// Second tap/click after pressing Defend or Deploy.
+function aimAt(w, pad) {
+  if (view.aim === 'defend') {
+    const b = entityAt(w.x, w.y, pad);
+    if (!b || b.team !== view.team || b.kind !== 'building') { logMessage('Tap one of your buildings to defend it', 'warn'); sound('error'); return; }
+    issueCommand(game, view.team, { type: 'guard', ids: ofType(view.selected, 'artillery').map(u => u.id), targetId: b.id });
+    ping(b, '#8cc8ff');
+  } else if (view.aim === 'deploy') {
+    const g = geyserAt(w.x, w.y, pad);
+    if (!g) { logMessage('Tap a free, glowing scrap geyser', 'warn'); sound('error'); return; }
+    issueCommand(game, view.team, { type: 'deploy', ids: ofType(view.selected, 'scavenger').map(u => u.id), geyserId: g.id });
+    ping(g, '#f0c040');
+  }
+  sound('ack');
+  view.aim = null; refreshPanel();
+}
+
+// The Army button opens a menu: everyone, or just one kind of vehicle.
+function toggleArmyMenu() {
+  const menu = $('armymenu');
+  if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
+  const all = mine(game.entities).filter(u => u.kind === 'unit' && u.def.role === 'combat');
+  for (const b of menu.querySelectorAll('button')) {
+    const t = b.dataset.army;
+    const n = t === 'all' ? all.length : all.filter(u => u.type === t).length;
+    b.querySelector('.n').textContent = n;
+    b.disabled = n === 0;
+  }
+  menu.classList.remove('hidden');
+}
+
+function selectArmyType(type) {
+  $('armymenu').classList.add('hidden');
+  if (type === 'all') { selectArmy(); return; }
+  const list = mine(game.entities).filter(u => u.kind === 'unit' && u.type === type);
+  if (!list.length) { logMessage(`You have no ${UNIT_TYPES[type].name}s`, 'info'); return; }
+  select(list);
 }
 
 function selectArmy() {
@@ -307,15 +358,17 @@ function handleTap(p) {
     return;
   }
   if (view.attackMode) { attackMoveAt(w, TOUCH_PAD); return; }
+  if (view.aim) { aimAt(w, TOUCH_PAD); return; }
   const hit = entityAt(w.x, w.y, TOUCH_PAD);
   const sel = mine(view.selected);
   const hasBuilder = sel.some(u => u.kind === 'unit' && u.def.role === 'builder');
   const needsWork = hit && hit.team === view.team && hit.kind === 'building' && (hit.built < 1 || hit.hp < hit.maxHp);
-  if (hit && hit.team === view.team && !(hasBuilder && needsWork)) { select(pickWithDoubleTap(hit)); return; }
+  const artyDefend = hit && hit.team === view.team && hit.kind === 'building' && !hasBuilder && sel.some(u => u.type === 'artillery');
+  if (hit && hit.team === view.team && !(hasBuilder && needsWork) && !artyDefend) { select(pickWithDoubleTap(hit)); return; }
   if (sel.length && !spectating) {
     // Tap targets are a little bigger for fingers.
     const node = scrapAt(w.x, w.y, TOUCH_PAD);
-    rightClick(hit ? { x: hit.x, y: hit.y } : node ? { x: node.x, y: node.y } : w);
+    rightClick(hit ? { x: hit.x, y: hit.y } : node ? { x: node.x, y: node.y } : w, TOUCH_PAD);
     return;
   }
   select(hit ? [hit] : []);
@@ -342,7 +395,7 @@ function onScreen(e) {
   return s.x >= 0 && s.y >= 0 && s.x <= view.screenW && s.y <= view.screenH;
 }
 
-function rightClick(w) {
+function rightClick(w, pad = 0) {
   const sel = mine(view.selected);
   if (!sel.length) return;
   const units = sel.filter(e => e.kind === 'unit');
@@ -353,9 +406,20 @@ function rightClick(w) {
     return;
   }
   const ids = units.map(u => u.id);
-  const t = entityAt(w.x, w.y);
-  const node = scrapAt(w.x, w.y);
-  if (t && t.team !== view.team && units.some(u => u.def.weapon)) {
+  const t = entityAt(w.x, w.y, pad);
+  const node = scrapAt(w.x, w.y, pad);
+  const geyser = geyserAt(w.x, w.y, pad);
+  const arty = units.filter(u => u.type === 'artillery');
+  if (geyser && units.some(u => u.def.role === 'harvester')) {
+    issueCommand(game, view.team, { type: 'deploy', ids, geyserId: geyser.id });
+    ping(geyser, '#f0c040');
+  } else if (t && t.team === view.team && t.kind === 'building' && arty.length && !units.some(u => u.def.role === 'builder')) {
+    // Artillery told to go to one of your buildings digs in to defend it.
+    issueCommand(game, view.team, { type: 'guard', ids: arty.map(u => u.id), targetId: t.id });
+    const rest = ids.filter(id => !arty.some(a => a.id === id));
+    if (rest.length) issueCommand(game, view.team, { type: 'move', ids: rest, x: w.x, y: w.y });
+    ping(t, '#8cc8ff');
+  } else if (t && t.team !== view.team && units.some(u => u.def.weapon)) {
     issueCommand(game, view.team, { type: 'attack', ids, targetId: t.id });
     ping(t, '#ff7a6a');
   } else if (t && t.team === view.team && t.kind === 'building' && units.some(u => u.def.role === 'builder') && (t.built < 1 || t.hp < t.maxHp)) {
@@ -399,7 +463,7 @@ function updateCursor() {
   if (!game) return;
   let c = 'default';
   if (view.placing) c = 'copy';
-  else if (view.attackMode) c = 'crosshair';
+  else if (view.attackMode || view.aim) c = 'crosshair';
   else if (view.mouseWorld && view.selected.length) {
     const t = entityAt(view.mouseWorld.x, view.mouseWorld.y);
     if (t && t.team !== view.team && mine(view.selected).some(u => u.kind === 'unit' && u.def.weapon)) c = 'crosshair';
@@ -433,7 +497,7 @@ window.addEventListener('keydown', e => {
   input.keys.add(e.key);
   const key = e.key.toUpperCase();
   if (e.key === 'Escape') {
-    if (view.placing || view.attackMode) { view.placing = null; view.attackMode = false; refreshPanel(); }
+    if (view.placing || view.attackMode || view.aim) cancelModes();
     else if (!$('help').classList.contains('hidden')) $('help').classList.add('hidden');
     else select([]);
     return;
@@ -495,7 +559,8 @@ function select(list) {
   // Buildings can only be selected one at a time.
   const units = list.filter(e => e.kind === 'unit');
   view.selected = units.length ? units : list.slice(0, 1);
-  view.placing = null; view.placeReady = false; view.attackMode = false;
+  view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null;
+  $('armymenu').classList.add('hidden');
   if (view.selected.length && view.selected[0].team === view.team) sound('select');
   refreshPanel();
 }
@@ -511,7 +576,7 @@ function refreshPanel() {
   const info = $('selinfo'), cmds = $('commands');
   const sel = view.selected.filter(e => e.hp > 0);
   // Only rebuild the buttons when something about them actually changed.
-  const key = game ? JSON.stringify([sel.map(e => e.id), view.placing, view.placeReady, view.attackMode, spectating,
+  const key = game ? JSON.stringify([sel.map(e => e.id), view.placing, view.placeReady, view.attackMode, view.aim, spectating,
     sel.map(e => [e.built >= 1, e.queue && e.queue.join(), e.queue && e.queue.length && Math.floor(e.prodTime), e.blocked]),
     Object.values(UNIT_TYPES).concat(Object.values(BUILDING_TYPES)).map(d => game.teams[view.team].scrap >= d.cost)]) : '';
   const rebuild = key !== panelKey;
@@ -529,6 +594,10 @@ function refreshPanel() {
     if (e.kind === 'unit' && d.weapon) extra = `Damage ${d.weapon.damage} · Range ${d.weapon.range} · Speed ${d.speed}`;
     if (e.kind === 'building' && e.built < 1) extra = `Under construction — ${Math.floor(e.built * 100)}%`;
     if (e.kind === 'building' && d.weapon && e.built >= 1) extra = `Damage ${d.weapon.damage} · Range ${d.weapon.range}`;
+    if (e.kind === 'building' && d.income) extra = e.built >= 1 ? `Pumping about ${Math.round(d.income * 60)} scrap a minute` : `Setting up — ${Math.floor(e.built * 100)}%`;
+    if (e.kind === 'unit' && e.order.type === 'scout') extra = e.order.packId ? 'Scouting with the pack' : 'Scouting alone';
+    if (e.kind === 'unit' && e.order.type === 'patrol') extra = 'On patrol';
+    if (e.kind === 'unit' && e.order.type === 'guard') extra = 'Defending a building';
     info.innerHTML = `<div class="selname" style="color:${TEAMS[e.team].color}">${d.name}</div>
       <div>Health ${Math.ceil(e.hp)} / ${e.maxHp}</div><div class="dim">${extra}</div><div class="dim small">${d.desc}</div>`;
   } else {
@@ -577,7 +646,7 @@ function refreshPanel() {
   }
   const builder = sel.find(e => e.kind === 'unit' && e.def.role === 'builder');
   if (builder && sel.length === 1) {
-    const types = Object.keys(BUILDING_TYPES).filter(t => t !== 'recycler');
+    const types = Object.keys(BUILDING_TYPES).filter(t => BUILDING_TYPES[t].buildable !== false);
     types.forEach((type, i) => {
       const d = BUILDING_TYPES[type];
       addBtn(d.name, d.cost, HOTKEYS[i], () => { view.placing = type; refreshPanel(); },
@@ -591,6 +660,26 @@ function refreshPanel() {
       : 'Click inside the green zone to build. Shift-click to place several. Right-click cancels.';
     cmds.appendChild(tip);
     return;
+  }
+  // Special orders for each kind of vehicle in the selection.
+  const keys = [...HOTKEYS];
+  const scouts = ofType(sel, 'scout'), tanks = ofType(sel, 'tank'), arty = ofType(sel, 'artillery'), scavs = ofType(sel, 'scavenger');
+  const order = (type, list, extra = {}) => { issueCommand(game, view.team, { type, ids: list.map(u => u.id), ...extra }); sound('ack'); };
+  if (scouts.length > 1) {
+    addBtn('Scout as pack', null, keys.shift(), () => order('scout', scouts, { pack: true }), { title: 'The scouts roam the map together' });
+    addBtn('Scout solo', null, keys.shift(), () => order('scout', scouts, { pack: false }), { title: 'Each scout explores on its own' });
+  } else if (scouts.length) addBtn('Scout', null, keys.shift(), () => order('scout', scouts), { title: 'Explore the map on its own' });
+  if (tanks.length) addBtn('Patrol', null, keys.shift(), () => order('patrol', tanks), { title: 'Loop around your buildings, fighting anything met' });
+  if (arty.length) addBtn('Defend', null, keys.shift(), () => { view.aim = 'defend'; refreshPanel(); },
+    { active: view.aim === 'defend', title: 'Then pick one of your buildings to guard' });
+  if (scavs.length) addBtn('Deploy on geyser', null, keys.shift(), () => { view.aim = 'deploy'; refreshPanel(); },
+    { active: view.aim === 'deploy', title: 'Turn into an Extractor on a scrap geyser' });
+  if (view.aim) {
+    addBtn('Cancel', null, 'Esc', cancelModes);
+    const tip = document.createElement('div'); tip.className = 'dim small tip';
+    tip.textContent = view.aim === 'defend' ? `${isTouch ? 'Tap' : 'Click'} one of your buildings to defend it.`
+      : `${isTouch ? 'Tap' : 'Click'} a glowing scrap geyser. The Scavenger drives there and becomes an Extractor.`;
+    cmds.appendChild(tip);
   }
   if (sel.some(e => e.kind === 'unit' && e.def.weapon)) {
     addBtn('Attack-move', null, 'A', () => { view.attackMode = true; refreshPanel(); }, { active: view.attackMode, title: 'Move, but stop to fight anything on the way' });
@@ -735,7 +824,8 @@ $('again').onclick = () => { $('end').classList.add('hidden'); $('menu').classLi
 $('helpbtn').onclick = () => $('help').classList.toggle('hidden');
 $('helpclose').onclick = () => $('help').classList.add('hidden');
 $('pausebtn').onclick = togglePause;
-onPress($('q-army'), () => game && selectArmy());
+onPress($('q-army'), () => game && toggleArmyMenu());
+for (const b of document.querySelectorAll('#armymenu button')) onPress(b, () => game && selectArmyType(b.dataset.army));
 onPress($('q-base'), () => game && centerOn(game.entities.find(x => x.team === view.team && x.type === 'recycler')));
 onPress($('q-idle'), () => game && idleWorker());
 onPress($('q-clear'), () => game && select([]));
