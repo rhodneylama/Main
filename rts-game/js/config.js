@@ -15,13 +15,6 @@ const CONFIG = {
 
   START_SCRAP: 300,    // scrap each side starts with
   UNIT_CAP: 50,        // most units a side can have at once
-  START_TICKETS: 300,  // lose them all and you lose the battle
-
-  FLAG_RADIUS: 96,           // how close units must be to capture a flag (pixels)
-  FLAG_CAPTURE_RATE: 10,     // capture % per second, per unit (max 3 units count)
-  FLAG_INCOME: 1.2,          // scrap per second each owned flag gives you
-  FLAG_BUILD_RADIUS: 8,      // squares around an owned flag you may build in
-  TICKET_BLEED_INTERVAL: 5,  // seconds between ticket drains from flag control
 
   WRECK_SCRAP_FRACTION: 0.3, // share of a destroyed unit's cost left as salvage
   SCRAP_NODE_AMOUNT: 400,    // scrap in each fresh scrap pile
@@ -50,7 +43,7 @@ const UNIT_TYPES = {
     name: 'Scout', role: 'combat', cost: 50, buildTime: 5,
     hp: 140, speed: 130, radius: 11, sight: 330,
     weapon: { range: 170, damage: 8, cooldown: 0.35, projectile: 'bullet', vsBuilding: 0.5 },
-    desc: 'Fast and far-sighted. Grabs flags and spots for artillery.',
+    desc: 'Fast and far-sighted. Good for scouting and spotting for artillery.',
   },
   tank: {
     name: 'Tank', role: 'combat', cost: 100, buildTime: 9,
@@ -81,24 +74,36 @@ const BUILDING_TYPES = {
     desc: 'Builds combat vehicles.',
   },
   silo: {
-    name: 'Scrap Silo', cost: 60, buildTime: 10, hp: 700, size: 2, sight: 200,
-    dropoff: true, buildRadius: 6,
-    desc: 'A forward drop-off point for scavengers.',
+    name: 'Scrap Silo', cost: 80, buildTime: 10, hp: 800, size: 2, sight: 240,
+    dropoff: true, buildRadius: 10,
+    desc: 'A forward drop-off point for scavengers. Also expands the area you can build in.',
   },
   tower: {
     name: 'Gun Tower', cost: 110, buildTime: 14, hp: 1000, size: 2, sight: 300,
     weapon: { range: 250, damage: 22, cooldown: 0.9, projectile: 'shell', vsBuilding: 1 },
-    desc: 'Defensive turret. Place it to guard flags and your base.',
+    desc: 'Defensive turret. Guards your base and outposts.',
   },
 };
 
 // Hotkeys for the command buttons, in the order the buttons appear.
 const HOTKEYS = ['Q', 'W', 'E', 'R', 'T'];
 
-// baseAttackAfter: seconds before the enemy is allowed to go after your
-// Recycler. Until then it only fights over flags, giving you time to set up.
+// How the computer opponent plays at each difficulty.
+//   incomeMult       share of normal scrap income it gets
+//   firstAttack      seconds before its first attack on you
+//   waveEvery        seconds between attacks after that
+//   waveBase/Growth  size of its first attack, and extra units per minute
+//   maxArmy          most combat vehicles it will build
+//   armyPerMinute    how fast its army may grow (0 = no limit)
+//   maxSilos         how many outposts it will expand to
+//   maxScavengers    most scavengers it will build
+//   thinkEvery       seconds between decisions (slower = sloppier)
+//   artilleryAfter   seconds before it starts building artillery
 const DIFFICULTY = {
-  easy:   { label: 'Easy',   incomeMult: 0.75, waveBase: 4, waveGrowth: 0.5, thinkEvery: 2.0, baseAttackAfter: 600 },
-  normal: { label: 'Normal', incomeMult: 1.0,  waveBase: 5, waveGrowth: 1.0, thinkEvery: 1.0, baseAttackAfter: 360 },
-  hard:   { label: 'Hard',   incomeMult: 1.4,  waveBase: 6, waveGrowth: 1.5, thinkEvery: 0.5, baseAttackAfter: 240 },
+  easy:   { label: 'Easy',   incomeMult: 0.5,  firstAttack: 600, waveEvery: 240, waveBase: 3, waveGrowth: 0.25,
+            maxArmy: 8,  armyPerMinute: 0.7, maxSilos: 1, maxScavengers: 3, thinkEvery: 2.5, artilleryAfter: 1200, secondFactory: false },
+  normal: { label: 'Normal', incomeMult: 1.0,  firstAttack: 300, waveEvery: 150, waveBase: 5, waveGrowth: 0.8,
+            maxArmy: 25, armyPerMinute: 3, maxSilos: 3, maxScavengers: 6, thinkEvery: 1.0, artilleryAfter: 240, secondFactory: true },
+  hard:   { label: 'Hard',   incomeMult: 1.35, firstAttack: 180, waveEvery: 100, waveBase: 6, waveGrowth: 1.5,
+            maxArmy: 40, armyPerMinute: 0, maxSilos: 4, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true },
 };

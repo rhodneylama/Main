@@ -1,17 +1,17 @@
 # Scrapline Command
 
 A top-down, real-time battle game that runs in your web browser. You command a
-small army of vehicles, collect scrap to pay for more, and fight a computer
-opponent for control of the battlefield.
+small army of vehicles, collect scrap to pay for more, build up a base, and
+fight a computer opponent for control of the whole map.
 
 It borrows ideas from:
 
 - **Battlezone 2**: scrap as the only resource, Scavengers that collect it,
   a Recycler as your HQ, and a Constructor that builds your base.
-- **Battlefield 2**: capture flags and a ticket count. Holding more flags than
-  the enemy drains their tickets, and losing vehicles costs tickets too.
-- **RTS / 4X games**: box-selecting units, a minimap, fog of war, and
-  territory that grows as you capture flags.
+- **Battlefield 2**: a battlefield of vehicles with different jobs: fast
+  scouts, tough tanks, long-range artillery.
+- **RTS / 4X games**: gather, build, expand and conquer. Box-selecting units,
+  a minimap, fog of war, and territory that grows as you build outposts.
 
 ---
 
@@ -33,10 +33,15 @@ Add `?seed=42` to get the same map every time.
 
 ## How to win
 
-- **Drain the enemy's tickets to zero.** Both sides start with 300. Every
-  5 seconds, whoever holds more flags drains the other side's tickets by the
-  difference. Every combat vehicle destroyed costs its side 1 ticket.
-- **Or destroy the enemy Recycler** (their HQ, in the top-right corner).
+- **Destroy the enemy Recycler**, their headquarters in the top-right corner.
+- **Protect your own Recycler** at all costs. If it is destroyed, you lose.
+
+The top bar shows the health of both bases. The enemy's shows `?` until one of
+your vehicles has seen it.
+
+The enemy attacks in waves. On **Easy** its first attack comes after about 10
+minutes and is small, so you have time to learn. **Normal** attacks after about
+5 minutes; **Hard** after 3.
 
 ## Playing on a phone or tablet
 
@@ -74,7 +79,7 @@ The game works on touch screens. Turning your phone sideways gives the best view
 | --- | --- | --- |
 | Scavenger | 60 | Collects scrap automatically. More scavengers means more income. |
 | Constructor | 80 | Builds and repairs buildings. |
-| Scout | 50 | Fast, sees far. Good for grabbing flags and spotting for artillery. |
+| Scout | 50 | Fast, sees far. Good for scouting and spotting for artillery. |
 | Tank | 100 | Tough all-rounder. |
 | Artillery | 140 | Very long range and splash damage, but it can only hit what your side can see. |
 
@@ -82,12 +87,14 @@ The game works on touch screens. Turning your phone sideways gives the best view
 | --- | --- | --- |
 | Recycler | — | Your HQ. Makes Scavengers and Constructors. Has a light defence gun. |
 | Factory | 150 | Makes Scouts, Tanks and Artillery. |
-| Scrap Silo | 60 | A closer drop-off point for Scavengers working far from home. |
+| Scrap Silo | 80 | A closer drop-off point for Scavengers working far from home. Also expands the area you can build in. |
 | Gun Tower | 110 | Defensive turret. |
 
-**A good first few minutes:** send your two Scouts to the nearest flags. Select
-the Constructor, press `Q`, and place a Factory near your Recycler. Then build
-a third Scavenger from the Recycler and start making Tanks.
+**A good first few minutes:** select the Constructor and build a Factory near
+your Recycler. Build a third Scavenger from the Recycler, then start making
+Tanks. Put a Gun Tower on the side of your base facing the enemy. Later, build a
+Scrap Silo next to a scrap field further out to grow your territory, and guard
+it with a tower.
 
 ---
 
@@ -101,7 +108,7 @@ point an AI assistant when you want to change something.
 | `index.html` | The page itself: the top bar, bottom panel, menus and help screen. |
 | `js/config.js` | **All the balance numbers.** Costs, health, speed, damage, starting scrap, difficulty. The easiest file to experiment with. |
 | `js/map.js` | Builds the random, mirrored battlefield and finds routes around obstacles. |
-| `js/sim.js` | The rules: movement, combat, gathering, building, flags, tickets, winning. |
+| `js/sim.js` | The rules: movement, combat, gathering, building, territory, winning. |
 | `js/ai.js` | The computer opponent's decision-making. |
 | `js/render.js` | Draws everything on screen. |
 | `js/main.js` | Mouse, keyboard, the on-screen panels, sound, and the main loop. |

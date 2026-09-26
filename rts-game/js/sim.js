@@ -2,7 +2,7 @@
 // sim.js — THE RULES OF THE WORLD
 //
 // This file runs the battle: moving units, shooting, collecting scrap,
-// building, capturing flags and counting tickets. It never draws anything.
+// and building. It never draws anything.
 //
 // Every player action arrives as a "command" (see issueCommand below). That
 // matters for online play later: instead of sending the whole game over the
@@ -26,14 +26,14 @@ function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams
     entities: [], byId: new Map(), nextId: 1,
     projectiles: [], effects: [], events: [],
     occupied: new Uint8Array(map.W * map.H),
-    scrap: map.scrap, flags: map.flags,
+    scrap: map.scrap,
     teams: {},
-    winner: 0, bleedTimer: 0,
+    winner: 0,
     ai: {},
   };
   for (const t of [1, 2]) {
     game.teams[t] = {
-      id: t, scrap: CONFIG.START_SCRAP, tickets: CONFIG.START_TICKETS,
+      id: t, scrap: CONFIG.START_SCRAP,
       vis: new Uint8Array(map.W * map.H), explored: new Uint8Array(map.W * map.H),
       incomeMult: aiTeams.includes(t) ? DIFFICULTY[difficulty].incomeMult : 1,
       stats: { built: 0, lost: 0, killed: 0, scrapGathered: 0 },
@@ -111,20 +111,17 @@ function canPlaceBuilding(game, team, type, tx, ty) {
     if (e.kind === 'unit' && e.team !== team && dist(e, { x: cx * CONFIG.TILE, y: cy * CONFIG.TILE }) < def.size * CONFIG.TILE)
       return { ok: false, why: 'Enemy units too close' };
   }
-  if (!inTerritory(game, team, cx, cy)) return { ok: false, why: 'Outside your territory — capture flags to expand' };
+  if (!inTerritory(game, team, cx, cy)) return { ok: false, why: 'Outside your territory. Build a Scrap Silo near the edge to expand it.' };
   return { ok: true };
 }
 
-// Territory: you can only build near your own buildings or flags you hold.
+// Territory: you can only build near your own finished buildings.
 function inTerritory(game, team, cx, cy) {
   const T = CONFIG.TILE;
   for (const e of game.entities) {
     if (e.kind !== 'building' || e.team !== team || e.built < 1) continue;
     const r = e.def.buildRadius || 0;
     if (r && Math.hypot(e.x / T - cx, e.y / T - cy) <= r) return true;
-  }
-  for (const f of game.flags) {
-    if (f.owner === team && Math.hypot(f.x / T - cx, f.y / T - cy) <= CONFIG.FLAG_BUILD_RADIUS) return true;
   }
   return false;
 }
@@ -254,12 +251,6 @@ function stepGame(game) {
   const dt = 1 / CONFIG.TICK_RATE;
   game.tick++; game.time += dt;
 
-  // Flag income
-  for (const f of game.flags) if (f.owner) {
-    const tm = game.teams[f.owner];
-    tm.scrap += CONFIG.FLAG_INCOME * tm.incomeMult * dt;
-  }
-
   // Alternate the update order every tick so neither side always acts first.
   const order = game.tick % 2 ? game.entities.slice().reverse() : game.entities.slice();
   for (const e of order) {
@@ -270,7 +261,6 @@ function stepGame(game) {
   }
   separateUnits(game);
   updateProjectiles(game, dt);
-  updateFlags(game, dt);
   removeDead(game);
   if (game.tick % 3 === 0) updateVisibility(game);
   for (const fx of game.effects) fx.t += dt;
@@ -582,7 +572,6 @@ function removeDead(game) {
       if (salvage > 0) game.scrap.push({ id: 100000 + e.id, x: e.x, y: e.y, amount: salvage, max: salvage, wreck: true });
       game.teams[e.team].stats.lost++;
       game.teams[3 - e.team].stats.killed++;
-      if (e.def.role === 'combat') game.teams[e.team].tickets = Math.max(0, game.teams[e.team].tickets - 1);
     }
     game.events.push({ sound: 'boom', x: e.x, y: e.y, big: e.kind === 'building' });
   }
@@ -695,37 +684,8 @@ function updateBuilder(game, u, dt) {
 }
 
 // ---------------------------------------------------------------------------
-// Flags, tickets, vision, victory
+// Vision and victory
 // ---------------------------------------------------------------------------
-
-function updateFlags(game, dt) {
-  const R = CONFIG.FLAG_RADIUS;
-  for (const f of game.flags) {
-    const count = { 1: 0, 2: 0 };
-    for (const e of game.entities) if (e.kind === 'unit' && Math.abs(e.x - f.x) < R && Math.abs(e.y - f.y) < R && dist(e, f) < R) count[e.team]++;
-    f.contested = count[1] > 0 && count[2] > 0;
-    if (f.contested || (!count[1] && !count[2])) continue;
-    const team = count[1] ? 1 : 2, sign = team === 1 ? 1 : -1;
-    const before = f.owner;
-    f.progress = Math.max(-100, Math.min(100, f.progress + sign * CONFIG.FLAG_CAPTURE_RATE * Math.min(3, count[team]) * dt));
-    if (f.owner && f.owner !== team && Math.sign(f.progress) !== (f.owner === 1 ? 1 : -1)) f.owner = 0;
-    if (Math.abs(f.progress) >= 100) f.owner = team;
-    if (f.owner !== before) {
-      if (f.owner) {
-        pushEvent(game, f.owner, `Flag ${f.name} captured`, 'good', f.x, f.y);
-        pushEvent(game, 3 - f.owner, `Flag ${f.name} lost to the enemy`, 'bad', f.x, f.y);
-      } else pushEvent(game, before, `Flag ${f.name} neutralised`, 'bad', f.x, f.y);
-    }
-  }
-  game.bleedTimer += dt;
-  if (game.bleedTimer >= CONFIG.TICKET_BLEED_INTERVAL) {
-    game.bleedTimer = 0;
-    const held = { 1: 0, 2: 0 };
-    for (const f of game.flags) if (f.owner) held[f.owner]++;
-    if (held[1] > held[2]) game.teams[2].tickets = Math.max(0, game.teams[2].tickets - (held[1] - held[2]));
-    if (held[2] > held[1]) game.teams[1].tickets = Math.max(0, game.teams[1].tickets - (held[2] - held[1]));
-  }
-}
 
 function updateVisibility(game) {
   const T = CONFIG.TILE, W = game.map.W, H = game.map.H;
@@ -748,11 +708,9 @@ function updateVisibility(game) {
 
 function checkVictory(game) {
   for (const t of [1, 2]) {
-    const tm = game.teams[t];
-    const hasHQ = game.entities.some(e => e.team === t && e.type === 'recycler');
-    let reason = null;
-    if (tm.tickets <= 0) reason = 'ran out of tickets';
-    else if (!hasHQ) reason = 'lost their Recycler';
-    if (reason) { game.winner = 3 - t; game.endReason = `${TEAMS[t].name} ${reason}.`; return; }
+    // The one rule of victory: destroy the enemy Recycler.
+    if (!game.entities.some(e => e.team === t && e.type === 'recycler')) {
+      game.winner = 3 - t; game.endReason = `${TEAMS[t].name} lost their Recycler.`; return;
+    }
   }
 }

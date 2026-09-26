@@ -9,7 +9,8 @@ you're never months away from seeing progress.
 - Scrap economy: Scavengers, salvage from wrecks, Scrap Silos
 - Base building with a Constructor; you can only build inside your territory
 - Five combat and support vehicles, four buildings
-- Five capture flags that give income, extend territory and drain tickets
+- Win by destroying the enemy Recycler; lose if yours falls
+- Expand your territory outward with Scrap Silos to claim distant scrap fields
 - An AI opponent with three difficulty levels
 - AI-vs-AI spectator mode (`?watch`)
 

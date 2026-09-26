@@ -48,11 +48,7 @@
   .stat b { font-size: 17px; }
   .stat .label { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
   #scrap { color: #e8cf82; }
-  .flagdot { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-right: 3px;
-    border-radius: 3px; font-size: 11px; font-weight: 700; color: #111; }
-  .flagdot.contested { outline: 2px solid var(--warn); animation: blink 0.6s infinite alternate; }
-  @keyframes blink { to { outline-color: transparent; } }
-  .tickets { display: flex; align-items: center; gap: 8px; }
+  .bases { display: flex; align-items: center; gap: 8px; }
   .tbar { width: 110px; height: 8px; background: #222; border-radius: 4px; overflow: hidden; }
   .tbar div { height: 100%; transition: width .3s; }
   #topbar .spacer { flex: 1; }
@@ -127,8 +123,7 @@
     .stat b { font-size: 15px; }
     .stat .label { font-size: 9px; }
     #income-stat, .tbar, .wide { display: none; }
-    .tickets { gap: 10px; }
-    .flagdot { width: 17px; height: 17px; margin-right: 2px; font-size: 10px; }
+    .bases { gap: 10px; }
     #topbar button { padding: 6px 9px; }
     #panel { right: 0; height: auto; max-height: 42vh; flex-direction: row; gap: 10px; padding: 6px 10px calc(6px + var(--safe-b)) calc(10px + var(--safe-l)); overflow-y: auto; }
     #selinfo { width: 34%; max-width: 190px; font-size: 12px; line-height: 1.3; }
@@ -159,14 +154,13 @@
 
 <div id="topbar">
   <div class="stat"><span class="label">Scrap</span><b id="scrap">0</b></div>
-  <div class="stat" id="income-stat"><span class="label">Income</span><span id="income" class="small dim"></span></div>
+  <div class="stat" id="income-stat"><span class="label">Workers</span><span id="income" class="small dim"></span></div>
   <div class="stat"><span class="label">Units</span><b id="units">0</b></div>
-  <div class="stat"><span class="label">Flags</span><div id="flags"></div></div>
-  <div class="tickets">
-    <div class="stat"><span class="label" style="color:var(--blue)"><span class="wide">Your </span>tickets</span><b id="tix-me">0</b></div>
-    <div class="tbar"><div id="tix-me-bar" style="background:var(--blue)"></div></div>
-    <div class="tbar"><div id="tix-foe-bar" style="background:var(--red)"></div></div>
-    <div class="stat"><span class="label" style="color:var(--red)">Enemy<span class="wide"> tickets</span></span><b id="tix-foe">0</b></div>
+  <div class="bases">
+    <div class="stat"><span class="label" style="color:var(--blue)"><span class="wide">Your </span>base</span><b id="hq-me">100%</b></div>
+    <div class="tbar"><div id="hq-me-bar" style="background:var(--blue)"></div></div>
+    <div class="tbar"><div id="hq-foe-bar" style="background:var(--red)"></div></div>
+    <div class="stat"><span class="label" style="color:var(--red)">Enemy<span class="wide"> base</span></span><b id="hq-foe">?</b></div>
   </div>
   <div class="spacer"></div>
   <b id="clock">0:00</b>
@@ -194,13 +188,14 @@
 <div id="menu" class="overlay">
   <div class="card">
     <h1>Scrapline <span>Command</span></h1>
-    <div class="dim">A top-down battle for scrap, flags and survival.</div>
+    <div class="dim">Gather scrap. Build your base. Destroy theirs.</div>
     <h2>Your mission</h2>
     <ul>
       <li><b>Collect scrap.</b> Scavengers gather it automatically. Scrap pays for everything.</li>
-      <li><b>Capture flags.</b> Park vehicles inside a flag's circle. Flags give income, let you build nearby,
-        and drain enemy <b>tickets</b>.</li>
-      <li><b>Win</b> by draining the enemy's tickets to zero or destroying their <b>Recycler</b> (their HQ).</li>
+      <li><b>Build up.</b> Make a Factory, build an army, and put Gun Towers where the enemy will attack.</li>
+      <li><b>Expand.</b> Build Scrap Silos next to distant scrap fields. Each one extends the area you can build in.</li>
+      <li><b>Protect your Recycler</b> (your HQ) at all costs. If it falls, you lose.
+        <b>Destroy the enemy Recycler</b> in the far corner to win.</li>
     </ul>
     <h2>Basic controls</h2>
     <ul class="only-mouse">
@@ -257,11 +252,12 @@
     </table>
     <h2>Tips</h2>
     <ul>
-      <li><b>Scouts</b> are fast and see far: send them to grab flags early.</li>
+      <li><b>Scouts</b> are fast and see far: send one to find the enemy base.</li>
       <li><b>Artillery</b> hits from very far, but only what your side can see. Pair it with scouts.</li>
       <li>Destroyed vehicles leave <b>salvage</b>. Scavengers can collect it.</li>
-      <li>You can only build near your buildings or flags you hold. Capturing flags expands your territory.</li>
-      <li>Every combat vehicle you lose costs 1 ticket. Holding more flags than the enemy drains theirs.</li>
+      <li>You can only build near your own buildings. Scrap Silos push that area outward.</li>
+      <li>The enemy attacks in waves. Towers and a few tanks at home keep your Recycler safe while your army is away.</li>
+      <li>Constructors can repair damaged buildings: select one and tap or right-click the building.</li>
     </ul>
     <div class="row"><button id="helpclose" class="big">Back to battle</button></div>
   </div>

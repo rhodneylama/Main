@@ -62,11 +62,10 @@ function generateMap(seed) {
   }
 
   const bases = { 1: { x: 10, y: H - 11 }, 2: { x: W - 11, y: 10 } };
-  const halfFlags = [{ x: 22, y: 20 }, { x: 34, y: 50 }];
-  const flagTiles = [];
-  for (const f of halfFlags) flagTiles.push(f);
-  flagTiles.push({ x: Math.floor(W / 2), y: Math.floor(H / 2) });
-  for (const f of halfFlags) { const [x, y] = mirror(f.x, f.y); flagTiles.push({ x, y }); }
+  // Open clearings: good spots for outposts and battles.
+  const halfClearings = [{ x: 22, y: 20 }, { x: 34, y: 50 }];
+  const clearings = [...halfClearings, { x: Math.floor(W / 2), y: Math.floor(H / 2) }];
+  for (const f of halfClearings) { const [x, y] = mirror(f.x, f.y); clearings.push({ x, y }); }
 
   const halfFields = [
     { x: 20, y: H - 8 }, { x: 7, y: H - 24 },   // home fields
@@ -90,7 +89,7 @@ function generateMap(seed) {
     }
   };
   for (const t of [1, 2]) clear(bases[t].x, bases[t].y, 10, TILE_DIRT);
-  for (const f of flagTiles) clear(f.x, f.y, 4, TILE_DIRT);
+  for (const f of clearings) clear(f.x, f.y, 4, TILE_DIRT);
   for (const f of fieldTiles) clear(f.x, f.y, 4, TILE_GRASS);
 
   // Map edge is a rock wall.
@@ -99,7 +98,7 @@ function generateMap(seed) {
 
   // Make sure everything important can be driven to from both bases.
   const passable = i => tiles[i] !== TILE_ROCK && tiles[i] !== TILE_WATER;
-  const important = [bases[2], ...flagTiles, ...fieldTiles];
+  const important = [bases[2], ...clearings, ...fieldTiles];
   for (let pass = 0; pass < 20; pass++) {
     const reach = new Uint8Array(W * H);
     const stack = [idx(bases[1].x, bases[1].y)];
@@ -131,12 +130,6 @@ function generateMap(seed) {
   }
 
   const T = CONFIG.TILE;
-  const flagNames = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo'];
-  const flags = flagTiles.map((f, i) => ({
-    id: i, name: flagNames[i], x: (f.x + 0.5) * T, y: (f.y + 0.5) * T,
-    owner: 0, progress: 0,
-  }));
-
   const scrap = [];
   let sid = 1;
   for (const f of halfFields) {
@@ -150,7 +143,7 @@ function generateMap(seed) {
     }
   }
 
-  return { W, H, tiles, bases, flags, scrap, seed };
+  return { W, H, tiles, bases, scrap, seed };
 }
 
 // -----------------------------------------------------------------------------

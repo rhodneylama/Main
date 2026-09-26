@@ -40,7 +40,7 @@ function startGame(difficulty, watch = false) {
   $('end').classList.add('hidden');
   $('log').innerHTML = '';
   paused = false; speed = 1; $('speedval').textContent = '×1';
-  logMessage(watch ? 'Spectating: two AI commanders fight it out.' : 'Capture the flags. Protect your Recycler. Good luck, Commander.', 'info');
+  logMessage(watch ? 'Spectating: two AI commanders fight it out.' : 'Build up, defend your Recycler, and destroy the enemy base. Good luck, Commander.', 'info');
   refreshPanel();
 }
 
@@ -57,7 +57,6 @@ function showEnd() {
     <tr><td>Enemies destroyed</td><td>${s1.killed}</td><td>${s2.killed}</td></tr>
     <tr><td>Vehicles lost</td><td>${s1.lost}</td><td>${s2.lost}</td></tr>
     <tr><td>Scrap gathered</td><td>${Math.round(s1.scrapGathered)}</td><td>${Math.round(s2.scrapGathered)}</td></tr>
-    <tr><td>Tickets left</td><td>${game.teams[1].tickets}</td><td>${game.teams[2].tickets}</td></tr>
     <tr><td colspan="3" class="dim">Battle length ${mins}:${String(secs).padStart(2, '0')}</td></tr>`;
   $('end').classList.remove('hidden');
 }
@@ -605,18 +604,21 @@ function refreshPanel() {
 // -----------------------------------------------------------------------------
 
 function updateHud() {
-  const me = game.teams[view.team], foe = game.teams[3 - view.team];
+  const me = game.teams[view.team];
   const units = game.entities.filter(e => e.kind === 'unit' && e.team === view.team).length;
-  const flagsOwned = game.flags.filter(f => f.owner === view.team).length;
-  const income = flagsOwned * CONFIG.FLAG_INCOME * 60;
+  const scavs = game.entities.filter(e => e.type === 'scavenger' && e.team === view.team).length;
   $('scrap').textContent = Math.floor(me.scrap);
-  $('income').textContent = income ? `+${Math.round(income)}/min from flags` : 'no flag income';
+  $('income').textContent = `${scavs} scavenger${scavs === 1 ? '' : 's'}`;
   $('units').textContent = `${units} / ${CONFIG.UNIT_CAP}`;
-  $('flags').innerHTML = game.flags.map(f =>
-    `<span class="flagdot${f.contested ? ' contested' : ''}" title="${f.name}" style="background:${f.owner ? TEAMS[f.owner].color : '#666'}">${f.name[0]}</span>`).join('');
-  $('tix-me').textContent = me.tickets; $('tix-foe').textContent = foe.tickets;
-  $('tix-me-bar').style.width = `${me.tickets / CONFIG.START_TICKETS * 100}%`;
-  $('tix-foe-bar').style.width = `${foe.tickets / CONFIG.START_TICKETS * 100}%`;
+  // Base health bars. You only know the enemy's once you have seen it.
+  const hq = t => game.entities.find(e => e.team === t && e.type === 'recycler');
+  const myHq = hq(view.team), theirs = hq(3 - view.team);
+  const pct = e => e ? Math.max(0, e.hp / e.maxHp * 100) : 0;
+  $('hq-me').textContent = `${Math.round(pct(myHq))}%`;
+  $('hq-me-bar').style.width = `${pct(myHq)}%`;
+  const known = theirs && (spectating || theirs.seen[view.team]);
+  $('hq-foe').textContent = known ? `${Math.round(pct(theirs))}%` : '?';
+  $('hq-foe-bar').style.width = known ? `${pct(theirs)}%` : '0%';
   const m = Math.floor(game.time / 60), s = Math.floor(game.time % 60);
   $('clock').textContent = `${m}:${String(s).padStart(2, '0')}${speed > 1 ? ` ×${speed}` : ''}`;
 }

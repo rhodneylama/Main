@@ -114,8 +114,6 @@ function drawGame(ctx, game, view) {
     ctx.restore();
   }
 
-  for (const f of game.flags) drawFlag(ctx, game, f, exploredAt(f.x, f.y));
-
   // Rally points for selected buildings
   for (const e of view.selected) if (e.kind === 'building' && e.rally) {
     ctx.strokeStyle = 'rgba(140,255,160,0.5)'; ctx.setLineDash([6, 6]); ctx.lineWidth = 1.5;
@@ -204,7 +202,6 @@ function drawTerritory(ctx, game, team) {
   ctx.strokeStyle = 'rgba(140,255,160,0.35)'; ctx.setLineDash([8, 8]); ctx.lineWidth = 2;
   const circles = [];
   for (const e of game.entities) if (e.kind === 'building' && e.team === team && e.built >= 1 && e.def.buildRadius) circles.push([e.x, e.y, e.def.buildRadius * T]);
-  for (const f of game.flags) if (f.owner === team) circles.push([f.x, f.y, CONFIG.FLAG_BUILD_RADIUS * T]);
   for (const [x, y, r] of circles) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
   ctx.setLineDash([]);
 }
@@ -243,31 +240,6 @@ function drawScrap(ctx, s) {
   }
   ctx.fillStyle = 'rgba(255,230,140,0.8)';
   ctx.fillRect(-1, -1, 2, 2);
-  ctx.restore();
-}
-
-function drawFlag(ctx, game, f, explored) {
-  const R = CONFIG.FLAG_RADIUS;
-  const col = f.owner ? TEAMS[f.owner].color : '#d8d8d8';
-  ctx.save(); ctx.translate(f.x, f.y);
-  ctx.strokeStyle = col; ctx.globalAlpha = 0.35; ctx.lineWidth = 2; ctx.setLineDash([10, 8]);
-  ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
-  ctx.globalAlpha = 0.08; ctx.fillStyle = col;
-  ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.fill();
-  ctx.globalAlpha = 1;
-  // Capture progress ring
-  if (explored && f.progress !== 0) {
-    ctx.strokeStyle = f.progress > 0 ? TEAMS[1].color : TEAMS[2].color; ctx.lineWidth = 5;
-    ctx.beginPath(); ctx.arc(0, 0, 26, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.abs(f.progress) / 100, f.progress < 0); ctx.stroke();
-  }
-  // Pole and banner
-  ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#ddd'; ctx.fillRect(-1.5, -30, 3, 30);
-  ctx.fillStyle = col;
-  ctx.beginPath(); ctx.moveTo(1.5, -30); ctx.lineTo(24, -24); ctx.lineTo(1.5, -17); ctx.fill();
-  ctx.font = 'bold 13px system-ui, sans-serif'; ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillText(f.name, 1, 25);
-  ctx.fillStyle = f.contested ? '#ffd24a' : '#f2f2f2'; ctx.fillText(f.name, 0, 24);
   ctx.restore();
 }
 
@@ -483,11 +455,6 @@ function drawMinimap(ctx, game, view) {
   if (!view.revealAll) {
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(Render.fog, 0, 0, cw, ch);
-  }
-  for (const f of game.flags) {
-    ctx.fillStyle = f.owner ? TEAMS[f.owner].color : '#ddd';
-    ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(f.x * sx, f.y * sy, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   }
   for (const e of game.entities) {
     if (e.team !== view.team && !view.revealAll) {
