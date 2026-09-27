@@ -14,7 +14,9 @@ function aiUpdate(game, team) {
   const diff = DIFFICULTY[game.difficulty];
   const ai = game.ai[team] || (game.ai[team] = { next: 0, nextWave: diff.firstAttack });
   if (game.time < ai.next) return;
-  ai.next = game.time + diff.thinkEvery;
+  // A little jitter so the two commanders don't always think on the same tick
+  // (whoever acts first on a shared tick would get a small, unfair edge).
+  ai.next = game.time + diff.thinkEvery * (0.85 + game.rng() * 0.3);
 
   const mine = game.entities.filter(e => e.team === team);
   const units = mine.filter(e => e.kind === 'unit');
@@ -32,8 +34,11 @@ function aiUpdate(game, team) {
 
   // --- Economy -------------------------------------------------------------
   const scavWanted = Math.min(diff.maxScavengers, 3 + Math.floor(game.time / 150));
+  const extractors = buildings.filter(b => b.type === 'extractor' && b.built >= 1);
   if (!hq.queue.length) {
     if (count('constructor') < 1 && tm.scrap >= UNIT_TYPES.constructor.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'constructor' });
+    // One Transport per Extractor to haul its scrap home.
+    else if (count('transport') < extractors.length && tm.scrap >= UNIT_TYPES.transport.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'transport' });
     else if (count('scavenger') < scavWanted && tm.scrap >= UNIT_TYPES.scavenger.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'scavenger' });
   }
 
@@ -60,6 +65,10 @@ function aiUpdate(game, team) {
     else if (damaged) cmd({ type: 'repair', ids: [builder.id], targetId: damaged.id });
     else if (!has('factory')) want = 'factory';
     else if (has('tower') < 1 && game.time > (easy ? 300 : 90)) want = 'tower';
+    // Every Extractor gets an Outpost Silo to pump into.
+    else if ((near = extractors.find(x => !buildings.some(s => s.type === 'outsilo' && dist(s, x) < 8 * CONFIG.TILE)))) want = 'outsilo';
+    // More storage once the bank keeps filling up.
+    else if (has('basesilo') < diff.maxBaseSilos && tm.scrap >= scrapCapacity(game, team) * 0.7 && game.time > 150) want = 'basesilo';
     else if (diff.secondFactory && has('factory') < 2 && game.time > 300) want = 'factory';
     else if (has('tower') < 1 + has('extractor') && game.time > 200) {
       // Guard the outpost that has the fewest towers nearby.
@@ -67,6 +76,8 @@ function aiUpdate(game, team) {
       const outposts = buildings.filter(b => b.type === 'extractor' && b.built >= 1);
       near = outposts.find(s => !buildings.some(t => t.type === 'tower' && dist(t, s) < 260)) || null;
     }
+    if (want === 'factory' || want === 'basesilo') near = null;  // these go around the Recycler
+    ai.saving = want === 'basesilo' && tm.scrap < BUILDING_TYPES.basesilo.cost;
     if (want && tm.scrap >= BUILDING_TYPES[want].cost) {
       const spot = findBuildSpot(game, team, want, hq, toCenter, near);
       if (spot) cmd({ type: 'build', ids: [builder.id], building: want, tx: spot.x, ty: spot.y });
@@ -84,7 +95,8 @@ function aiUpdate(game, team) {
     let pick = 'tank';
     if (scouts < 2 || scouts * 4 < army.length) pick = 'scout';
     else if (arty * 4 < tanks && game.time > diff.artilleryAfter) pick = 'artillery';
-    // Keep a reserve for the builder.
+    // Keep a reserve for the builder, and hold off while saving for a Base Silo.
+    if (ai.saving) continue;
     if (tm.scrap >= UNIT_TYPES[pick].cost + (builder ? 60 : 0)) cmd({ type: 'produce', buildingId: f.id, unit: pick });
     if (!f.rally) cmd({ type: 'rally', buildingId: f.id, x: rally.x, y: rally.y });
   }
@@ -148,32 +160,40 @@ function expansionTarget(game, team, hq) {
 }
 
 // Find a legal spot for a building. With `near`, try to get as close to that
-// point as territory allows; otherwise place it around the base.
+// point as the rules allow; otherwise place it around the base.
+// The search runs as if we were Blue, bottom-left, and the answer is mirrored
+// for Red, so both sides place buildings in exactly the same way.
 function findBuildSpot(game, team, type, hq, towardAngle, near) {
-  const T = CONFIG.TILE, size = BUILDING_TYPES[type].size;
+  const T = CONFIG.TILE, size = BUILDING_TYPES[type].size, W = game.map.W, H = game.map.H;
+  const flip = team !== 1;
+  const local = p => flip ? { x: W * T - p.x, y: H * T - p.y } : { x: p.x, y: p.y };
+  const world = (tx, ty) => flip ? { x: W - size - tx, y: H - size - ty } : { x: tx, y: ty };
+  const ok = (tx, ty) => { const w = world(tx, ty); return canPlaceBuilding(game, team, type, w.x, w.y).ok; };
   // Leave a gap around buildings so units can drive between them.
-  const fits = (tx, ty) => canPlaceBuilding(game, team, type, tx - 1, ty - 1).ok &&
-    canPlaceBuilding(game, team, type, tx, ty).ok && canPlaceBuilding(game, team, type, tx + 1, ty + 1).ok;
+  const fits = (tx, ty) => ok(tx - 1, ty - 1) && ok(tx, ty) && ok(tx + 1, ty + 1);
+  const home = local(hq);
   if (near) {
+    const goal = local(near);
     // Walk from the target back toward home until a spot is allowed.
-    const steps = Math.ceil(dist(hq, near) / T);
+    const steps = Math.ceil(dist(home, goal) / T);
     for (let i = 0; i <= steps; i++) {
-      const x = near.x + (hq.x - near.x) * i / steps, y = near.y + (hq.y - near.y) * i / steps;
+      const x = goal.x + (home.x - goal.x) * i / steps, y = goal.y + (home.y - goal.y) * i / steps;
       for (const [ox, oy] of [[0, 0], [2, 0], [-2, 0], [0, 2], [0, -2]]) {
         const tx = Math.round(x / T - size / 2) + ox, ty = Math.round(y / T - size / 2) + oy;
-        if (fits(tx, ty)) return { x: tx, y: ty };
+        if (fits(tx, ty)) return world(tx, ty);
       }
     }
     return null;
   }
+  const toward = angleTo(home, { x: W * T / 2, y: H * T / 2 });
   const baseDist = type === 'tower' ? 8 : 5;
-  const htx = hq.x / T, hty = hq.y / T;
+  const htx = home.x / T, hty = home.y / T;
   for (let ring = 0; ring < 6; ring++) {
     for (let k = 0; k < 12; k++) {
-      const a = towardAngle + ((k % 2 ? 1 : -1) * Math.ceil(k / 2)) * 0.28 + (game.rng() - 0.5) * 0.2;
+      const a = toward + ((k % 2 ? 1 : -1) * Math.ceil(k / 2)) * 0.28 + (game.rng() - 0.5) * 0.2;
       const r = baseDist + ring * 1.5;
       const tx = Math.round(htx + Math.cos(a) * r - size / 2), ty = Math.round(hty + Math.sin(a) * r - size / 2);
-      if (fits(tx, ty)) return { x: tx, y: ty };
+      if (fits(tx, ty)) return world(tx, ty);
     }
   }
   return null;

@@ -64,6 +64,7 @@ function addUnit(game, type, team, x, y) {
     angle: team === 1 ? -Math.PI / 4 : Math.PI * 3 / 4, turret: 0,
     order: { type: 'idle', gx: x, gy: y }, path: [], target: null,
     cooldown: 0, carry: 0, stuck: 0, retarget: 0, lastHitBy: null, hitFlash: 0,
+    shield: def.shield || 0, shieldWait: 0, shieldFlash: 0,
   };
   u.turret = u.angle;
   game.entities.push(u); game.byId.set(u.id, u);
@@ -76,7 +77,7 @@ function addBuilding(game, type, team, tx, ty, complete) {
     id: game.nextId++, kind: 'building', type, def, team, tx, ty, size: def.size,
     x: (tx + def.size / 2) * T, y: (ty + def.size / 2) * T, radius: def.size * T / 2,
     hp: complete ? def.hp : def.hp * 0.1, maxHp: def.hp,
-    built: complete ? 1 : 0, queue: [], prodTime: 0,
+    built: complete ? 1 : 0, queue: [], prodTime: 0, stored: 0,
     rally: null, cooldown: 0, turret: team === 1 ? -Math.PI / 4 : Math.PI * 3 / 4,
     target: null, retarget: 0, hitFlash: 0, seen: {},
   };
@@ -93,6 +94,33 @@ function setOccupied(game, b, delta) {
 function pushEvent(game, team, text, kind = 'info', x, y) {
   game.events.push({ team, text, kind, x, y, time: game.time });
 }
+
+// ---------------------------------------------------------------------------
+// Scrap storage. A team can only hold as much scrap as its Recycler and Base
+// Silos have room for. Anything that would go over the limit waits outside.
+// ---------------------------------------------------------------------------
+
+function scrapCapacity(game, team) {
+  let cap = 0;
+  for (const e of game.entities) if (e.kind === 'building' && e.team === team && e.built >= 1 && e.def.capacity) cap += e.def.capacity;
+  return cap;
+}
+
+// Adds up to `amount` scrap to the team's bank. Returns how much fitted.
+function bankScrap(game, team, amount) {
+  const tm = game.teams[team];
+  const room = Math.max(0, scrapCapacity(game, team) - tm.scrap);
+  const added = Math.min(room, amount);
+  tm.scrap += added; tm.stats.scrapGathered += added;
+  if (added < amount && game.time - (tm.lastFullWarn || -99) > 20) {
+    tm.lastFullWarn = game.time;
+    pushEvent(game, team, 'Scrap storage full. Build a Base Silo next to your Recycler.', 'warn');
+  }
+  return added;
+}
+
+const isBank = b => b.kind === 'building' && b.built >= 1 && !!b.def.capacity;
+const isStore = b => b.kind === 'building' && b.built >= 1 && !!b.def.store;
 
 // ---------------------------------------------------------------------------
 // Building placement rules
@@ -115,6 +143,12 @@ function canPlaceBuilding(game, team, type, tx, ty) {
   for (const e of game.entities) {
     if (e.kind === 'unit' && e.team !== team && dist(e, { x: cx * CONFIG.TILE, y: cy * CONFIG.TILE }) < def.size * CONFIG.TILE)
       return { ok: false, why: 'Enemy units too close' };
+  }
+  if (def.placeNear) {
+    const T = CONFIG.TILE;
+    const near = game.entities.some(e => e.team === team && e.type === def.placeNear && e.built >= 1 &&
+      Math.hypot(e.x / T - cx, e.y / T - cy) <= def.placeRange + e.size / 2);
+    if (!near) return { ok: false, why: `${def.name}s must be built next to ${def.placeNear === 'recycler' ? 'your Recycler' : 'one of your Extractors'}` };
   }
   if (!inTerritory(game, team, cx, cy)) return { ok: false, why: 'Outside your territory. Build a Scrap Silo near the edge to expand it.' };
   return { ok: true };
@@ -163,7 +197,7 @@ function issueCommand(game, team, cmd) {
       break;
     }
     case 'stop':
-      for (const u of units) { u.order = { type: 'idle', gx: u.x, gy: u.y }; u.path = []; u.target = null; }
+      for (const u of units) { u.order = { type: 'idle', gx: u.x, gy: u.y }; u.path = []; u.target = null; if (u.def.role === 'hauler') u.autoHaul = false; }
       break;
     case 'build': {
       const u = units.find(x => x.def.role === 'builder');
@@ -200,7 +234,7 @@ function issueCommand(game, team, cmd) {
       const b = own(cmd.buildingId);
       if (!b || b.kind !== 'building' || cmd.index >= b.queue.length) return;
       const [type] = b.queue.splice(cmd.index, 1);
-      game.teams[team].scrap += UNIT_TYPES[type].cost;
+      bankScrap(game, team, UNIT_TYPES[type].cost);
       if (cmd.index === 0) b.prodTime = 0;
       break;
     }
@@ -251,6 +285,16 @@ function issueCommand(game, team, cmd) {
       planPath(game, scav, g.x, g.y);
       break;
     }
+    case 'haul': {
+      // Transports: collect from a chosen silo or Extractor, or pick automatically.
+      const src = cmd.sourceId ? own(cmd.sourceId) : null;
+      for (const u of units) if (u.def.role === 'hauler') {
+        u.autoHaul = true;
+        u.order = { type: 'haul', phase: 'pick', fixedId: src && isStore(src) ? src.id : 0 };
+        u.path = [];
+      }
+      break;
+    }
     case 'rally': {
       const b = own(cmd.buildingId);
       if (b && b.kind === 'building') b.rally = { x: cmd.x, y: cmd.y };
@@ -260,16 +304,35 @@ function issueCommand(game, team, cmd) {
 }
 
 // Spread a group out around the clicked point so they don't pile up.
+// Like route-finding, this always works from the same half of the map so
+// both sides get mirror-image results.
 function formationSlots(game, x, y, units) {
   if (units.length <= 1) return [{ x, y }];
-  const spacing = 34, slots = [];
+  const cx = units.reduce((a, u) => a + u.x, 0) / units.length, cy = units.reduce((a, u) => a + u.y, 0) / units.length;
+  if (inMirroredHalf(game, cx, cy)) {
+    const WW = game.map.W * CONFIG.TILE, HH = game.map.H * CONFIG.TILE;
+    const flipped = units.map(u => ({ x: WW - u.x, y: HH - u.y }));
+    return formationSlotsOn(mirroredView(game), WW - x, HH - y, flipped).map(p => ({ x: WW - p.x, y: HH - p.y }));
+  }
+  return formationSlotsOn(game, x, y, units);
+}
+
+function formationSlotsOn(game, x, y, units) {
+  const spacing = 34, slots = [], used = new Set();
+  const T = CONFIG.TILE;
   const cols = Math.ceil(Math.sqrt(units.length));
   const rows = Math.ceil(units.length / cols);
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
     let sx = x + (c - (cols - 1) / 2) * spacing, sy = y + (r - (rows - 1) / 2) * spacing;
     if (isBlockedAt(game, sx, sy)) {
-      const t = nearestOpenTile(game, Math.floor(sx / CONFIG.TILE), Math.floor(sy / CONFIG.TILE), 4);
-      if (t) { sx = (t.x + 0.5) * CONFIG.TILE; sy = (t.y + 0.5) * CONFIG.TILE; }
+      // Move the slot to the nearest open square no other slot has taken.
+      const tx = Math.floor(sx / T), ty = Math.floor(sy / T);
+      let best = null, bd = Infinity;
+      for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+        const nx = tx + dx, ny = ty + dy, d = dx * dx + dy * dy;
+        if (d < bd && !isBlockedTile(game, nx, ny) && !used.has(nx + ',' + ny)) { bd = d; best = { x: nx, y: ny }; }
+      }
+      if (best) { used.add(best.x + ',' + best.y); sx = (best.x + 0.5) * T; sy = (best.y + 0.5) * T; }
     }
     slots.push({ x: sx, y: sy });
   }
@@ -302,9 +365,12 @@ function stepGame(game) {
   if (game.winner) return;
   const dt = 1 / CONFIG.TICK_RATE;
   game.tick++; game.time += dt;
+  // Losing a Base Silo loses whatever no longer fits.
+  if (game.tick % 15 === 0) for (const t of [1, 2]) game.teams[t].scrap = Math.min(game.teams[t].scrap, scrapCapacity(game, t));
 
-  // Alternate the update order every tick so neither side always acts first.
-  const order = game.tick % 2 ? game.entities.slice().reverse() : game.entities.slice();
+  // Shuffle the update order every tick so neither side can get a steady
+  // head start from always acting first (or last) on some kind of tick.
+  const order = shuffled(game, game.entities);
   for (const e of order) {
     if (e.hp <= 0) continue;
     if (e.hitFlash > 0) e.hitFlash -= dt;
@@ -320,6 +386,17 @@ function stepGame(game) {
   checkVictory(game);
 }
 
+// A copy of the list in random order, using the game's seeded randomness so a
+// replay (or the other player's computer, online) gets the same order.
+function shuffled(game, list) {
+  const out = list.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(game.rng() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 function updateBuilding(game, b, dt) {
   if (b.built < 1) {
     // Extractors set themselves up after a Scavenger deploys.
@@ -331,10 +408,7 @@ function updateBuilding(game, b, dt) {
     return;
   }
   if (b.cooldown > 0) b.cooldown -= dt;  // reload the gun (towers, Recycler)
-  if (b.def.income) {
-    const tm = game.teams[b.team], amt = b.def.income * tm.incomeMult * dt;
-    tm.scrap += amt; tm.stats.scrapGathered += amt;
-  }
+  if (b.def.income) pumpExtractor(game, b, dt);
   if (b.queue.length) {
     const def = UNIT_TYPES[b.queue[0]];
     const count = game.entities.filter(e => e.kind === 'unit' && e.team === b.team).length;
@@ -352,6 +426,21 @@ function updateBuilding(game, b, dt) {
   if (b.def.weapon) combatThink(game, b, dt);
 }
 
+// Extractors pump into the nearest Outpost Silo with room, else into their
+// own small tank. When everything nearby is full, pumping stops.
+function pumpExtractor(game, b, dt) {
+  let amt = b.def.income * dt;
+  const silos = game.entities.filter(e => e.type === 'outsilo' && e.team === b.team && e.built >= 1 &&
+    e.stored < e.def.store && dist(e, b) < (BUILDING_TYPES.outsilo.placeRange + 2) * CONFIG.TILE);
+  silos.sort((p, q) => dist(p, b) - dist(q, b));
+  for (const silo of silos) {
+    const put = Math.min(amt, silo.def.store - silo.stored);
+    silo.stored += put; amt -= put;
+    if (amt <= 0) return;
+  }
+  b.stored = Math.min(b.def.store, b.stored + amt);
+}
+
 function spawnFromBuilding(game, b, type) {
   const T = CONFIG.TILE;
   const exitY = b.team === 1 ? b.ty - 1 : b.ty + b.size;
@@ -360,6 +449,7 @@ function spawnFromBuilding(game, b, type) {
   const u = addUnit(game, type, b.team, (spot.x + 0.5) * T, (spot.y + 0.5) * T);
   game.teams[b.team].stats.built++;
   if (u.def.role === 'harvester') { autoHarvest(game, u); return; }
+  if (u.def.role === 'hauler') { u.autoHaul = true; u.order = { type: 'haul', phase: 'pick', fixedId: 0 }; return; }
   if (b.rally) issueCommand(game, b.team, { type: 'move', ids: [u.id], x: b.rally.x, y: b.rally.y, attackMove: true });
   pushEvent(game, b.team, `${u.def.name} ready`, 'good', u.x, u.y);
 }
@@ -370,6 +460,11 @@ function spawnFromBuilding(game, b, type) {
 
 function updateUnit(game, u, dt) {
   if (u.cooldown > 0) u.cooldown -= dt;
+  if (u.def.shield) {
+    if (u.shieldFlash > 0) u.shieldFlash -= dt;
+    if (u.shieldWait > 0) u.shieldWait -= dt;
+    else u.shield = Math.min(u.def.shield, u.shield + u.def.shieldRegen * dt);
+  }
   const o = u.order;
   switch (o.type) {
     case 'idle': {
@@ -379,6 +474,9 @@ function updateUnit(game, u, dt) {
           if (!u.path.length) planPath(game, u, o.gx, o.gy);
           followPath(game, u, dt);
         } else if (!engaged) u.path = [];
+      } else if (u.def.role === 'hauler') {
+        // Idle transports go back to hauling unless told to stop.
+        if (followPath(game, u, dt) && u.autoHaul && game.tick % 30 === u.id % 30) u.order = { type: 'haul', phase: 'pick', fixedId: 0 };
       } else if (u.def.role === 'harvester') {
         // Idle scavengers go back to work on any scrap nearby.
         if (!followPath(game, u, dt) || game.tick % 30 !== u.id % 30) break;
@@ -409,6 +507,71 @@ function updateUnit(game, u, dt) {
     case 'patrol': updatePatrol(game, u, dt); break;
     case 'guard': updateGuard(game, u, dt); break;
     case 'deploy': updateDeploy(game, u, dt); break;
+    case 'haul': updateHauler(game, u, dt); break;
+  }
+}
+
+// --- Transports ---------------------------------------------------------------
+function nearestBank(game, u) {
+  let best = null, bd = Infinity;
+  for (const e of game.entities) if (e.team === u.team && isBank(e)) { const d = dist(u, e); if (d < bd) { bd = d; best = e; } }
+  return best;
+}
+
+function pickHaulSource(game, u) {
+  const o = u.order;
+  const fixed = o.fixedId && game.byId.get(o.fixedId);
+  if (fixed && fixed.hp > 0) return fixed;
+  // Where are the other transports already heading?
+  const claimed = new Set(game.entities.filter(e => e !== u && e.team === u.team && e.kind === 'unit' && e.order.type === 'haul' && e.order.sourceId).map(e => e.order.sourceId));
+  let best = null, bestScore = -Infinity;
+  for (const e of game.entities) {
+    if (e.team !== u.team || !isStore(e) || e.stored < 15) continue;
+    const score = e.stored * 3 - dist(u, e) / 10 - (claimed.has(e.id) ? 200 : 0);
+    if (score > bestScore) { bestScore = score; best = e; }
+  }
+  return best;
+}
+
+function updateHauler(game, u, dt) {
+  const o = u.order;
+  const nearTo = b => edgeDist(u, b) < b.radius * 0.4 + u.radius + 24;
+  if (o.phase === 'pick') {
+    if (u.carry >= u.def.carryMax * 0.5) { o.phase = 'toBank'; u.path = []; return; }
+    if (game.tick % 15 !== u.id % 15) return;
+    const src = pickHaulSource(game, u);
+    if (src) { o.sourceId = src.id; o.phase = 'toSource'; planPathNear(game, u, src); }
+    else if (u.carry > 0) { o.phase = 'toBank'; u.path = []; }
+    else followPath(game, u, dt);
+    return;
+  }
+  if (o.phase === 'toSource') {
+    const src = game.byId.get(o.sourceId);
+    if (!src || src.hp <= 0) { o.phase = 'pick'; o.sourceId = 0; u.path = []; return; }
+    if (!nearTo(src)) { if (followPath(game, u, dt, 12)) planPathNear(game, u, src); return; }
+    u.path = [];
+    const take = Math.min(src.stored, u.def.carryMax - u.carry, 40 * dt);
+    src.stored -= take; u.carry += take;
+    // Leave when full, or when the silo is empty and we have a worthwhile load.
+    if (u.carry >= u.def.carryMax - 0.01 || (src.stored < 1 && u.carry >= 10)) { o.phase = 'toBank'; o.sourceId = 0; }
+    else if (src.stored < 1 && !o.fixedId) { o.phase = 'pick'; o.sourceId = 0; }
+    return;
+  }
+  if (o.phase === 'toBank' || o.phase === 'full') {
+    const bank = nearestBank(game, u);
+    if (!bank) return;
+    if (!nearTo(bank)) {
+      if (!u.path.length) planPathNear(game, u, bank);
+      if (followPath(game, u, dt, 12) && !nearTo(bank)) planPathNear(game, u, bank);
+      return;
+    }
+    u.path = [];
+    if (o.phase === 'full' && game.tick % 30 !== u.id % 30) return;  // wait for room
+    const tm = game.teams[u.team];
+    const added = bankScrap(game, u.team, u.carry * tm.incomeMult);
+    u.carry -= added / tm.incomeMult;
+    if (u.carry < 0.5) { u.carry = 0; o.phase = 'pick'; }
+    else o.phase = 'full';
   }
 }
 
@@ -576,8 +739,7 @@ function moveWithCollision(game, u, dx, dy) {
 
 // Keep units from overlapping each other or driving inside buildings.
 function separateUnits(game) {
-  const units = game.entities.filter(e => e.kind === 'unit' && e.hp > 0);
-  if (game.tick % 2) units.reverse();
+  const units = shuffled(game, game.entities.filter(e => e.kind === 'unit' && e.hp > 0));
   for (let i = 0; i < units.length; i++) {
     const a = units[i];
     for (let j = i + 1; j < units.length; j++) {
@@ -740,6 +902,11 @@ function updateProjectiles(game, dt) {
 
 function damage(game, e, amount, p) {
   if (e.kind === 'building') amount *= p.vsBuilding || 1;
+  if (e.shield > 0) {
+    const soak = Math.min(e.shield, amount);
+    e.shield -= soak; amount -= soak; e.shieldFlash = 0.15;
+  }
+  if (e.def.shield) e.shieldWait = e.def.shieldDelay;
   e.hp -= amount;
   e.hitFlash = 0.1;
   const shooter = game.byId.get(p.owner);
@@ -806,6 +973,7 @@ function nearestDropoff(game, u) {
   let best = null, bd = Infinity;
   for (const e of game.entities) {
     if (e.kind !== 'building' || e.team !== u.team || !e.def.dropoff || e.built < 1) continue;
+    if (e.def.store && e.stored > e.def.store - 1) continue;  // this silo is full
     const d = dist(u, e);
     if (d < bd) { bd = d; best = e; }
   }
@@ -843,12 +1011,23 @@ function updateHarvester(game, u, dt) {
   } else if (o.phase === 'return') {
     const drop = nearestDropoff(game, u);
     if (!drop) { o.phase = 'wait'; return; }
+    if (o.dropId !== drop.id) { o.dropId = drop.id; u.path = []; }
     if (!u.path.length) planPathNear(game, u, drop);
     const arrived = followPath(game, u, dt, 12);
     if (edgeDist(u, drop) < drop.radius * 0.4 + u.radius + 20 || (arrived && edgeDist(u, drop) < 70)) {
-      const tm = game.teams[u.team];
-      const amt = u.carry * tm.incomeMult;
-      tm.scrap += amt; tm.stats.scrapGathered += amt;
+      u.path = [];
+      if (drop.def.store) {
+        // An Outpost Silo: leave the load there for a Transport.
+        const put = Math.min(u.carry, drop.def.store - drop.stored);
+        drop.stored += put; u.carry -= put;
+      } else {
+        // If storage is full, wait at the base and retry once a second.
+        if (o.fullWait && game.tick % 30 !== u.id % 30) return;
+        const tm = game.teams[u.team];
+        u.carry -= bankScrap(game, u.team, u.carry * tm.incomeMult) / tm.incomeMult;
+        o.fullWait = u.carry > 0.5;
+      }
+      if (u.carry > 0.5) return;
       u.carry = 0;
       o.phase = 'toNode';
       const node = game.scrap.find(s => s.id === o.nodeId && s.amount > 0) || nearestScrap(game, u);

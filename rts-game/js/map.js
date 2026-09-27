@@ -64,7 +64,10 @@ function generateMap(seed) {
   const bases = { 1: { x: 10, y: H - 11 }, 2: { x: W - 11, y: 10 } };
   // Open clearings: good spots for outposts and battles.
   const halfClearings = [{ x: 22, y: 20 }, { x: 34, y: 50 }];
-  const clearings = [...halfClearings, { x: Math.floor(W / 2), y: Math.floor(H / 2) }];
+  // The centre clearing is carved twice, once as its own mirror image, so
+  // the middle of the map stays perfectly symmetric.
+  const mid = { x: Math.floor(W / 2), y: Math.floor(H / 2) };
+  const clearings = [...halfClearings, mid, { x: W - 1 - mid.x, y: H - 1 - mid.y }];
   for (const f of halfClearings) { const [x, y] = mirror(f.x, f.y); clearings.push({ x, y }); }
 
   const halfFields = [
@@ -203,7 +206,32 @@ function hasClearLine(game, x0, y0, x1, y1) {
   return true;
 }
 
+// Is this point in the half of the map that searches treat as the mirror
+// image of the other half?
+function inMirroredHalf(game, x, y) {
+  const WW = game.map.W * CONFIG.TILE, HH = game.map.H * CONFIG.TILE;
+  return y * WW + x > (HH - y) * WW + (WW - x);
+}
+
+// The map rotated half a turn about its centre. Doing that to a grid stored
+// row by row is the same as reading it backwards.
+function mirroredView(game) {
+  return { map: { W: game.map.W, H: game.map.H, tiles: game.map.tiles.slice().reverse() }, occupied: game.occupied.slice().reverse() };
+}
+
+// Routes are always worked out from the same half of the map: a request
+// starting in the other half is solved on a mirrored copy and mirrored back.
+// Otherwise the search's tie-breaking would give one side slightly different
+// (and sometimes better) routes than the other, which adds up in battle.
 function findPath(game, sx, sy, gx, gy) {
+  const T = CONFIG.TILE, W = game.map.W, H = game.map.H, WW = W * T, HH = H * T;
+  if (inMirroredHalf(game, sx, sy)) {
+    return findPathOn(mirroredView(game), WW - sx, HH - sy, WW - gx, HH - gy).map(p => ({ x: WW - p.x, y: HH - p.y }));
+  }
+  return findPathOn(game, sx, sy, gx, gy);
+}
+
+function findPathOn(game, sx, sy, gx, gy) {
   const T = CONFIG.TILE, W = game.map.W, H = game.map.H;
   if (hasClearLine(game, sx, sy, gx, gy)) return [{ x: gx, y: gy }];
 

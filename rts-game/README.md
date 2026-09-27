@@ -79,6 +79,7 @@ The game works on touch screens. Turning your phone sideways gives the best view
 | --- | --- | --- | --- |
 | Scavenger | 60 | Collects loose scrap automatically. | **Deploy on geyser**: drives onto a scrap geyser and becomes an Extractor. |
 | Constructor | 80 | Builds and repairs buildings. | |
+| Transport | 70 | Hauls scrap from Outpost Silos and Extractors back to base. Unarmed, but has a recharging shield. | **Auto-haul**: collects from whichever store is fullest. Tap or right-click a silo to haul from that one only. |
 | Scout | 50 | Fast, sees far. Spots targets for artillery. | **Scout**: explores the map. With several selected, **Scout as pack** keeps them together; **Scout solo** spreads them out. |
 | Tank | 100 | Tough all-rounder. | **Patrol**: loops around your buildings and fights anything it meets. |
 | Artillery | 140 | Very long range and splash damage, but very slow, and it can only hit what your side can see. | **Defend**: digs in beside one of your buildings and shells anything in range. |
@@ -87,15 +88,31 @@ The game works on touch screens. Turning your phone sideways gives the best view
 | --- | --- | --- |
 | Recycler | — | Your HQ. Makes Scavengers and Constructors. Has a defence gun. |
 | Factory | 150 | Makes Scouts, Tanks and Artillery. |
-| Extractor | a Scavenger | Made by deploying a Scavenger onto a scrap geyser. Pumps about 72 scrap a minute forever, is a drop-off point, and expands the area you can build in. |
+| Extractor | a Scavenger | Made by deploying a Scavenger onto a scrap geyser. Pumps about 60 scrap a minute into nearby Outpost Silos (it holds only 30 itself). Expands the area you can build in. |
+| Base Silo | 250 | Adds 300 to your scrap storage. Must be next to your Recycler. |
+| Outpost Silo | 150 | Holds 150 scrap from a nearby Extractor until a Transport hauls it home. Must be next to an Extractor. |
 | Gun Tower | 110 | Defensive turret. |
+
+### Scrap and storage
+
+You can only hold as much scrap as your base has room for. The Recycler holds
+300, and each Base Silo adds 300. The top bar shows `held / room`; it turns
+yellow when you're full. When storage is full, Scavengers and Transports wait
+at the base with their loads until there's room.
+
+Scrap reaches your bank two ways:
+
+- **Scavengers** pick up loose scrap and bring it home. It runs out eventually.
+- **Extractors** pump scrap from geysers forever, into an Outpost Silo beside
+  them. A **Transport** carries it from there to your base.
 
 **A good first few minutes:** select the Constructor and build a Factory near
 your Recycler. Build a third Scavenger from the Recycler, then start making
 Tanks. Put a Gun Tower on the side of your base facing the enemy. Send a
-Scavenger to the glowing scrap geyser near your base to make an Extractor. Loose
-scrap runs out, but geysers never do, so claim the geysers further out too and
-guard each one with a Gun Tower.
+Scavenger to the glowing scrap geyser near your base to make an Extractor, put an
+Outpost Silo beside it, and build a Transport. Add a Base Silo once your storage
+keeps filling up. Claim the geysers further out too, and guard each one with a
+Gun Tower.
 
 ---
 

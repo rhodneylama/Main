@@ -363,7 +363,8 @@ function handleTap(p) {
   const sel = mine(view.selected);
   const hasBuilder = sel.some(u => u.kind === 'unit' && u.def.role === 'builder');
   const needsWork = hit && hit.team === view.team && hit.kind === 'building' && (hit.built < 1 || hit.hp < hit.maxHp);
-  const artyDefend = hit && hit.team === view.team && hit.kind === 'building' && !hasBuilder && sel.some(u => u.type === 'artillery');
+  const artyDefend = hit && hit.team === view.team && hit.kind === 'building' && !hasBuilder &&
+    (sel.some(u => u.type === 'artillery') || (sel.some(u => u.type === 'transport') && isStore(hit)));
   if (hit && hit.team === view.team && !(hasBuilder && needsWork) && !artyDefend) { select(pickWithDoubleTap(hit)); return; }
   if (sel.length && !spectating) {
     // Tap targets are a little bigger for fingers.
@@ -410,7 +411,13 @@ function rightClick(w, pad = 0) {
   const node = scrapAt(w.x, w.y, pad);
   const geyser = geyserAt(w.x, w.y, pad);
   const arty = units.filter(u => u.type === 'artillery');
-  if (geyser && units.some(u => u.def.role === 'harvester')) {
+  const haulers = units.filter(u => u.def.role === 'hauler');
+  if (t && t.team === view.team && isStore(t) && haulers.length) {
+    issueCommand(game, view.team, { type: 'haul', ids: haulers.map(u => u.id), sourceId: t.id });
+    const rest = ids.filter(id => !haulers.some(h => h.id === id));
+    if (rest.length) issueCommand(game, view.team, { type: 'move', ids: rest, x: w.x, y: w.y });
+    ping(t, '#f0c040');
+  } else if (geyser && units.some(u => u.def.role === 'harvester')) {
     issueCommand(game, view.team, { type: 'deploy', ids, geyserId: geyser.id });
     ping(geyser, '#f0c040');
   } else if (t && t.team === view.team && t.kind === 'building' && arty.length && !units.some(u => u.def.role === 'builder')) {
@@ -594,7 +601,13 @@ function refreshPanel() {
     if (e.kind === 'unit' && d.weapon) extra = `Damage ${d.weapon.damage} · Range ${d.weapon.range} · Speed ${d.speed}`;
     if (e.kind === 'building' && e.built < 1) extra = `Under construction — ${Math.floor(e.built * 100)}%`;
     if (e.kind === 'building' && d.weapon && e.built >= 1) extra = `Damage ${d.weapon.damage} · Range ${d.weapon.range}`;
-    if (e.kind === 'building' && d.income) extra = e.built >= 1 ? `Pumping about ${Math.round(d.income * 60)} scrap a minute` : `Setting up — ${Math.floor(e.built * 100)}%`;
+    if (e.kind === 'building' && d.income) extra = e.built >= 1
+      ? `Pumping about ${Math.round(d.income * 60)} scrap a minute. Holding ${Math.floor(e.stored)} / ${d.store}.${e.stored >= d.store - 1 ? ' Full: build an Outpost Silo beside it.' : ''}`
+      : `Setting up — ${Math.floor(e.built * 100)}%`;
+    if (e.kind === 'building' && e.type === 'outsilo' && e.built >= 1) extra = `Holding ${Math.floor(e.stored)} / ${d.store} scrap for Transports`;
+    if (e.kind === 'building' && d.capacity && e.built >= 1) extra = `Stores ${d.capacity} scrap`;
+    if (e.kind === 'unit' && e.def.role === 'hauler') extra = `Shield ${Math.ceil(e.shield)} / ${d.shield} · Carrying ${Math.floor(e.carry)} / ${d.carryMax}` +
+      (e.order.type === 'haul' ? (e.order.phase === 'full' ? ' · Waiting: storage full' : ' · Hauling') : '');
     if (e.kind === 'unit' && e.order.type === 'scout') extra = e.order.packId ? 'Scouting with the pack' : 'Scouting alone';
     if (e.kind === 'unit' && e.order.type === 'patrol') extra = 'On patrol';
     if (e.kind === 'unit' && e.order.type === 'guard') extra = 'Defending a building';
@@ -674,6 +687,13 @@ function refreshPanel() {
     { active: view.aim === 'defend', title: 'Then pick one of your buildings to guard' });
   if (scavs.length) addBtn('Deploy on geyser', null, keys.shift(), () => { view.aim = 'deploy'; refreshPanel(); },
     { active: view.aim === 'deploy', title: 'Turn into an Extractor on a scrap geyser' });
+  const haulers = ofType(sel, 'transport');
+  if (haulers.length) {
+    addBtn('Auto-haul', null, keys.shift(), () => order('haul', haulers), { title: 'Collect from whichever silo is fullest' });
+    const tip = document.createElement('div'); tip.className = 'dim small tip';
+    tip.textContent = `${isTouch ? 'Tap' : 'Right-click'} an Outpost Silo or Extractor to haul from that one only.`;
+    cmds.appendChild(tip);
+  }
   if (view.aim) {
     addBtn('Cancel', null, 'Esc', cancelModes);
     const tip = document.createElement('div'); tip.className = 'dim small tip';
@@ -696,7 +716,9 @@ function updateHud() {
   const me = game.teams[view.team];
   const units = game.entities.filter(e => e.kind === 'unit' && e.team === view.team).length;
   const scavs = game.entities.filter(e => e.type === 'scavenger' && e.team === view.team).length;
-  $('scrap').textContent = Math.floor(me.scrap);
+  const cap = scrapCapacity(game, view.team);
+  $('scrap').textContent = `${Math.floor(me.scrap)} / ${cap}`;
+  $('scrap').classList.toggle('full', me.scrap >= cap - 1);
   $('income').textContent = `${scavs} scavenger${scavs === 1 ? '' : 's'}`;
   $('units').textContent = `${units} / ${CONFIG.UNIT_CAP}`;
   // Base health bars. You only know the enemy's once you have seen it.
@@ -793,7 +815,7 @@ function frame(now) {
     const step = 1 / CONFIG.TICK_RATE;
     let n = 0;
     while (accumulator >= step && n < 12) {
-      const ais = game.tick % 2 ? game.aiTeams.slice().reverse() : game.aiTeams;
+      const ais = game.rng() < 0.5 ? game.aiTeams : game.aiTeams.slice().reverse();
       for (const t of ais) aiUpdate(game, t);
       stepGame(game); accumulator -= step; n++;
     }

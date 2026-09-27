@@ -97,7 +97,7 @@ function drawGame(ctx, game, view) {
   ctx.drawImage(Render.terrain, 0, 0);
 
   // Territory edges (where you're allowed to build) while placing a building.
-  if (view.placing) drawTerritory(ctx, game, team);
+  if (view.placing) drawTerritory(ctx, game, team, view.placing);
 
   // Scrap geysers (free ones glow; claimed ones sit under an Extractor)
   for (const g of game.geysers) {
@@ -168,7 +168,9 @@ function drawGame(ctx, game, view) {
     if (!onScreen(e.x, e.y)) continue;
     if (e.team !== team && !view.revealAll && !isVisibleTo(game, team, e)) continue;
     const sel = selectedIds.has(e.id);
-    if (sel || e.hp < e.maxHp || (e.kind === 'building' && e.built < 1)) drawHealthBar(ctx, e, sel);
+    const showStore = e.team === team && e.kind === 'building' && e.def.store && e.stored > 0.5;
+    const hurtShield = e.kind === 'unit' && e.def.shield && e.shield < e.def.shield - 0.5;
+    if (sel || e.hp < e.maxHp || (e.kind === 'building' && e.built < 1) || showStore || hurtShield) drawHealthBar(ctx, e, sel);
   }
 
   // Command pings (where you just clicked)
@@ -202,8 +204,18 @@ function drawFog(ctx, game, tm) {
   ctx.drawImage(Render.fog, 0, 0, game.map.W * CONFIG.TILE, game.map.H * CONFIG.TILE);
 }
 
-function drawTerritory(ctx, game, team) {
+function drawTerritory(ctx, game, team, placing) {
   const T = CONFIG.TILE;
+  const def = BUILDING_TYPES[placing];
+  if (def && def.placeNear) {
+    // Silos have their own rule: right next to the Recycler, or an Extractor.
+    ctx.fillStyle = 'rgba(232,207,130,0.10)'; ctx.strokeStyle = 'rgba(232,207,130,0.6)'; ctx.setLineDash([8, 8]); ctx.lineWidth = 2;
+    for (const e of game.entities) if (e.team === team && e.type === def.placeNear && e.built >= 1) {
+      ctx.beginPath(); ctx.arc(e.x, e.y, (def.placeRange + e.size / 2) * T, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    return;
+  }
   ctx.fillStyle = 'rgba(140,255,160,0.07)';
   ctx.strokeStyle = 'rgba(140,255,160,0.35)'; ctx.setLineDash([8, 8]); ctx.lineWidth = 2;
   const circles = [];
@@ -325,6 +337,17 @@ function drawBuilding(ctx, b, selected, ghost) {
       ctx.fillStyle = tc.color; ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2); ctx.fill();
       break;
     }
+    case 'basesilo':
+    case 'outsilo': {
+      // A round tank; the gold fill shows how much it holds.
+      const big = b.type === 'basesilo';
+      ctx.fillStyle = '#4a4636'; ctx.beginPath(); ctx.arc(0, 0, s * 0.36, 0, Math.PI * 2); ctx.fill();
+      const k = big ? 1 : b.stored / b.def.store;
+      if (k > 0.01) { ctx.fillStyle = 'rgba(232,207,130,0.85)'; ctx.beginPath(); ctx.arc(0, 0, s * 0.3 * Math.sqrt(k), 0, Math.PI * 2); ctx.fill(); }
+      ctx.strokeStyle = tc.color; ctx.lineWidth = big ? 4 : 2; ctx.beginPath(); ctx.arc(0, 0, s * 0.36, 0, Math.PI * 2); ctx.stroke();
+      if (big) { ctx.fillStyle = tc.light; ctx.fillRect(-4, -s * 0.46, 8, 8); }
+      break;
+    }
     case 'tower': {
       ctx.fillStyle = '#2b2e2a'; ctx.beginPath(); ctx.arc(0, 0, s * 0.32, 0, Math.PI * 2); ctx.fill();
       ctx.rotate(b.turret);
@@ -397,6 +420,13 @@ function drawUnit(ctx, u, selected, time) {
       if (u.carry > 0) { ctx.fillStyle = '#b8a36a'; ctx.fillRect(-r * 0.6, -r * 0.45, r * 0.9 * u.carry / u.def.carryMax, r * 0.9); }
       break;
     }
+    case 'transport': {
+      ctx.fillStyle = dark; ctx.fillRect(-r, -r * 0.7, r * 2, r * 1.4);
+      ctx.fillStyle = hull; ctx.fillRect(-r * 0.2, -r * 0.6, r * 1.1, r * 1.2);
+      ctx.fillStyle = '#6b6450'; ctx.fillRect(-r * 0.95, -r * 0.6, r * 0.7, r * 1.2);  // cargo bed
+      if (u.carry > 0) { ctx.fillStyle = '#e8cf82'; ctx.fillRect(-r * 0.9, -r * 0.5, r * 0.6, r * 1.0 * u.carry / u.def.carryMax); }
+      break;
+    }
     case 'constructor': {
       ctx.fillStyle = dark; ctx.fillRect(-r, -r * 0.8, r * 2, r * 1.6);
       ctx.fillStyle = hull; ctx.fillRect(-r * 0.8, -r * 0.65, r * 1.6, r * 1.3);
@@ -406,6 +436,13 @@ function drawUnit(ctx, u, selected, time) {
     }
   }
   ctx.restore();
+  // Shield bubble: brighter when it has just absorbed a hit.
+  if (u.def.shield && u.shield > 1) {
+    const k = u.shield / u.def.shield;
+    ctx.strokeStyle = `rgba(140,210,255,${(u.shieldFlash > 0 ? 0.9 : 0.35) * (0.4 + 0.6 * k)})`;
+    ctx.lineWidth = u.shieldFlash > 0 ? 3 : 1.5;
+    ctx.beginPath(); ctx.arc(u.x, u.y, r + 6, 0, Math.PI * 2); ctx.stroke();
+  }
 }
 
 function drawHealthBar(ctx, e, selected) {
@@ -417,6 +454,14 @@ function drawHealthBar(ctx, e, selected) {
   ctx.fillRect(e.x - w / 2, y, w * k, 4);
   if (e.kind === 'building' && e.built < 1) {
     ctx.fillStyle = '#f0c040'; ctx.fillRect(e.x - w / 2, y + 6, w * e.built, 3);
+  }
+  if (e.kind === 'unit' && e.def.shield) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(e.x - w / 2 - 1, y - 5, w + 2, 4);
+    ctx.fillStyle = '#8cd2ff'; ctx.fillRect(e.x - w / 2, y - 4, w * e.shield / e.def.shield, 2);
+  }
+  if (e.kind === 'building' && e.def.store && e.built >= 1) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(e.x - w / 2 - 1, y + 5, w + 2, 5);
+    ctx.fillStyle = '#e8cf82'; ctx.fillRect(e.x - w / 2, y + 6, w * e.stored / e.def.store, 3);
   }
   if (e.kind === 'building' && e.queue && e.queue.length && e.built >= 1) {
     const def = UNIT_TYPES[e.queue[0]];

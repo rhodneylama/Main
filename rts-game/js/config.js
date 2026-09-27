@@ -13,7 +13,7 @@ const CONFIG = {
   MAP_H: 72,           // map height, in squares
   TICK_RATE: 30,       // game updates per second
 
-  START_SCRAP: 300,    // scrap each side starts with
+  START_SCRAP: 300,    // scrap each side starts with (the Recycler's storage is full)
   UNIT_CAP: 50,        // most units a side can have at once
 
   WRECK_SCRAP_FRACTION: 0.3, // share of a destroyed unit's cost left as salvage
@@ -31,13 +31,20 @@ const UNIT_TYPES = {
   scavenger: {
     name: 'Scavenger', role: 'harvester', cost: 60, buildTime: 6,
     hp: 180, speed: 70, radius: 13, sight: 200,
-    carryMax: 35, gatherRate: 7,
+    carryMax: 25, gatherRate: 4,
     desc: 'Collects loose scrap and hauls it home. Can deploy onto a scrap geyser to become an Extractor.',
   },
   constructor: {
     name: 'Constructor', role: 'builder', cost: 80, buildTime: 8,
     hp: 160, speed: 66, radius: 13, sight: 220, repairRate: 25,
     desc: 'Builds and repairs structures.',
+  },
+  // No gun. A shield soaks up damage first and recharges once out of combat.
+  transport: {
+    name: 'Transport', role: 'hauler', cost: 70, buildTime: 7,
+    hp: 120, speed: 78, radius: 14, sight: 200,
+    carryMax: 60, shield: 150, shieldRegen: 20, shieldDelay: 3,
+    desc: 'Ferries scrap from Outpost Silos and Extractors back to base. Unarmed, but shielded.',
   },
   scout: {
     name: 'Scout', role: 'combat', cost: 50, buildTime: 5,
@@ -64,7 +71,7 @@ const UNIT_TYPES = {
 const BUILDING_TYPES = {
   recycler: {
     name: 'Recycler', cost: 0, buildTime: 1, hp: 4000, size: 3, sight: 300, buildable: false,
-    produces: ['scavenger', 'constructor'], dropoff: true, buildRadius: 14,
+    produces: ['scavenger', 'constructor', 'transport'], dropoff: true, capacity: 300, buildRadius: 14,
     weapon: { range: 210, damage: 24, cooldown: 0.8, projectile: 'bullet', vsBuilding: 1 },
     desc: 'Your headquarters, with a light defence gun. Lose it and you lose the battle.',
   },
@@ -77,8 +84,20 @@ const BUILDING_TYPES = {
   // turns into one. buildTime is how long the deployment takes.
   extractor: {
     name: 'Extractor', cost: 0, buildTime: 8, hp: 900, size: 2, sight: 240,
-    income: 1.2, dropoff: true, buildRadius: 9, buildable: false,
-    desc: 'Pumps scrap from a geyser forever. Also a drop-off point, and expands the area you can build in.',
+    income: 1.0, store: 30, buildRadius: 9, buildable: false,
+    desc: 'Pumps scrap from a geyser into nearby Outpost Silos. Holds only a little itself. Expands your territory.',
+  },
+  // Built next to the Recycler: raises how much scrap you can hold.
+  basesilo: {
+    name: 'Base Silo', cost: 250, buildTime: 14, hp: 1100, size: 2, sight: 200,
+    capacity: 300, dropoff: true, buildRadius: 8, placeNear: 'recycler', placeRange: 7,
+    desc: 'Adds 300 to your scrap storage. Must be built next to your Recycler.',
+  },
+  // Built next to an Extractor: holds what it pumps until a Transport collects it.
+  outsilo: {
+    name: 'Outpost Silo', cost: 150, buildTime: 10, hp: 700, size: 2, sight: 200,
+    store: 150, dropoff: true, buildRadius: 5, placeNear: 'extractor', placeRange: 6,
+    desc: 'Holds 150 scrap from a nearby Extractor until a Transport hauls it home.',
   },
   tower: {
     name: 'Gun Tower', cost: 110, buildTime: 14, hp: 1000, size: 2, sight: 300,
@@ -98,14 +117,15 @@ const HOTKEYS = ['Q', 'W', 'E', 'R', 'T'];
 //   maxArmy          most combat vehicles it will build
 //   armyPerMinute    how fast its army may grow (0 = no limit)
 //   maxExtractors    how many scrap geysers it will claim
+//   maxBaseSilos     how many Base Silos it will build to store more scrap
 //   maxScavengers    most scavengers it will build
 //   thinkEvery       seconds between decisions (slower = sloppier)
 //   artilleryAfter   seconds before it starts building artillery
 const DIFFICULTY = {
   easy:   { label: 'Easy',   incomeMult: 0.5,  firstAttack: 600, waveEvery: 240, waveBase: 3, waveGrowth: 0.25,
-            maxArmy: 8,  armyPerMinute: 0.7, maxExtractors: 1, maxScavengers: 3, thinkEvery: 2.5, artilleryAfter: 1200, secondFactory: false },
+            maxArmy: 8,  armyPerMinute: 0.7, maxExtractors: 1, maxBaseSilos: 1, maxScavengers: 3, thinkEvery: 2.5, artilleryAfter: 1200, secondFactory: false },
   normal: { label: 'Normal', incomeMult: 1.0,  firstAttack: 300, waveEvery: 150, waveBase: 5, waveGrowth: 0.8,
-            maxArmy: 25, armyPerMinute: 3, maxExtractors: 3, maxScavengers: 6, thinkEvery: 1.0, artilleryAfter: 240, secondFactory: true },
+            maxArmy: 25, armyPerMinute: 3, maxExtractors: 3, maxBaseSilos: 2, maxScavengers: 6, thinkEvery: 1.0, artilleryAfter: 240, secondFactory: true },
   hard:   { label: 'Hard',   incomeMult: 1.35, firstAttack: 180, waveEvery: 100, waveBase: 6, waveGrowth: 1.5,
-            maxArmy: 40, armyPerMinute: 0, maxExtractors: 4, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true },
+            maxArmy: 40, armyPerMinute: 0, maxExtractors: 4, maxBaseSilos: 3, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true },
 };

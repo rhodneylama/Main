@@ -47,7 +47,8 @@
   .stat { display: flex; flex-direction: column; line-height: 1.1; }
   .stat b { font-size: 17px; }
   .stat .label { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
-  #scrap { color: #e8cf82; }
+  #scrap { color: #e8cf82; font-variant-numeric: tabular-nums; }
+  #scrap.full { color: var(--warn); }
   .bases { display: flex; align-items: center; gap: 8px; }
   .tbar { width: 110px; height: 8px; background: #222; border-radius: 4px; overflow: hidden; }
   .tbar div { height: 100%; transition: width .3s; }
@@ -205,7 +206,9 @@
       <li><b>Collect scrap.</b> Scavengers gather it automatically. Scrap pays for everything.</li>
       <li><b>Build up.</b> Make a Factory, build an army, and put Gun Towers where the enemy will attack.</li>
       <li><b>Claim scrap geysers.</b> Send a Scavenger to a glowing geyser and it turns into an <b>Extractor</b> that pumps scrap
-        forever. Extractors extend the area you can build in, so guard them with Gun Towers.</li>
+        forever. Build an <b>Outpost Silo</b> beside it to hold the scrap, and a <b>Transport</b> from your Recycler to haul it home.</li>
+      <li><b>Mind your storage.</b> You can only hold as much scrap as your base has room for (300 to start).
+        Build <b>Base Silos</b> next to your Recycler to hold more.</li>
       <li><b>Protect your Recycler</b> (your HQ) at all costs. If it falls, you lose.
         <b>Destroy the enemy Recycler</b> in the far corner to win.</li>
     </ul>
@@ -253,6 +256,7 @@
       <tr><td><b>Patrol</b></td><td>Tanks loop around your buildings and fight anything they meet.</td></tr>
       <tr><td><b>Defend</b></td><td>Artillery digs in beside one of your buildings and shells anything in range. Press Defend, then pick the building.</td></tr>
       <tr><td><b>Deploy on geyser</b></td><td>A Scavenger drives onto a scrap geyser and becomes an Extractor.</td></tr>
+      <tr><td><b>Auto-haul</b></td><td>Transports collect from whichever Outpost Silo or Extractor is fullest. Pick one yourself by tapping or right-clicking it.</td></tr>
 </table>
     <table class="only-mouse">
       <tr><td><b>Left-click / drag</b></td><td>Select vehicles. Double-click selects all of that type on screen. Hold <kbd>Shift</kbd> to add.</td></tr>
@@ -269,6 +273,7 @@
       <tr><td><b>Patrol</b></td><td>Tanks loop around your buildings and fight anything they meet.</td></tr>
       <tr><td><b>Defend</b></td><td>Artillery digs in beside one of your buildings and shells anything in range. Press Defend, then pick the building.</td></tr>
       <tr><td><b>Deploy on geyser</b></td><td>A Scavenger drives onto a scrap geyser and becomes an Extractor.</td></tr>
+      <tr><td><b>Auto-haul</b></td><td>Transports collect from whichever Outpost Silo or Extractor is fullest. Pick one yourself by tapping or right-clicking it.</td></tr>
 </table>
     <h2>Tips</h2>
     <ul>
@@ -277,6 +282,8 @@
       <li>Destroyed vehicles leave <b>salvage</b>. Scavengers can collect it.</li>
       <li>You can only build near your own buildings. Extractors on geysers push that area outward.</li>
       <li>Loose scrap runs out. Geysers never do, so claim them early.</li>
+      <li>The scrap counter shows what you hold and how much room you have. When it turns yellow you're full, and scrap waits outside until you spend some or build a Base Silo.</li>
+      <li>Transports are unarmed but shielded. The shield recharges a few seconds after they stop taking hits.</li>
       <li>The enemy attacks in waves. Towers and a few tanks at home keep your Recycler safe while your army is away.</li>
       <li>Constructors can repair damaged buildings: select one and tap or right-click the building.</li>
     </ul>
