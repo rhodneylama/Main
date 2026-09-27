@@ -907,7 +907,7 @@ function frame(now) {
   view.pings = view.pings.filter(p => p.t < 0.5);
   handleEvents();
   drawGame(ctx, game, view);
-  drawMinimap(miniCtx, game, view);
+  if (!minimapCollapsed) drawMinimap(miniCtx, game, view);
   panelTimer += dt;
   if (panelTimer > 0.25) { panelTimer = 0; updateHud(); refreshPanel(); }
 }
@@ -927,6 +927,19 @@ $('again').onclick = () => { $('end').classList.add('hidden'); $('menu').classLi
 $('helpbtn').onclick = () => $('help').classList.toggle('hidden');
 $('helpclose').onclick = () => $('help').classList.add('hidden');
 $('pausebtn').onclick = togglePause;
+
+// The minimap can be folded away to free up screen space. The choice is
+// remembered on this device.
+let minimapCollapsed = false;
+function setMinimapCollapsed(on) {
+  minimapCollapsed = on;
+  $('minimap-wrap').classList.toggle('collapsed', on);
+  $('maptoggle').textContent = on ? 'Map ▸' : 'Map ▾';
+  $('maptoggle').setAttribute('aria-expanded', String(!on));
+  try { localStorage.setItem('scrapline.minimapCollapsed', on ? '1' : '0'); } catch (err) { /* storage is optional */ }
+}
+try { setMinimapCollapsed(localStorage.getItem('scrapline.minimapCollapsed') === '1'); } catch (err) { setMinimapCollapsed(false); }
+onPress($('maptoggle'), () => setMinimapCollapsed(!minimapCollapsed));
 onPress($('q-army'), () => game && toggleArmyMenu());
 for (const b of document.querySelectorAll('#armymenu button')) onPress(b, () => game && selectArmyType(b.dataset.army));
 onPress($('q-base'), () => game && centerOn(findHQ(view.team)));

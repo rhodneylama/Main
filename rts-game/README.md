@@ -58,6 +58,7 @@ The game works on touch screens. Turning your phone sideways gives the best view
 | Scroll / zoom | Drag one finger / pinch |
 | Build | Select the Constructor, pick a building, tap where it goes, then press **Build here** |
 | Deselect, jump home, find an idle worker | **Deselect**, **Base**, **Idle worker** buttons |
+| Hide or show the minimap | **Map** button above it |
 
 ## Controls (mouse and keyboard)
 

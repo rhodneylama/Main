@@ -562,7 +562,9 @@ The game speed button cycles through ×1, ×2 and ×4.
 - **Quick buttons:** Army ▾, Base, Idle worker, Deselect. They sit above the
   panel, or down the left edge on a phone held sideways.
 - **Minimap:** bottom-right corner (top-right on phones). Shows fog, units,
-  buildings, geysers and alerts. Tap it to move the camera.
+  buildings, geysers and alerts. Tap it to move the camera. The **Map**
+  button above it folds it away to a small tab; the choice is remembered on
+  that device.
 - **Message log:** top-left. Shows the latest messages, or only the latest
   two on a sideways phone.
 - **Screens:** title (difficulty choice, Watch AI vs AI), help, pause, end

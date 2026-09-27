@@ -74,10 +74,15 @@
   .queue { width: 100%; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
   .chip { padding: 2px 7px; font-size: 12px; }
   .tip { width: 100%; }
-  #minimap-wrap { position: fixed; right: 0; bottom: 0; width: calc(232px + var(--safe-r)); height: calc(176px + var(--safe-b));
+  #minimap-wrap { position: fixed; right: 0; bottom: 0; width: calc(232px + var(--safe-r)); height: auto;
     padding: 8px calc(8px + var(--safe-r)) calc(8px + var(--safe-b)) 8px; background: var(--panel);
     border-top: 1px solid var(--edge); border-left: 1px solid var(--edge); z-index: 5; }
   #minimap { width: 216px; height: 162px; display: block; cursor: pointer; image-rendering: auto; touch-action: none; }
+  #maptoggle { display: block; padding: 2px 9px; margin-bottom: 4px; font-size: 12px; }
+  /* Collapsed: only the small Map button stays. */
+  #minimap-wrap.collapsed { width: auto; height: auto; padding: 6px calc(6px + var(--safe-r)) calc(6px + var(--safe-b)) 6px; }
+  #minimap-wrap.collapsed #minimap { display: none; }
+  #minimap-wrap.collapsed #maptoggle { margin-bottom: 0; }
   #quickbar { position: fixed; left: calc(10px + var(--safe-l)); bottom: calc(var(--panel-h) + 8px); z-index: 5; display: flex; gap: 6px; }
   #quickbar button { background: var(--panel); padding: 6px 11px; font-size: 13px; }
   #armymenu { position: fixed; left: calc(10px + var(--safe-l)); bottom: calc(var(--panel-h) + 52px); z-index: 6;
@@ -152,6 +157,8 @@
     #minimap-wrap { top: calc(var(--top-h) + 6px); bottom: auto; right: calc(6px + var(--safe-r)); width: auto; height: auto; padding: 4px;
       border: 1px solid var(--edge); border-radius: 4px; }
     #minimap { width: 132px; height: 99px; }
+    #maptoggle { padding: 4px 9px; min-height: 30px; }
+    #minimap-wrap.collapsed { padding: 4px; }
     #quickbar button { min-height: 40px; padding: 6px 12px; }
     #log { font-size: 12px; max-width: calc(100vw - 170px); }
     .card { padding: 18px 18px; }
@@ -215,7 +222,10 @@
   <button id="q-idle" title="Find an idle worker (X)">Idle worker</button>
   <button id="q-clear" title="Deselect (Esc)">Deselect</button>
 </div>
-<div id="minimap-wrap"><canvas id="minimap" width="216" height="162"></canvas></div>
+<div id="minimap-wrap">
+  <button id="maptoggle" aria-expanded="true" title="Show or hide the minimap">Map ▾</button>
+  <canvas id="minimap" width="216" height="162"></canvas>
+</div>
 
 <!-- Title screen -->
 <div id="menu" class="overlay">
