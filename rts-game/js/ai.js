@@ -177,7 +177,7 @@ function expansionTarget(game, team, hq) {
 // for Red, so both sides place buildings in exactly the same way.
 function findBuildSpot(game, team, type, hq, towardAngle, near) {
   const T = CONFIG.TILE, size = BUILDING_TYPES[type].size, W = game.map.W, H = game.map.H;
-  const flip = team !== 1;
+  const flip = !inMirroredHalf(game, hq.x, hq.y);  // based in the top-right corner
   const local = p => flip ? { x: W * T - p.x, y: H * T - p.y } : { x: p.x, y: p.y };
   const world = (tx, ty) => flip ? { x: W - size - tx, y: H - size - ty } : { x: tx, y: ty };
   const ok = (tx, ty) => { const w = world(tx, ty); return canPlaceBuilding(game, team, type, w.x, w.y).ok; };

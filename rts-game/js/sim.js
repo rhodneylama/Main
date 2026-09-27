@@ -32,6 +32,10 @@ function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams
     winner: 0,
     ai: {},
   };
+  // Which corner each side starts in is decided at random for every game,
+  // so neither side can count on a favourable spot.
+  const swap = makeRng(seed * 31 + 7)() < 0.5;
+  game.corner = { 1: swap ? 2 : 1, 2: swap ? 1 : 2 };
   for (const t of [1, 2]) {
     game.teams[t] = {
       id: t, scrap: CONFIG.START_SCRAP,
@@ -40,9 +44,9 @@ function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams
       stats: { built: 0, lost: 0, killed: 0, scrapGathered: 0 },
     };
     // Everyone starts on wheels: the Recycler must be deployed on a geyser.
-    const b = map.bases[t];
+    const b = map.bases[game.corner[t]];
     const home = { x: (b.x + 0.5) * CONFIG.TILE, y: (b.y + 0.5) * CONFIG.TILE };
-    const dir = t === 1 ? 1 : -1;
+    const dir = game.corner[t] === 1 ? 1 : -1;
     const spawn = (type, ox, oy) => addUnit(game, type, t, home.x + ox * dir * CONFIG.TILE, home.y + oy * dir * CONFIG.TILE);
     spawn('mobileRecycler', 0, -1.5);
     spawn('scavenger', 3, -1); spawn('scavenger', 3, 1);
@@ -58,12 +62,17 @@ function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams
 // Creating things
 // ---------------------------------------------------------------------------
 
+// New things face the middle of the map, whichever corner they're in.
+function faceCentre(game, x, y) {
+  return Math.atan2(game.map.H * CONFIG.TILE / 2 - y, game.map.W * CONFIG.TILE / 2 - x);
+}
+
 function addUnit(game, type, team, x, y) {
   const def = UNIT_TYPES[type];
   const u = {
     id: game.nextId++, kind: 'unit', type, def, team, x, y,
     hp: def.hp, maxHp: def.hp, radius: def.radius,
-    angle: team === 1 ? -Math.PI / 4 : Math.PI * 3 / 4, turret: 0,
+    angle: faceCentre(game, x, y), turret: 0,
     order: { type: 'idle', gx: x, gy: y }, path: [], target: null,
     cooldown: 0, carry: 0, stuck: 0, retarget: 0, lastHitBy: null, hitFlash: 0,
     shield: def.shield || 0, shieldWait: 0, shieldFlash: 0,
@@ -80,7 +89,7 @@ function addBuilding(game, type, team, tx, ty, complete) {
     x: (tx + def.size / 2) * T, y: (ty + def.size / 2) * T, radius: def.size * T / 2,
     hp: complete ? def.hp : def.hp * 0.1, maxHp: def.hp,
     built: complete ? 1 : 0, queue: [], prodTime: 0, stored: 0,
-    rally: null, cooldown: 0, turret: team === 1 ? -Math.PI / 4 : Math.PI * 3 / 4,
+    rally: null, cooldown: 0, turret: faceCentre(game, (tx + def.size / 2) * T, (ty + def.size / 2) * T),
     target: null, retarget: 0, hitFlash: 0, seen: {},
   };
   setOccupied(game, b, 1);
@@ -469,8 +478,10 @@ function pumpExtractor(game, b, dt) {
 
 function spawnFromBuilding(game, b, type) {
   const T = CONFIG.TILE;
-  const exitY = b.team === 1 ? b.ty - 1 : b.ty + b.size;
-  const exitX = b.team === 1 ? b.tx + b.size : b.tx - 1;
+  // Vehicles roll out of the corner facing the middle of the map.
+  const lowerLeft = inMirroredHalf(game, b.x, b.y);
+  const exitY = lowerLeft ? b.ty - 1 : b.ty + b.size;
+  const exitX = lowerLeft ? b.tx + b.size : b.tx - 1;
   const spot = nearestOpenTile(game, exitX, exitY, 6) || { x: b.tx, y: b.ty };
   const u = addUnit(game, type, b.team, (spot.x + 0.5) * T, (spot.y + 0.5) * T);
   game.teams[b.team].stats.built++;
