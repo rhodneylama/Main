@@ -79,13 +79,16 @@ The game works on touch screens. Turning your phone sideways gives the best view
 
 | Unit | Cost | Role | Special order |
 | --- | --- | --- | --- |
-| Scavenger | 60 | Collects loose scrap automatically. | **Deploy on geyser**: drives onto a scrap geyser and becomes an Extractor. |
+| Scavenger | 60 | Collects loose scrap automatically. Cannot deploy. | |
+| Scavenger II | 80 | Built by a Recycler II. Collects scrap. | **Deploy on geyser**: drives onto a scrap geyser and becomes an Extractor. |
 | Recycler (mobile) | — | Your starting vehicle. Your base on wheels. | **Deploy base**: drive onto a scrap geyser and become your Recycler. |
-| Constructor | 80 | Builds and repairs buildings. | |
+| Constructor | 80 | Builds buildings. Cannot repair. | |
+| Constructor II | 110 | Built by a Recycler II. Builds and repairs buildings. | |
 | Transport | 70 | Hauls scrap from Extractors that have no Extractor Silo back to base. Unarmed, but has a recharging shield. | **Auto-haul**: empties whichever Extractor tank is fullest. Tap or right-click an Extractor to haul from that one only. |
 | Scout | 50 | Fast, sees far. Spots targets for artillery. | **Scout**: explores the map. With several selected, **Scout as pack** keeps them together; **Scout solo** spreads them out. |
 | Tank | 100 | Tough all-rounder. | **Patrol**: loops around your buildings and fights anything it meets. |
 | Artillery | 140 | Very long range and splash damage, but very slow, and it can only hit what your side can see. | **Defend**: digs in beside one of your buildings and shells anything in range. |
+| Scout / Tank / Artillery Mk II | 75 / 150 / 210 | Researched at a Research Lab, built at a Factory II. About +40% armour, +30% damage, +20% speed. Marked with gold chevrons. | As the basic version. |
 
 | Building | Cost | Role |
 | --- | --- | --- |
@@ -95,6 +98,13 @@ The game works on touch screens. Turning your phone sideways gives the best view
 | Base Silo | 250 | Adds 300 to your scrap storage. Must be next to your Recycler. |
 | Extractor Silo | 500 | Must be joined right onto an Extractor. Sends that Extractor's scrap straight to your total and adds 125 storage. |
 | Gun Tower | 110 | Defensive turret. |
+| Research Lab | 200 | Researches Advanced Scouts (150), Tanks (200) and Artillery (250), one at a time. |
+| Radar | 150 | Every 30 seconds, a ping reveals a wide circle (750 px, 2.5× normal sight) for 4 seconds. |
+| Repair Pad | 150 | A flat 3×3 pad. Vehicles parked on it are repaired at 30 health a second (shields too). **Go repair** sends damaged vehicles there. |
+
+**Upgrades:** the Recycler upgrades to **Recycler II** (250 scrap, 40 s), which builds Scavenger IIs and
+Constructor IIs. A Factory upgrades to **Factory II** (200 scrap, 30 s), which builds researched Mk II
+vehicles. Production pauses while a building upgrades.
 
 ### Scrap and storage
 

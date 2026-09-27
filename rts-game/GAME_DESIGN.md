@@ -35,6 +35,7 @@ and are listed with their file so they can be found.
 19. [Known problems and open questions](#19-known-problems-and-open-questions)
 20. [Design history: decisions already made](#20-design-history-decisions-already-made)
 21. [A framework for systematic improvement](#21-a-framework-for-systematic-improvement)
+22. [Tech tree: upgrades, research, radar, repair](#22-tech-tree-upgrades-research-radar-repair)
 
 ---
 
@@ -250,8 +251,8 @@ Scavengers, Constructors, Transports and the mobile Recycler are unarmed.
 | Unit | Ability |
 | --- | --- |
 | Recycler (mobile) | **Deploy base:** drives onto a free geyser and becomes the Recycler building (10 s to set up). Holds 300 storage while mobile. |
-| Scavenger | Collects loose scrap automatically. **Deploy on geyser:** becomes an Extractor (8 s to set up). Carries 25. |
-| Constructor | Builds and repairs buildings. Repairs at 25 HP per second. |
+| Scavenger | Collects loose scrap automatically. Carries 25. Only the **Scavenger II** can deploy on a geyser (see section 22). |
+| Constructor | Builds buildings. Only the **Constructor II** can repair (25 HP per second; see section 22). |
 | Transport | **Auto-haul:** empties the fullest Extractor tank (at least 15 stored), preferring ones no other Transport is heading to. Loads 40 per second, carries 60. **Shield:** absorbs the first 150 damage; recharges at 20 per second after 3 seconds without being hit. |
 | Scout | **Scout** (alone) or **Scout as pack** / **Scout solo** (groups). |
 | Tank | **Patrol:** loops around all your buildings. |
@@ -683,12 +684,12 @@ and decision timing.
    random corners each game, which makes the two teams even on average
    (23 vs 24) but means one player gets a much harder game.
    **Top priority to find and fix.**
-2. **Stalemates.** About 1 in 5 AI-vs-AI games reach 30 to 40 minutes
+2. **Stalemates.** Since the tech tree was added, about 2 in 5 AI-vs-AI games reach 30 minutes without a winner (before it, about 1 in 5) reach 30 to 40 minutes
    without a winner, because well-defended bases are hard to crack with slow
    units. It is unknown whether human games feel too long.
 3. **Never tested on a real phone.** Touch controls have only been tested
    in a simulated iPhone.
-4. **The AI never uses Scout, Patrol or Defend,** and never demolishes.
+4. **The AI never uses Scout, Patrol, Defend or Go repair,** never builds a Repair Pad, and never demolishes.
 5. **The AI rarely builds Extractor Silos** (they cost 500 and need a Base
    Silo first). In 10-minute test games, neither side built one.
 6. **Balance is untested with human play.** All numbers come from design
@@ -773,3 +774,84 @@ to refine, not a finished plan.
 - Simulation cost per game-second (performance).
 - For human tests: win or loss, game length, what was confusing, what felt
   unfair or boring.
+
+---
+
+## 22. Tech tree: upgrades, research, radar, repair
+
+Added after the rest of this document; these rules override anything
+earlier that conflicts.
+
+### Worker tiers
+
+| Unit | Cost | Build time | HP | Built by | Can deploy on geysers | Can repair buildings |
+| --- | --- | --- | --- | --- | --- | --- |
+| Scavenger | 60 | 6 s | 180 | Recycler | No | — |
+| Scavenger II | 80 | 7 s | 180 | Recycler II | Yes | — |
+| Constructor | 80 | 8 s | 160 | Recycler | — | No (can still build and finish construction) |
+| Constructor II | 110 | 9 s | 200 | Recycler II | — | Yes, 25 HP/s |
+
+Both starting Scavengers and the starting Constructor are the basic versions,
+so no geyser can be claimed until the Recycler is upgraded.
+
+### Building upgrades
+
+| Upgrade | Cost | Time | New HP | Unlocks |
+| --- | --- | --- | --- | --- |
+| Recycler → Recycler II | 250 | 40 s | 5,000 | Builds Scavenger II, Constructor II, Transport (replaces the basic workers) |
+| Factory → Factory II | 200 | 30 s | 1,800 | Also builds Scout, Tank and Artillery Mk II, once each is researched |
+
+Production pauses while a building upgrades; queued units wait. Upgraded
+buildings show gold chevrons.
+
+### Research Lab
+
+Cost 200, build 20 s, 900 HP, 2×2, territory radius 6. It researches one topic
+at a time; the same topic can't be researched twice or in two labs at once.
+
+| Research | Cost | Time | Unlocks |
+| --- | --- | --- | --- |
+| Advanced Scouts | 150 | 45 s | Scout Mk II |
+| Advanced Tanks | 200 | 60 s | Tank Mk II |
+| Advanced Artillery | 250 | 75 s | Artillery Mk II |
+
+### Mk II vehicles
+
+About +40% HP, +30% damage, +20% speed, +50% cost. Marked with gold chevrons.
+They keep the orders of the basic version (Scout, Patrol, Defend).
+
+| Unit | Cost | Build | HP | Speed | Damage | DPS |
+| --- | --- | --- | --- | --- | --- | --- |
+| Scout Mk II | 75 | 7 s | 196 | 118 | 10 | 28.6 |
+| Tank Mk II | 150 | 12 s | 560 | 48 | 44 | 36.7 |
+| Artillery Mk II | 210 | 16 s | 280 | 38 | 78 | 22.3 (splash) |
+
+### Radar
+
+Cost 150, build 16 s, 600 HP, 2×2, normal sight 220. It pings once on
+completion, then every **30 s**. Each ping reveals everything within **750 px**
+(2.5 times a normal building's sight) for **4 s**, shown as a sweeping green
+ring. Enemies revealed by a ping can be targeted, including by artillery.
+
+### Repair Pad
+
+Cost 150, build 12 s, 800 HP, **3×3 and flat**: vehicles drive over it, and
+nothing can be built on it. Any of your vehicles parked on it regains **30 HP
+per second**, and Transport shields refill at the same rate. Repairing
+vehicles show a pulsing green ring and rising green "+" signs. **Go repair**
+(shown for damaged vehicles once a pad exists) sends the selection to the
+nearest pad.
+
+### How the computer opponent uses the tech tree
+
+| | Easy | Normal | Hard |
+| --- | --- | --- | --- |
+| Upgrades Recycler after | 5:00 | 2:00 | 1:30 |
+| Builds a Research Lab after | never | 6:00 | 4:00 |
+| Builds a Radar after | never | 8:00 | 6:00 |
+
+It pauses army production while saving for an upgrade or research. It
+researches Tanks, then Scouts, then Artillery; upgrades one Factory once
+anything is researched; and builds Mk II versions when it can. It keeps one
+Constructor II for repairs, and builds a Scavenger II whenever it wants a new
+geyser. In a test game on Normal it had Tank Mk IIs by about 13 minutes.

@@ -69,6 +69,7 @@
   .hk { position: absolute; top: 3px; right: 6px; font-size: 10px; color: var(--dim); }
   .lbl { font-weight: 600; }
   .cost { font-size: 12px; color: #e8cf82; }
+  .note { font-size: 11px; color: var(--dim); }
   .cost::after { content: " scrap"; color: var(--dim); }
   .queue { width: 100%; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
   .chip { padding: 2px 7px; font-size: 12px; }
@@ -137,6 +138,13 @@
     .selname { font-size: 14px; }
     #selinfo .small { display: none; }
     #commands { flex: 1; gap: 5px; }
+    /* One row of buttons that scrolls sideways keeps the panel short, so it
+       never pushes the quick buttons up over the map. */
+    #panel { max-height: 34vh; }
+    #commands { flex-wrap: nowrap; overflow-x: auto; align-items: flex-start; align-content: flex-start; flex-direction: row; }
+    #commands > button { flex-shrink: 0; }
+    .queue { flex-wrap: nowrap; width: auto; flex-shrink: 0; }
+    #commands .tip { flex-shrink: 0; width: auto; max-width: 60vw; white-space: normal; }
     #commands > button { min-width: 88px; min-height: 44px; padding: 4px 8px; font-size: 13px; }
     #commands > button .hk { display: none; }
     .chip { min-height: 32px; }
@@ -157,11 +165,6 @@
     #armymenu { flex-direction: column; bottom: auto; top: calc(var(--top-h) + 8px); left: calc(112px + var(--safe-l)); }
     #log { left: calc(112px + var(--safe-l)); font-size: 11px; }
     #log .msg:nth-last-child(n+3) { display: none; }  /* only the latest two */
-    /* One row of buttons (scrolls sideways if needed) keeps the panel short. */
-    #panel { max-height: 34vh; }
-    #commands { flex-wrap: nowrap; overflow-x: auto; align-items: flex-start; }
-    #commands > button { flex-shrink: 0; }
-    .queue { flex-wrap: nowrap; width: auto; flex-shrink: 0; }
     /* Instructions float just above the panel instead of making it taller. */
     #commands .tip { position: fixed; left: calc(112px + var(--safe-l)); right: 150px; bottom: calc(var(--panel-h) + 6px);
       width: auto; background: rgba(0,0,0,.7); padding: 4px 9px; border-radius: 4px; pointer-events: none; z-index: 6; }
@@ -224,7 +227,8 @@
       <li><b>Deploy your base.</b> You start with your Recycler on wheels. Drive it onto a glowing scrap geyser and
         press <b>Deploy base</b>. It becomes your headquarters and slowly pumps that geyser.</li>
       <li><b>Collect scrap.</b> Scavengers gather loose scrap automatically. Scrap pays for everything.</li>
-      <li><b>Claim more geysers.</b> Send a Scavenger to another geyser to turn it into an <b>Extractor</b>. Join an
+      <li><b>Upgrade your Recycler</b> to Recycler II. Only its <b>Scavenger IIs</b> can deploy on geysers, and only its <b>Constructor IIs</b> can repair.</li>
+      <li><b>Claim more geysers.</b> Send a Scavenger II to another geyser to turn it into an <b>Extractor</b>. Join an
         <b>Extractor Silo</b> onto it and its scrap flows straight into your total. Until then, a <b>Transport</b> hauls it home.</li>
       <li><b>Mind your storage.</b> You can only hold as much scrap as you have room for (300 to start).
         Build <b>Base Silos</b> next to your Recycler to hold more.</li>
@@ -278,6 +282,9 @@
       <tr><td><b>Auto-haul</b></td><td>Transports empty the tanks of Extractors that have no Extractor Silo. Pick one yourself by tapping or right-clicking it.</td></tr>
       <tr><td><b>Waypoint</b></td><td>Select your Recycler or a Factory, press Set waypoint, then pick a spot. Every new vehicle drives there. Clear waypoint removes it.</td></tr>
       <tr><td><b>Demolish</b></td><td>Select a building and press Demolish, then Confirm. Half its cost is left on the ground as scrap for Scavengers.</td></tr>
+      <tr><td><b>Upgrades</b></td><td>Select your Recycler or a Factory and press Upgrade. Recycler II builds Scavenger IIs (the only ones that can deploy on geysers) and Constructor IIs (the only ones that can repair). Factory II builds researched Mk II vehicles.</td></tr>
+      <tr><td><b>Research</b></td><td>Build a Research Lab and research Advanced Scouts, Tanks or Artillery, one at a time. Mk II vehicles have more armour, damage and speed.</td></tr>
+      <tr><td><b>Go repair</b></td><td>Sends damaged vehicles to your nearest Repair Pad. Vehicles parked on the pad are repaired.</td></tr>
 </table>
     <table class="only-mouse">
       <tr><td><b>Left-click / drag</b></td><td>Select vehicles. Double-click selects all of that type on screen. Hold <kbd>Shift</kbd> to add.</td></tr>
@@ -297,6 +304,9 @@
       <tr><td><b>Auto-haul</b></td><td>Transports empty the tanks of Extractors that have no Extractor Silo. Pick one yourself by tapping or right-clicking it.</td></tr>
       <tr><td><b>Waypoint</b></td><td>Select your Recycler or a Factory, press Set waypoint, then pick a spot. Every new vehicle drives there. Clear waypoint removes it.</td></tr>
       <tr><td><b>Demolish</b></td><td>Select a building and press Demolish, then Confirm. Half its cost is left on the ground as scrap for Scavengers.</td></tr>
+      <tr><td><b>Upgrades</b></td><td>Select your Recycler or a Factory and press Upgrade. Recycler II builds Scavenger IIs (the only ones that can deploy on geysers) and Constructor IIs (the only ones that can repair). Factory II builds researched Mk II vehicles.</td></tr>
+      <tr><td><b>Research</b></td><td>Build a Research Lab and research Advanced Scouts, Tanks or Artillery, one at a time. Mk II vehicles have more armour, damage and speed.</td></tr>
+      <tr><td><b>Go repair</b></td><td>Sends damaged vehicles to your nearest Repair Pad. Vehicles parked on the pad are repaired.</td></tr>
 </table>
     <h2>Tips</h2>
     <ul>
@@ -304,7 +314,9 @@
       <li><b>Artillery</b> hits from very far, but only what your side can see. Pair it with scouts.</li>
       <li>Destroyed vehicles leave <b>salvage</b>. Scavengers can collect it.</li>
       <li>You can only build near your own buildings. Extractors on geysers push that area outward.</li>
-      <li>Loose scrap runs out. Geysers never do, so claim them early.</li>
+      <li>Loose scrap runs out. Geysers never do, so upgrade your Recycler and claim them early.</li>
+      <li>A <b>Radar</b> pings every 30 seconds, briefly revealing a wide area. Artillery can fire at anything the ping shows.</li>
+      <li>Research at a <b>Research Lab</b>, then upgrade a Factory to <b>Factory II</b> to build Mk II vehicles.</li>
       <li>The scrap counter shows what you hold and how much room you have. When it turns yellow you're full, and scrap waits outside until you spend some or build a Base Silo.</li>
       <li>Transports are unarmed but shielded. The shield recharges a few seconds after they stop taking hits.</li>
       <li>The enemy attacks in waves. Towers and a few tanks at home keep your Recycler safe while your army is away.</li>

@@ -33,8 +33,9 @@ function aiUpdate(game, team) {
     }
     return;
   }
-  const count = type => units.filter(u => u.type === type).length +
-    buildings.reduce((n, b) => n + b.queue.filter(q => q === type).length, 0);
+  // Counts by basic kind, so a Tank Mk II counts as a tank.
+  const count = type => units.filter(u => baseType(u) === type).length +
+    buildings.reduce((n, b) => n + b.queue.filter(q => (UNIT_TYPES[q].base || q) === type).length, 0);
   const has = type => buildings.filter(b => b.type === type).length;
   const cmd = c => issueCommand(game, team, c);
   const toCenter = angleTo(hq, { x: game.map.W * CONFIG.TILE / 2, y: game.map.H * CONFIG.TILE / 2 });
@@ -45,40 +46,57 @@ function aiUpdate(game, team) {
   const extractors = buildings.filter(b => b.type === 'extractor' && b.built >= 1);
   const hasSilo = x => buildings.some(s => s.type === 'outsilo' && footprintGap(x, s.tx, s.ty, s.size) <= 1);
   const unjoined = extractors.filter(x => !hasSilo(x));
-  if (!hq.queue.length) {
-    if (count('constructor') < 1 && tm.scrap >= UNIT_TYPES.constructor.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'constructor' });
+  // --- Recycler upgrade: needed for Scavenger IIs (geysers) and Constructor IIs (repairs)
+  const upgraded = hq.level > 1;
+  const scavType = upgraded ? 'scavenger2' : 'scavenger', conType = upgraded ? 'constructor2' : 'constructor';
+  ai.savingUp = false;
+  if (!upgraded && hq.upgrading === null && game.time > diff.upgradeBaseAfter && has('factory')) {
+    if (tm.scrap >= BUILDING_TYPES.recycler.upgrade.cost) cmd({ type: 'upgrade', buildingId: hq.id });
+    else ai.savingUp = true;
+  }
+  const deployers = units.filter(u => u.def.canDeploy && u.order.type !== 'deploy');
+  const wantsGeyser = upgraded && has('extractor') < diff.maxExtractors && expansionTarget(game, team, hq);
+  if (!hq.queue.length && hq.upgrading === null) {
+    if (count('constructor') < 1 && tm.scrap >= UNIT_TYPES[conType].cost) cmd({ type: 'produce', buildingId: hq.id, unit: conType });
+    // One Constructor II so buildings can be repaired.
+    else if (upgraded && !units.some(u => u.type === 'constructor2') && count('constructor') < 2 && tm.scrap >= UNIT_TYPES.constructor2.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'constructor2' });
+    // A Scavenger II to claim the next geyser.
+    else if (wantsGeyser && !deployers.length && tm.scrap >= UNIT_TYPES.scavenger2.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'scavenger2' });
     // One Transport per Extractor that has no Extractor Silo yet.
     else if (count('transport') < unjoined.length && tm.scrap >= UNIT_TYPES.transport.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'transport' });
-    else if (count('scavenger') < scavWanted && tm.scrap >= UNIT_TYPES.scavenger.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'scavenger' });
+    else if (count('scavenger') < scavWanted && tm.scrap >= UNIT_TYPES[scavType].cost) cmd({ type: 'produce', buildingId: hq.id, unit: scavType });
   }
 
   // --- Expansion: turn a Scavenger into an Extractor on a free geyser --------
   const easy = game.difficulty === 'easy';
   const deploying = units.some(u => u.order.type === 'deploy');
-  if (!deploying && has('extractor') < diff.maxExtractors && game.time > (easy ? 360 : 90) && game.time - (ai.lastDeploy || -99) > 30) {
-    const geyser = expansionTarget(game, team, hq);
-    const scavs = units.filter(u => u.type === 'scavenger');
-    if (geyser && scavs.length >= 3) {
-      const scav = scavs.sort((a, b) => dist(a, geyser) - dist(b, geyser))[0];
+  if (!deploying && wantsGeyser && game.time > (easy ? 360 : 90) && game.time - (ai.lastDeploy || -99) > 30) {
+    const geyser = wantsGeyser;
+    if (deployers.length) {
+      const scav = deployers.sort((a, b) => dist(a, geyser) - dist(b, geyser))[0];
       cmd({ type: 'deploy', ids: [scav.id], geyserId: geyser.id });
       ai.lastDeploy = game.time;
     }
   }
 
   // --- Construction --------------------------------------------------------
-  const builder = units.find(u => u.type === 'constructor' && u.order.type === 'idle');
-  if (builder) {
+  // Prefer a Constructor II, since only it can repair.
+  const idleBuilders = units.filter(u => u.def.role === 'builder' && u.order.type === 'idle');
+  const builder = idleBuilders.find(u => u.def.canRepair) || idleBuilders[0];
+  if (builder && !ai.savingUp) {
     const damaged = buildings.find(b => b.built >= 1 && b.hp < b.maxHp * 0.6);
     const unfinished = buildings.find(b => b.built < 1);
     let want = null, near = null;
     if (unfinished) cmd({ type: 'repair', ids: [builder.id], targetId: unfinished.id });
-    else if (damaged) cmd({ type: 'repair', ids: [builder.id], targetId: damaged.id });
+    else if (damaged && builder.def.canRepair) cmd({ type: 'repair', ids: [builder.id], targetId: damaged.id });
     else if (!has('factory')) want = 'factory';
     else if (has('tower') < 1 && game.time > (easy ? 300 : 90)) want = 'tower';
     // More storage once the bank keeps filling up.
     else if (has('basesilo') < diff.maxBaseSilos && tm.scrap >= scrapCapacity(game, team) * 0.7 && game.time > 150) want = 'basesilo';
     // Extractor Silos are expensive: only once there is room to save for one.
     else if (unjoined.length && scrapCapacity(game, team) >= BUILDING_TYPES.outsilo.cost && tm.scrap >= BUILDING_TYPES.outsilo.cost) { want = 'outsilo'; near = unjoined[0]; }
+    else if (diff.labAfter && !has('lab') && game.time > diff.labAfter) want = 'lab';
+    else if (diff.radarAfter && !has('radar') && game.time > diff.radarAfter) want = 'radar';
     else if (diff.secondFactory && has('factory') < 2 && game.time > 300) want = 'factory';
     else if (has('tower') < 1 + has('extractor') && game.time > 200) {
       // Guard the outpost that has the fewest towers nearby.
@@ -86,11 +104,27 @@ function aiUpdate(game, team) {
       const outposts = buildings.filter(b => b.type === 'extractor' && b.built >= 1);
       near = outposts.find(s => !buildings.some(t => t.type === 'tower' && dist(t, s) < 260)) || null;
     }
-    if (want === 'factory' || want === 'basesilo') near = null;  // these go around the Recycler
+    if (want === 'factory' || want === 'basesilo' || want === 'lab' || want === 'radar') near = null;  // these go around the Recycler
     ai.saving = want === 'basesilo' && tm.scrap < BUILDING_TYPES.basesilo.cost;
     if (want && tm.scrap >= BUILDING_TYPES[want].cost) {
       const spot = findBuildSpot(game, team, want, hq, toCenter, near);
       if (spot) cmd({ type: 'build', ids: [builder.id], building: want, tx: spot.x, ty: spot.y });
+    }
+  }
+
+  // --- Research and Factory upgrades ------------------------------------------
+  for (const lab of buildings.filter(b => b.type === 'lab' && b.built >= 1 && !b.researching)) {
+    const next = ['tank2', 'scout2', 'artillery2'].find(k => !tm.research[k] &&
+      !buildings.some(b => b.researching && b.researching.key === k));
+    // Save up for it: army production pauses until it can be afforded.
+    if (next && tm.scrap >= RESEARCH[next].cost) cmd({ type: 'research', buildingId: lab.id, key: next });
+    else if (next) ai.savingUp = true;
+  }
+  if (Object.keys(tm.research).length) {
+    const f = buildings.find(b => b.type === 'factory' && b.built >= 1 && b.level === 1 && b.upgrading === null);
+    if (f && !buildings.some(b => b.type === 'factory' && b.upgrading !== null)) {
+      if (tm.scrap >= BUILDING_TYPES.factory.upgrade.cost) cmd({ type: 'upgrade', buildingId: f.id });
+      else ai.savingUp = true;
     }
   }
 
@@ -106,7 +140,9 @@ function aiUpdate(game, team) {
     if (scouts < 2 || scouts * 4 < army.length) pick = 'scout';
     else if (arty * 4 < tanks && game.time > diff.artilleryAfter) pick = 'artillery';
     // Keep a reserve for the builder, and hold off while saving for a Base Silo.
-    if (ai.saving) continue;
+    if (ai.saving || ai.savingUp || f.upgrading !== null) continue;
+    // Build the Mk II version when researched and this Factory is upgraded.
+    if (f.level > 1 && tm.research[pick + '2']) pick = pick + '2';
     if (tm.scrap >= UNIT_TYPES[pick].cost + (builder ? 60 : 0)) cmd({ type: 'produce', buildingId: f.id, unit: pick });
     if (!f.rally) cmd({ type: 'rally', buildingId: f.id, x: rally.x, y: rally.y });
   }

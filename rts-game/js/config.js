@@ -42,11 +42,24 @@ const UNIT_TYPES = {
     name: 'Scavenger', role: 'harvester', cost: 60, buildTime: 6,
     hp: 180, speed: 43, radius: 13, sight: 200,
     carryMax: 25, gatherRate: 4,
-    desc: 'Collects loose scrap and hauls it home. Can deploy onto a scrap geyser to become an Extractor.',
+    desc: 'Collects loose scrap and hauls it home. Cannot deploy onto geysers (that needs a Scavenger II).',
+  },
+  // Built by an upgraded Recycler (Recycler II). Only these can become Extractors.
+  scavenger2: {
+    name: 'Scavenger II', base: 'scavenger', role: 'harvester', cost: 80, buildTime: 7,
+    hp: 180, speed: 43, radius: 13, sight: 200,
+    carryMax: 25, gatherRate: 4, canDeploy: true,
+    desc: 'Collects loose scrap, and can deploy onto a scrap geyser to become an Extractor.',
   },
   constructor: {
     name: 'Constructor', role: 'builder', cost: 80, buildTime: 8,
-    hp: 160, speed: 43, radius: 13, sight: 220, repairRate: 25,
+    hp: 160, speed: 43, radius: 13, sight: 220,
+    desc: 'Builds structures. Cannot repair them (that needs a Constructor II).',
+  },
+  // Built by an upgraded Recycler (Recycler II).
+  constructor2: {
+    name: 'Constructor II', base: 'constructor', role: 'builder', cost: 110, buildTime: 9,
+    hp: 200, speed: 43, radius: 13, sight: 220, repairRate: 25, canRepair: true,
     desc: 'Builds and repairs structures.',
   },
   // No gun. A shield soaks up damage first and recharges once out of combat.
@@ -75,6 +88,35 @@ const UNIT_TYPES = {
               splash: 55, vsBuilding: 1.6 },
     desc: 'Huge range, splash damage, very slow. Needs scouts to see targets. Can dig in to defend a building.',
   },
+  // Mk II versions: researched at a Research Lab, built by a Factory II.
+  // Roughly +40% armour, +30% damage, +20% speed, for +50% cost.
+  scout2: {
+    name: 'Scout Mk II', base: 'scout', requires: 'scout2', role: 'combat', cost: 75, buildTime: 7,
+    hp: 196, speed: 118, radius: 11, sight: 330,
+    weapon: { range: 170, damage: 10, cooldown: 0.35, projectile: 'bullet', vsBuilding: 0.5 },
+    desc: 'Upgraded scout: tougher, harder-hitting and faster.',
+  },
+  tank2: {
+    name: 'Tank Mk II', base: 'tank', requires: 'tank2', role: 'combat', cost: 150, buildTime: 12,
+    hp: 560, speed: 48, radius: 15, sight: 260,
+    weapon: { range: 200, damage: 44, cooldown: 1.2, projectile: 'shell', vsBuilding: 1 },
+    desc: 'Upgraded tank: heavier armour, bigger gun, faster tracks.',
+  },
+  artillery2: {
+    name: 'Artillery Mk II', base: 'artillery', requires: 'artillery2', role: 'combat', cost: 210, buildTime: 16,
+    hp: 280, speed: 38, radius: 15, sight: 220,
+    weapon: { range: 440, minRange: 110, damage: 78, cooldown: 3.5, projectile: 'artillery',
+              splash: 55, vsBuilding: 1.6 },
+    desc: 'Upgraded artillery: tougher, harder-hitting, a little quicker.',
+  },
+};
+
+// What a Research Lab can research. Each one unlocks a Mk II unit, which a
+// Factory II can then build.
+const RESEARCH = {
+  scout2:     { name: 'Advanced Scouts',    cost: 150, time: 45 },
+  tank2:      { name: 'Advanced Tanks',     cost: 200, time: 60 },
+  artillery2: { name: 'Advanced Artillery', cost: 250, time: 75 },
 };
 
 // size is in map squares. produces = units this building can make.
@@ -85,13 +127,18 @@ const BUILDING_TYPES = {
     name: 'Recycler', cost: 0, buildTime: 10, hp: 4000, size: 3, sight: 300, buildable: false,
     income: 0.05, demolishable: false,
     produces: ['scavenger', 'constructor', 'transport'], dropoff: true, capacity: 300, buildRadius: 14,
+    // Upgrading (production pauses meanwhile) swaps in the better workers.
+    upgrade: { name: 'Recycler II', cost: 250, time: 40, hp: 5000,
+               produces: ['scavenger2', 'constructor2', 'transport'] },
     weapon: { range: 210, damage: 24, cooldown: 0.8, projectile: 'bullet', vsBuilding: 1 },
     desc: 'Your headquarters, with a light defence gun. Lose it and you lose the battle.',
   },
   factory: {
     name: 'Factory', cost: 150, buildTime: 18, hp: 1400, size: 3, sight: 220,
     produces: ['scout', 'tank', 'artillery'], buildRadius: 10,
-    desc: 'Builds combat vehicles.',
+    upgrade: { name: 'Factory II', cost: 200, time: 30, hp: 1800,
+               produces: ['scout', 'tank', 'artillery', 'scout2', 'tank2', 'artillery2'] },
+    desc: 'Builds combat vehicles. Upgrade to Factory II to build researched Mk II vehicles.',
   },
   // Not built by a Constructor: a Scavenger deploys onto a scrap geyser and
   // turns into one. buildTime is how long the deployment takes.
@@ -113,6 +160,23 @@ const BUILDING_TYPES = {
     capacity: 125, dropoff: true, buildRadius: 5, placeNear: 'extractor', adjacent: true,
     desc: 'Must touch an Extractor. Sends its scrap straight to your total and adds 125 storage.',
   },
+  lab: {
+    name: 'Research Lab', cost: 200, buildTime: 20, hp: 900, size: 2, sight: 200, buildRadius: 6,
+    researches: ['scout2', 'tank2', 'artillery2'],
+    desc: 'Researches Mk II vehicles, one at a time. A Factory II can then build them.',
+  },
+  // Every `every` seconds it pings, revealing a wide circle for `lasts` seconds.
+  radar: {
+    name: 'Radar', cost: 150, buildTime: 16, hp: 600, size: 2, sight: 220, buildRadius: 6,
+    ping: { every: 30, radius: 750, lasts: 4 },
+    desc: 'Every 30 seconds, a radar ping briefly reveals everything in a wide circle (2.5 times normal sight).',
+  },
+  // A flat pad vehicles drive onto. Anything parked on it is repaired.
+  repairpad: {
+    name: 'Repair Pad', cost: 150, buildTime: 12, hp: 800, size: 3, sight: 180, walkable: true,
+    repairRate: 30,
+    desc: 'Vehicles parked on the pad are repaired (30 health a second each). Transports get their shields back too.',
+  },
   tower: {
     name: 'Gun Tower', cost: 110, buildTime: 14, hp: 1000, size: 2, sight: 300,
     weapon: { range: 250, damage: 22, cooldown: 0.9, projectile: 'shell', vsBuilding: 1 },
@@ -121,7 +185,7 @@ const BUILDING_TYPES = {
 };
 
 // Hotkeys for the command buttons, in the order the buttons appear.
-const HOTKEYS = ['Q', 'W', 'E', 'R', 'T'];
+const HOTKEYS = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I'];
 
 // How the computer opponent plays at each difficulty.
 //   incomeMult       share of normal scrap income it gets
@@ -135,11 +199,17 @@ const HOTKEYS = ['Q', 'W', 'E', 'R', 'T'];
 //   maxScavengers    most scavengers it will build
 //   thinkEvery       seconds between decisions (slower = sloppier)
 //   artilleryAfter   seconds before it starts building artillery
+//   upgradeBaseAfter seconds before it upgrades its Recycler (needed to claim geysers)
+//   labAfter         seconds before it builds a Research Lab (0 = never)
+//   radarAfter       seconds before it builds a Radar (0 = never)
 const DIFFICULTY = {
   easy:   { label: 'Easy',   incomeMult: 0.5,  firstAttack: 600, waveEvery: 240, waveBase: 3, waveGrowth: 0.25,
-            maxArmy: 8,  armyPerMinute: 0.7, maxExtractors: 1, maxBaseSilos: 1, maxScavengers: 3, thinkEvery: 2.5, artilleryAfter: 1200, secondFactory: false },
+            maxArmy: 8,  armyPerMinute: 0.7, maxExtractors: 1, maxBaseSilos: 1, maxScavengers: 3, thinkEvery: 2.5, artilleryAfter: 1200, secondFactory: false,
+            upgradeBaseAfter: 300, labAfter: 0, radarAfter: 0 },
   normal: { label: 'Normal', incomeMult: 1.0,  firstAttack: 300, waveEvery: 150, waveBase: 5, waveGrowth: 0.8,
-            maxArmy: 25, armyPerMinute: 3, maxExtractors: 3, maxBaseSilos: 2, maxScavengers: 6, thinkEvery: 1.0, artilleryAfter: 240, secondFactory: true },
+            maxArmy: 25, armyPerMinute: 3, maxExtractors: 3, maxBaseSilos: 2, maxScavengers: 6, thinkEvery: 1.0, artilleryAfter: 240, secondFactory: true,
+            upgradeBaseAfter: 120, labAfter: 360, radarAfter: 480 },
   hard:   { label: 'Hard',   incomeMult: 1.35, firstAttack: 180, waveEvery: 100, waveBase: 6, waveGrowth: 1.5,
-            maxArmy: 40, armyPerMinute: 0, maxExtractors: 4, maxBaseSilos: 3, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true },
+            maxArmy: 40, armyPerMinute: 0, maxExtractors: 4, maxBaseSilos: 3, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true,
+            upgradeBaseAfter: 90, labAfter: 240, radarAfter: 360 },
 };

@@ -172,7 +172,8 @@ function drawGame(ctx, game, view) {
     const sel = selectedIds.has(e.id);
     const showStore = e.team === team && e.kind === 'building' && e.def.store && e.stored > 0.5;
     const hurtShield = e.kind === 'unit' && e.def.shield && e.shield < e.def.shield - 0.5;
-    if (sel || e.hp < e.maxHp || (e.kind === 'building' && e.built < 1) || showStore || hurtShield) drawHealthBar(ctx, e, sel);
+    const busy = e.kind === 'building' && e.team === team && (e.upgrading !== null || e.researching);
+    if (sel || e.hp < e.maxHp || (e.kind === 'building' && e.built < 1) || showStore || hurtShield || busy) drawHealthBar(ctx, e, sel);
   }
 
   // Command pings (where you just clicked)
@@ -295,6 +296,20 @@ function drawBuilding(ctx, b, selected, ghost) {
   const T = CONFIG.TILE, s = b.size * T, tc = TEAMS[b.team];
   ctx.save(); ctx.translate(b.x, b.y);
   if (ghost) ctx.globalAlpha = 0.5;
+  if (b.type === 'repairpad' && b.built >= 1) {
+    // A flat pad vehicles drive onto: hazard-striped rim and a green cross.
+    ctx.fillStyle = b.hitFlash > 0 ? '#ffffff' : '#34382f'; ctx.fillRect(-s / 2, -s / 2, s, s);
+    ctx.save(); ctx.beginPath(); ctx.rect(-s / 2, -s / 2, s, s); ctx.rect(-s / 2 + 7, -s / 2 + 7, s - 14, s - 14); ctx.clip('evenodd');
+    for (let i = -s; i < s; i += 14) { ctx.fillStyle = (i / 14) % 2 ? '#d8b640' : '#1d1f1c'; ctx.beginPath(); ctx.moveTo(i, -s / 2); ctx.lineTo(i + 7, -s / 2); ctx.lineTo(i + 7 + s, s / 2); ctx.lineTo(i + s, s / 2); ctx.fill(); }
+    ctx.restore();
+    const glow = 0.5 + 0.3 * Math.sin(performance.now() / 300);
+    ctx.fillStyle = `rgba(110,224,110,${glow})`;
+    ctx.fillRect(-s * 0.08, -s * 0.28, s * 0.16, s * 0.56); ctx.fillRect(-s * 0.28, -s * 0.08, s * 0.56, s * 0.16);
+    ctx.strokeStyle = tc.color; ctx.lineWidth = 2; ctx.strokeRect(-s / 2 + 1, -s / 2 + 1, s - 2, s - 2);
+    ctx.restore();
+    if (selected) drawSelection(ctx, b);
+    return;
+  }
   // Shadow
   ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(-s / 2 + 5, -s / 2 + 7, s, s);
   if (b.built < 1) {
@@ -357,6 +372,26 @@ function drawBuilding(ctx, b, selected, ghost) {
       if (big) { ctx.fillStyle = tc.light; ctx.fillRect(-4, -s * 0.46, 8, 8); }
       break;
     }
+    case 'lab': {
+      // A glass dome with a glowing core; it pulses while researching.
+      const busy = b.researching ? 0.5 + 0.5 * Math.sin(performance.now() / 200) : 0.2;
+      ctx.fillStyle = '#2b2e2a'; ctx.beginPath(); ctx.arc(0, 0, s * 0.34, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = `rgba(150,230,255,${0.25 + busy * 0.5})`; ctx.beginPath(); ctx.arc(0, 0, s * 0.26, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = tc.light; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(0, 0, s * 0.26, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-s * 0.26, 0); ctx.lineTo(s * 0.26, 0); ctx.moveTo(0, -s * 0.26); ctx.lineTo(0, s * 0.26); ctx.stroke();
+      break;
+    }
+    case 'radar': {
+      // A rotating dish on a mast.
+      ctx.fillStyle = '#2b2e2a'; ctx.beginPath(); ctx.arc(0, 0, s * 0.3, 0, Math.PI * 2); ctx.fill();
+      ctx.rotate(performance.now() / 700);
+      ctx.strokeStyle = tc.light; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(0, 0, s * 0.3, -0.9, 0.9); ctx.stroke();
+      ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(s * 0.3, 0); ctx.stroke();
+      ctx.fillStyle = tc.color; ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2); ctx.fill();
+      break;
+    }
     case 'tower': {
       ctx.fillStyle = '#2b2e2a'; ctx.beginPath(); ctx.arc(0, 0, s * 0.32, 0, Math.PI * 2); ctx.fill();
       ctx.rotate(b.turret);
@@ -366,7 +401,16 @@ function drawBuilding(ctx, b, selected, ghost) {
     }
   }
   ctx.restore();
+  if (b.level > 1) drawChevrons(ctx, b.x - s / 2 + 12, b.y - s / 2 + 12, 0);
   if (selected) drawSelection(ctx, b);
+}
+
+// Two small gold chevrons: marks upgraded buildings and Mk II vehicles.
+function drawChevrons(ctx, x, y, a) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+  ctx.strokeStyle = '#f0c040'; ctx.lineWidth = 2;
+  for (const o of [-3, 2]) { ctx.beginPath(); ctx.moveTo(o - 3, -4); ctx.lineTo(o, 0); ctx.lineTo(o - 3, 4); ctx.stroke(); }
+  ctx.restore();
 }
 
 function drawSelection(ctx, e) {
@@ -392,7 +436,7 @@ function drawUnit(ctx, u, selected, time) {
   ctx.rotate(u.angle);
   const hull = u.hitFlash > 0 ? '#ffffff' : tc.color;
   const dark = '#1d201c';
-  switch (u.type) {
+  switch (baseType(u)) {
     case 'scout': {
       // Hover-craft: a sleek arrowhead with a glow underneath
       ctx.fillStyle = 'rgba(160,220,255,0.25)'; ctx.beginPath(); ctx.arc(-2, 0, r + 1 + Math.sin(time * 12 + u.id) * 1.5, 0, Math.PI * 2); ctx.fill();
@@ -457,6 +501,11 @@ function drawUnit(ctx, u, selected, time) {
     }
   }
   ctx.restore();
+  if (u.def.base) drawChevrons(ctx, u.x - Math.cos(u.angle) * r * 0.55, u.y - Math.sin(u.angle) * r * 0.55, u.angle);
+  if (u.repairing > 0) {
+    ctx.strokeStyle = `rgba(110,224,110,${0.5 + 0.4 * Math.sin(time * 10)})`; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(u.x, u.y, r + 4, 0, Math.PI * 2); ctx.stroke();
+  }
   // Shield bubble: brighter when it has just absorbed a hit.
   if (u.def.shield && u.shield > 1) {
     const k = u.shield / u.def.shield;
@@ -484,7 +533,13 @@ function drawHealthBar(ctx, e, selected) {
     ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(e.x - w / 2 - 1, y + 5, w + 2, 5);
     ctx.fillStyle = '#e8cf82'; ctx.fillRect(e.x - w / 2, y + 6, w * e.stored / e.def.store, 3);
   }
-  if (e.kind === 'building' && e.queue && e.queue.length && e.built >= 1) {
+  // Upgrade and research progress (amber), shown under the health bar.
+  const work = e.kind === 'building' && (e.upgrading !== null && e.upgrading !== undefined ? e.upgrading / e.def.upgrade.time
+    : e.researching ? e.researching.t / RESEARCH[e.researching.key].time : null);
+  if (work !== null && work !== undefined && work !== false) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(e.x - w / 2 - 1, y + 5, w + 2, 5);
+    ctx.fillStyle = '#f0a040'; ctx.fillRect(e.x - w / 2, y + 6, w * Math.min(1, work), 3);
+  } else if (e.kind === 'building' && e.queue && e.queue.length && e.built >= 1) {
     const def = UNIT_TYPES[e.queue[0]];
     ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(e.x - w / 2 - 1, y + 5, w + 2, 5);
     ctx.fillStyle = '#8cc8ff'; ctx.fillRect(e.x - w / 2, y + 6, w * e.prodTime / def.buildTime, 3);
@@ -530,6 +585,19 @@ function drawEffect(ctx, fx) {
     case 'dust':
       ctx.fillStyle = `rgba(200,180,120,${0.6 * (1 - k)})`;
       ctx.beginPath(); ctx.arc(fx.x, fx.y - k * 8, 3 + k * 3, 0, Math.PI * 2); ctx.fill();
+      break;
+    case 'ping': {
+      // Radar sweep: a ring racing outward to the edge of the ping.
+      const r = fx.r * Math.min(1, k * 1.6);
+      ctx.strokeStyle = `rgba(140,255,160,${0.7 * (1 - k)})`; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(fx.x, fx.y, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = `rgba(140,255,160,${0.06 * (1 - k)})`; ctx.fill();
+      break;
+    }
+    case 'heal':
+      // A green plus drifting up off a vehicle being repaired.
+      ctx.fillStyle = `rgba(120,240,120,${1 - k})`;
+      ctx.fillRect(fx.x - 1.5, fx.y - 12 - k * 16 - 5, 3, 10); ctx.fillRect(fx.x - 5, fx.y - 12 - k * 16 - 1.5, 10, 3);
       break;
     case 'weld':
       ctx.fillStyle = `rgba(180,230,255,${1 - k})`;

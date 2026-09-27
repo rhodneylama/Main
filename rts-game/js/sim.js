@@ -9,6 +9,13 @@
 // internet, each player's computer only needs to send its commands.
 // =============================================================================
 
+// The basic kind of a unit: a Tank Mk II is still a 'tank', a Scavenger II a 'scavenger'.
+const baseType = e => (e.def && e.def.base) || e.type;
+// A building's name, including its upgrade (e.g. 'Factory II').
+const nameOf = e => (e.level > 1 && e.def.upgrade) ? e.def.upgrade.name : e.def.name;
+// What a building can make right now (upgraded buildings make more).
+const producesOf = b => (b.level > 1 && b.def.upgrade && b.def.upgrade.produces) || b.def.produces || [];
+
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const angleTo = (a, b) => Math.atan2(b.y - a.y, b.x - a.x);
 const wrapAngle = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
@@ -42,6 +49,8 @@ function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams
       vis: new Uint8Array(map.W * map.H), explored: new Uint8Array(map.W * map.H),
       incomeMult: aiTeams.includes(t) ? DIFFICULTY[difficulty].incomeMult : 1,
       stats: { built: 0, lost: 0, killed: 0, scrapGathered: 0 },
+      research: {},  // key -> true once researched
+      pings: [],     // active radar reveals: { x, y, r, until }
     };
     // Everyone starts on wheels: the Recycler must be deployed on a geyser.
     const b = map.bases[game.corner[t]];
@@ -88,7 +97,8 @@ function addBuilding(game, type, team, tx, ty, complete) {
     id: game.nextId++, kind: 'building', type, def, team, tx, ty, size: def.size,
     x: (tx + def.size / 2) * T, y: (ty + def.size / 2) * T, radius: def.size * T / 2,
     hp: complete ? def.hp : def.hp * 0.1, maxHp: def.hp,
-    built: complete ? 1 : 0, queue: [], prodTime: 0, stored: 0,
+    built: complete ? 1 : 0, queue: [], prodTime: 0, stored: 0, level: 1,
+    upgrading: null, researching: null, pingTimer: 0,
     rally: null, cooldown: 0, turret: faceCentre(game, (tx + def.size / 2) * T, (ty + def.size / 2) * T),
     target: null, retarget: 0, hitFlash: 0, seen: {},
   };
@@ -98,6 +108,7 @@ function addBuilding(game, type, team, tx, ty, complete) {
 }
 
 function setOccupied(game, b, delta) {
+  if (b.def.walkable) return;  // vehicles drive over repair pads
   for (let y = b.ty; y < b.ty + b.size; y++)
     for (let x = b.tx; x < b.tx + b.size; x++) game.occupied[y * game.map.W + x] += delta;
 }
@@ -149,6 +160,12 @@ function canPlaceBuilding(game, team, type, tx, ty) {
     const i = y * m.W + x;
     if (!tm.explored[i]) return { ok: false, why: 'Unexplored ground' };
     if (isBlockedTile(game, x, y)) return { ok: false, why: 'Something is in the way' };
+  }
+  // Repair pads don't block vehicles, but nothing can be built on top of one.
+  for (const e of game.entities) {
+    if (e.kind === 'building' && e.def.walkable &&
+        tx < e.tx + e.size && e.tx < tx + def.size && ty < e.ty + e.size && e.ty < ty + def.size)
+      return { ok: false, why: 'Something is in the way' };
   }
   for (const g of game.geysers) {
     if (g.tx > tx - 1 && g.tx < tx + def.size + 1 && g.ty > ty - 1 && g.ty < ty + def.size + 1)
@@ -242,14 +259,18 @@ function issueCommand(game, team, cmd) {
     case 'repair': {
       const b = own(cmd.targetId);
       if (!b || b.kind !== 'building') return;
-      for (const u of units) if (u.def.role === 'builder') { u.order = { type: 'build', targetId: b.id }; planPathNear(game, u, b); }
+      // Finishing construction is any Constructor's job; repairing needs a Constructor II.
+      const able = units.filter(u => u.def.role === 'builder' && (b.built < 1 || u.def.canRepair));
+      if (!able.length && units.some(u => u.def.role === 'builder')) { pushEvent(game, team, 'Only a Constructor II can repair buildings', 'warn'); return; }
+      for (const u of able) { u.order = { type: 'build', targetId: b.id }; planPathNear(game, u, b); }
       break;
     }
     case 'produce': {
       const b = own(cmd.buildingId);
       const def = UNIT_TYPES[cmd.unit];
-      if (!b || b.kind !== 'building' || b.built < 1 || !def || !(b.def.produces || []).includes(cmd.unit)) return;
+      if (!b || b.kind !== 'building' || b.built < 1 || !def || !producesOf(b).includes(cmd.unit)) return;
       const tm = game.teams[team];
+      if (def.requires && !tm.research[def.requires]) { pushEvent(game, team, `Research ${RESEARCH[def.requires].name} at a Research Lab first`, 'warn'); return; }
       if (b.queue.length >= 5) { pushEvent(game, team, 'Build queue is full', 'warn'); return; }
       if (tm.scrap < def.cost) { pushEvent(game, team, 'Not enough scrap', 'warn'); return; }
       tm.scrap -= def.cost;
@@ -306,7 +327,11 @@ function issueCommand(game, team, cmd) {
       const g = game.geysers.find(x => x.id === cmd.geyserId);
       // The mobile Recycler takes priority; otherwise the nearest Scavenger goes.
       const hqs = units.filter(u => u.def.role === 'hq');
-      const scav = (hqs.length ? hqs : units.filter(u => u.def.role === 'harvester')).sort((a, b) => dist(a, g) - dist(b, g))[0];
+      const deployers = hqs.length ? hqs : units.filter(u => u.def.canDeploy);
+      if (!deployers.length && units.some(u => u.def.role === 'harvester')) {
+        pushEvent(game, team, 'Only a Scavenger II can deploy on a geyser. Upgrade your Recycler to build them.', 'warn'); return;
+      }
+      const scav = deployers.sort((a, b) => dist(a, g) - dist(b, g))[0];
       if (!g || !scav) return;
       if (geyserTaken(game, g)) { pushEvent(game, team, 'That geyser already has an Extractor', 'warn'); return; }
       scav.order = { type: 'deploy', geyserId: g.id }; scav.target = null;
@@ -321,6 +346,38 @@ function issueCommand(game, team, cmd) {
         u.order = { type: 'haul', phase: 'pick', fixedId: src && isStore(src) ? src.id : 0 };
         u.path = [];
       }
+      break;
+    }
+    case 'upgrade': {
+      const b = own(cmd.buildingId);
+      if (!b || b.kind !== 'building' || b.built < 1 || !b.def.upgrade || b.level > 1 || b.upgrading !== null) return;
+      const tm = game.teams[team], up = b.def.upgrade;
+      if (tm.scrap < up.cost) { pushEvent(game, team, 'Not enough scrap', 'warn'); return; }
+      tm.scrap -= up.cost;
+      b.upgrading = 0;
+      pushEvent(game, team, `Upgrading to ${up.name}`, 'info', b.x, b.y);
+      break;
+    }
+    case 'research': {
+      const b = own(cmd.buildingId), r = RESEARCH[cmd.key];
+      if (!b || b.kind !== 'building' || b.built < 1 || !r || !(b.def.researches || []).includes(cmd.key)) return;
+      const tm = game.teams[team];
+      if (b.researching) { pushEvent(game, team, 'This lab is already researching', 'warn'); return; }
+      const busy = game.entities.some(e => e.team === team && e.researching && e.researching.key === cmd.key);
+      if (tm.research[cmd.key] || busy) return;
+      if (tm.scrap < r.cost) { pushEvent(game, team, 'Not enough scrap', 'warn'); return; }
+      tm.scrap -= r.cost;
+      b.researching = { key: cmd.key, t: 0 };
+      break;
+    }
+    case 'gorepair': {
+      // Drive to the nearest Repair Pad and park on it.
+      const pads = game.entities.filter(e => e.team === team && e.type === 'repairpad' && e.built >= 1);
+      if (!pads.length) { pushEvent(game, team, 'Build a Repair Pad first', 'warn'); return; }
+      if (!units.length) return;
+      const cx = units.reduce((a, u) => a + u.x, 0) / units.length, cy = units.reduce((a, u) => a + u.y, 0) / units.length;
+      const pad = pads.sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy))[0];
+      issueCommand(game, team, { type: 'move', ids: units.map(u => u.id), x: pad.x, y: pad.y });
       break;
     }
     case 'rally': {
@@ -437,14 +494,44 @@ function updateBuilding(game, b, dt) {
     if (b.selfBuild) {
       b.built = Math.min(1, b.built + dt / b.def.buildTime);
       b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.9 * dt / b.def.buildTime);
-      if (b.built >= 1) pushEvent(game, b.team, `${b.def.name} online`, 'good', b.x, b.y);
+      if (b.built >= 1) pushEvent(game, b.team, `${nameOf(b)} online`, 'good', b.x, b.y);
     }
     return;
   }
   if (b.cooldown > 0) b.cooldown -= dt;  // reload the gun (towers, Recycler)
+  if (b.upgrading !== null) {
+    // Upgrading: production waits until it's done.
+    const up = b.def.upgrade;
+    b.upgrading += dt;
+    if (b.upgrading >= up.time) {
+      b.upgrading = null; b.level = 2;
+      b.hp += up.hp - b.maxHp; b.maxHp = up.hp;
+      pushEvent(game, b.team, `${up.name} ready`, 'good', b.x, b.y);
+    }
+  }
+  if (b.researching) {
+    const r = RESEARCH[b.researching.key];
+    b.researching.t += dt;
+    if (b.researching.t >= r.time) {
+      game.teams[b.team].research[b.researching.key] = true;
+      pushEvent(game, b.team, `${r.name} researched. Build them at a Factory II.`, 'good', b.x, b.y);
+      b.researching = null;
+    }
+  }
+  if (b.def.ping) {
+    b.pingTimer -= dt;
+    if (b.pingTimer <= 0) {
+      const p = b.def.ping;
+      b.pingTimer = p.every;
+      game.teams[b.team].pings.push({ x: b.x, y: b.y, r: p.radius, until: game.time + p.lasts });
+      game.effects.push({ kind: 'ping', team: b.team, x: b.x, y: b.y, r: p.radius, t: 0, life: 1.6 });
+      updateVisibility(game);
+    }
+  }
+  if (b.def.repairRate) repairOnPad(game, b, dt);
   if (b.type === 'recycler') bankScrap(game, b.team, b.def.income * game.teams[b.team].incomeMult * dt, true);
   else if (b.def.income) pumpExtractor(game, b, dt);
-  if (b.queue.length) {
+  if (b.queue.length && b.upgrading === null) {
     const def = UNIT_TYPES[b.queue[0]];
     const count = game.entities.filter(e => e.kind === 'unit' && e.team === b.team).length;
     if (count >= CONFIG.UNIT_CAP) { b.blocked = true; }
@@ -459,6 +546,20 @@ function updateBuilding(game, b, dt) {
     }
   }
   if (b.def.weapon) combatThink(game, b, dt);
+}
+
+// Vehicles of the pad's side parked on it are repaired, shields too.
+function repairOnPad(game, b, dt) {
+  const T = CONFIG.TILE, x0 = b.tx * T, y0 = b.ty * T, x1 = x0 + b.size * T, y1 = y0 + b.size * T;
+  for (const u of game.entities) {
+    if (u.kind !== 'unit' || u.team !== b.team || u.x < x0 || u.x > x1 || u.y < y0 || u.y > y1) continue;
+    const hurt = u.hp < u.maxHp, lowShield = u.def.shield && u.shield < u.def.shield;
+    if (!hurt && !lowShield) continue;
+    u.hp = Math.min(u.maxHp, u.hp + b.def.repairRate * dt);
+    if (u.def.shield) u.shield = Math.min(u.def.shield, u.shield + b.def.repairRate * dt);
+    u.repairing = 0.3;  // lets the renderer show the repair glow
+    if ((game.tick + u.id) % 6 === 0) game.effects.push({ kind: 'heal', x: u.x + (game.rng() - 0.5) * 20, y: u.y, t: 0, life: 0.8 });
+  }
 }
 
 // An Extractor with an Extractor Silo joined on sends its scrap straight to
@@ -501,6 +602,7 @@ function spawnFromBuilding(game, b, type) {
 
 function updateUnit(game, u, dt) {
   if (u.cooldown > 0) u.cooldown -= dt;
+  if (u.repairing > 0) u.repairing -= dt;
   if (u.def.shield) {
     if (u.shieldFlash > 0) u.shieldFlash -= dt;
     if (u.shieldWait > 0) u.shieldWait -= dt;
@@ -974,7 +1076,7 @@ function warnUnderAttack(game, e) {
   const tm = game.teams[e.team];
   if (game.time - (tm.lastAlarm || -99) < 12) return;
   tm.lastAlarm = game.time;
-  pushEvent(game, e.team, `${e.def.name} under attack!`, 'bad', e.x, e.y);
+  pushEvent(game, e.team, `${e.kind === 'building' ? nameOf(e) : e.def.name} under attack!`, 'bad', e.x, e.y);
 }
 
 function removeDead(game) {
@@ -988,8 +1090,8 @@ function removeDead(game) {
     if (e.kind === 'building') {
       setOccupied(game, e, -1);
       game.effects.push({ kind: 'boom', x: e.x, y: e.y, t: 0, life: 1.2, size: e.radius * 1.6 });
-      pushEvent(game, e.team, `${e.def.name} destroyed`, 'bad', e.x, e.y);
-      pushEvent(game, 3 - e.team, `Enemy ${e.def.name} destroyed`, 'good', e.x, e.y);
+      pushEvent(game, e.team, `${nameOf(e)} destroyed`, 'bad', e.x, e.y);
+      pushEvent(game, 3 - e.team, `Enemy ${nameOf(e)} destroyed`, 'good', e.x, e.y);
     } else {
       game.effects.push({ kind: 'boom', x: e.x, y: e.y, t: 0, life: 0.7, size: e.radius * 2.2 });
       game.effects.push({ kind: 'wreck', x: e.x, y: e.y, a: e.angle, t: 0, life: 20, r: e.radius });
@@ -1019,7 +1121,7 @@ function demolishInto(game, b) {
     game.scrap.push({ id: 200000 + game.nextId++, x: b.x + Math.cos(a) * r, y: b.y + Math.sin(a) * r, amount: amt, max: amt, wreck: true });
   }
   game.effects.push({ kind: 'dust', x: b.x, y: b.y, t: 0, life: 0.8 });
-  pushEvent(game, b.team, `${b.def.name} demolished: ${value} scrap left on the ground`, 'info', b.x, b.y);
+  pushEvent(game, b.team, `${nameOf(b)} demolished: ${value} scrap left on the ground`, 'info', b.x, b.y);
 }
 
 // ---------------------------------------------------------------------------
@@ -1113,7 +1215,7 @@ function updateHarvester(game, u, dt) {
 
 function updateBuilder(game, u, dt) {
   const b = game.byId.get(u.order.targetId);
-  if (!b || b.hp <= 0 || (b.built >= 1 && b.hp >= b.maxHp)) { u.order = { type: 'idle', gx: u.x, gy: u.y }; u.path = []; return; }
+  if (!b || b.hp <= 0 || (b.built >= 1 && (b.hp >= b.maxHp || !u.def.canRepair))) { u.order = { type: 'idle', gx: u.x, gy: u.y }; u.path = []; return; }
   const close = edgeDist(u, b) < b.radius * 0.2 + u.radius + 30;
   if (!close) {
     if (followPath(game, u, dt, 10)) planPathNear(game, u, b);
@@ -1127,7 +1229,7 @@ function updateBuilder(game, u, dt) {
     b.built = Math.min(1, b.built + step);
     b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.9 * step);
     if (b.built >= 1) {
-      pushEvent(game, b.team, `${b.def.name} complete`, 'good', b.x, b.y);
+      pushEvent(game, b.team, `${nameOf(b)} complete`, 'good', b.x, b.y);
     }
   } else {
     b.hp = Math.min(b.maxHp, b.hp + u.def.repairRate * dt);
@@ -1151,6 +1253,17 @@ function updateVisibility(game) {
       if ((x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= r * r) {
         tm.vis[y * W + x] = 1; tm.explored[y * W + x] = 1;
       }
+    }
+  }
+  // Radar pings light up a wide circle for a few seconds.
+  for (const t of [1, 2]) {
+    const tm = game.teams[t];
+    tm.pings = tm.pings.filter(p => p.until > game.time);
+    for (const p of tm.pings) {
+      const r = p.r / T, cx = p.x / T, cy = p.y / T;
+      for (let y = Math.max(0, Math.floor(cy - r)); y <= Math.min(H - 1, Math.floor(cy + r)); y++)
+        for (let x = Math.max(0, Math.floor(cx - r)); x <= Math.min(W - 1, Math.floor(cx + r)); x++)
+          if ((x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= r * r) { tm.vis[y * W + x] = 1; tm.explored[y * W + x] = 1; }
     }
   }
   // Remember enemy buildings once you've seen them.

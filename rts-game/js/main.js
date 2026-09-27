@@ -222,7 +222,8 @@ function geyserAt(wx, wy, pad = 0) {
 // Your Recycler, whether it is still driving or already deployed.
 const findHQ = team => game.entities.find(e => e.team === team && (e.type === 'recycler' || e.type === 'mobileRecycler'));
 
-const ofType = (list, type) => mine(list).filter(e => e.kind === 'unit' && e.type === type);
+// Units of a basic kind: 'tank' includes Tank Mk II, and so on.
+const ofType = (list, type) => mine(list).filter(e => e.kind === 'unit' && baseType(e) === type);
 
 // Second tap/click after pressing Defend or Deploy.
 function aimAt(w, pad) {
@@ -253,7 +254,7 @@ function toggleArmyMenu() {
   const all = mine(game.entities).filter(u => u.kind === 'unit' && u.def.role === 'combat');
   for (const b of menu.querySelectorAll('button')) {
     const t = b.dataset.army;
-    const n = t === 'all' ? all.length : all.filter(u => u.type === t).length;
+    const n = t === 'all' ? all.length : all.filter(u => baseType(u) === t).length;
     b.querySelector('.n').textContent = n;
     b.disabled = n === 0;
   }
@@ -263,7 +264,7 @@ function toggleArmyMenu() {
 function selectArmyType(type) {
   $('armymenu').classList.add('hidden');
   if (type === 'all') { selectArmy(); return; }
-  const list = mine(game.entities).filter(u => u.kind === 'unit' && u.type === type);
+  const list = mine(game.entities).filter(u => u.kind === 'unit' && baseType(u) === type);
   if (!list.length) { logMessage(`You have no ${UNIT_TYPES[type].name}s`, 'info'); return; }
   select(list);
 }
@@ -377,7 +378,7 @@ function handleTap(p) {
   const hasBuilder = sel.some(u => u.kind === 'unit' && u.def.role === 'builder');
   const needsWork = hit && hit.team === view.team && hit.kind === 'building' && (hit.built < 1 || hit.hp < hit.maxHp);
   const artyDefend = hit && hit.team === view.team && hit.kind === 'building' && !hasBuilder &&
-    (sel.some(u => u.type === 'artillery') || (sel.some(u => u.type === 'transport') && isStore(hit)));
+    (sel.some(u => baseType(u) === 'artillery') || (sel.some(u => u.type === 'transport') && isStore(hit)));
   if (hit && hit.team === view.team && !(hasBuilder && needsWork) && !artyDefend) { select(pickWithDoubleTap(hit)); return; }
   if (sel.length && !spectating) {
     // Tap targets are a little bigger for fingers.
@@ -423,7 +424,7 @@ function rightClick(w, pad = 0) {
   const t = entityAt(w.x, w.y, pad);
   const node = scrapAt(w.x, w.y, pad);
   const geyser = geyserAt(w.x, w.y, pad);
-  const arty = units.filter(u => u.type === 'artillery');
+  const arty = units.filter(u => baseType(u) === 'artillery');
   const haulers = units.filter(u => u.def.role === 'hauler');
   if (t && t.team === view.team && isStore(t) && haulers.length) {
     issueCommand(game, view.team, { type: 'haul', ids: haulers.map(u => u.id), sourceId: t.id });
@@ -598,6 +599,9 @@ function refreshPanel() {
   // Only rebuild the buttons when something about them actually changed.
   const key = game ? JSON.stringify([sel.map(e => e.id), view.placing, view.placeReady, view.attackMode, view.aim, view.confirmDemolish, spectating,
     sel.map(e => !!e.rally),
+    sel.map(e => [e.level, e.upgrading !== null && e.upgrading !== undefined ? Math.floor(e.upgrading) : -1, e.researching ? e.researching.key + Math.floor(e.researching.t) : 0, e.hp < e.maxHp]),
+    Object.keys(game.teams[view.team].research).join(), game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1),
+    game.entities.filter(b => b.team === view.team && b.researching).map(b => b.researching.key + Math.floor(b.researching.t / 3)).join(),
     sel.map(e => [e.built >= 1, e.queue && e.queue.join(), e.queue && e.queue.length && Math.floor(e.prodTime), e.blocked]),
     Object.values(UNIT_TYPES).concat(Object.values(BUILDING_TYPES)).map(d => game.teams[view.team].scrap >= d.cost)]) : '';
   const rebuild = key !== panelKey;
@@ -611,7 +615,9 @@ function refreshPanel() {
   if (sel.length === 1) {
     const e = sel[0], d = e.def;
     let extra = '';
-    if (e.kind === 'unit' && e.def.role === 'harvester') extra = `Carrying ${Math.floor(e.carry)} / ${d.carryMax} scrap`;
+    if (e.kind === 'unit' && e.def.role === 'harvester') extra = `Carrying ${Math.floor(e.carry)} / ${d.carryMax} scrap` +
+      (d.canDeploy ? ' · can deploy on geysers' : ' · cannot deploy (needs Scavenger II)');
+    if (e.kind === 'unit' && e.def.role === 'builder') extra = d.canRepair ? 'Builds and repairs' : 'Builds only. Repairs need a Constructor II.';
     if (e.kind === 'unit' && d.weapon) extra = `Damage ${d.weapon.damage} · Range ${d.weapon.range} · Speed ${d.speed}`;
     if (e.kind === 'building' && e.built < 1) extra = `Under construction — ${Math.floor(e.built * 100)}%`;
     if (e.kind === 'building' && d.weapon && e.built >= 1) extra = `Damage ${d.weapon.damage} · Range ${d.weapon.range}`;
@@ -630,7 +636,11 @@ function refreshPanel() {
     if (e.kind === 'unit' && e.order.type === 'scout') extra = e.order.packId ? 'Scouting with the pack' : 'Scouting alone';
     if (e.kind === 'unit' && e.order.type === 'patrol') extra = 'On patrol';
     if (e.kind === 'unit' && e.order.type === 'guard') extra = 'Defending a building';
-    info.innerHTML = `<div class="selname" style="color:${TEAMS[e.team].color}">${d.name}</div>
+    if (e.kind === 'building' && e.upgrading !== null) extra = `Upgrading to ${d.upgrade.name} — ${Math.floor(e.upgrading / d.upgrade.time * 100)}% (production paused)`;
+    if (e.kind === 'building' && e.researching) extra = `Researching ${RESEARCH[e.researching.key].name} — ${Math.floor(e.researching.t / RESEARCH[e.researching.key].time * 100)}%`;
+    if (e.type === 'radar' && e.built >= 1) extra = `Next radar ping in ${Math.ceil(e.pingTimer)}s`;
+    if (e.type === 'repairpad' && e.built >= 1) extra = 'Drive damaged vehicles onto the pad to repair them.';
+    info.innerHTML = `<div class="selname" style="color:${TEAMS[e.team].color}">${e.kind === 'building' ? nameOf(e) : d.name}</div>
       <div>Health ${Math.ceil(e.hp)} / ${e.maxHp}</div><div class="dim">${extra}</div><div class="dim small">${d.desc}</div>`;
   } else {
     const counts = {};
@@ -643,12 +653,13 @@ function refreshPanel() {
   const addBtn = (label, cost, hotkey, onClick, opts = {}) => {
     const b = document.createElement('button');
     b.dataset.hotkey = hotkey;
-    b.innerHTML = `<span class="hk">${hotkey}</span><span class="lbl">${label}</span>${cost !== null ? `<span class="cost">${cost}</span>` : ''}`;
+    b.innerHTML = `<span class="hk">${hotkey || ''}</span><span class="lbl">${label}</span>` +
+      (opts.note ? `<span class="note">${opts.note}</span>` : cost !== null ? `<span class="cost">${cost}</span>` : '');
     if (opts.title) b.title = opts.title;
     if (opts.active) b.classList.add('active');
     if (opts.primary) b.classList.add('primary');
     if (opts.danger) b.classList.add('danger');
-    if (cost && game.teams[view.team].scrap < cost) b.classList.add('poor');
+    if ((cost && game.teams[view.team].scrap < cost) || opts.locked) b.classList.add('poor');
     onPress(b, () => { onClick(); sound('click'); });
     cmds.appendChild(b);
   };
@@ -657,11 +668,31 @@ function refreshPanel() {
   if (first.kind === 'building') {
     const keys = [...HOTKEYS];
     const tip = document.createElement('div'); tip.className = 'dim small tip';
+    const tm = game.teams[view.team];
+    // Upgrade (Recycler II, Factory II)
+    if (first.built >= 1 && first.def.upgrade && first.level === 1) {
+      const up = first.def.upgrade;
+      if (first.upgrading !== null) addBtn(`Upgrading ${Math.floor(first.upgrading / up.time * 100)}%`, null, keys.shift(), () => {}, { locked: true });
+      else addBtn(`Upgrade to ${up.name}`, up.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'upgrade', buildingId: first.id }),
+        { title: `${up.cost} scrap, ${up.time}s. Production pauses while upgrading.` });
+    }
+    // Research (Research Lab)
+    if (first.built >= 1 && first.def.researches) {
+      for (const key of first.def.researches) {
+        const r = RESEARCH[key];
+        const elsewhere = game.entities.find(b => b.team === view.team && b.researching && b.researching.key === key);
+        if (tm.research[key]) addBtn(r.name, null, keys.shift(), () => {}, { note: 'Researched ✓', locked: true });
+        else if (elsewhere) addBtn(r.name, null, keys.shift(), () => {}, { note: `Researching ${Math.floor(elsewhere.researching.t / r.time * 100)}%`, locked: true });
+        else addBtn(r.name, r.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'research', buildingId: first.id, key }),
+          { title: `${r.cost} scrap, ${r.time}s. Unlocks ${UNIT_TYPES[key].name} at a Factory II.`, locked: !!first.researching });
+      }
+    }
     if (first.built >= 1 && first.def.produces) {
-      first.def.produces.forEach(type => {
+      producesOf(first).forEach(type => {
         const d = UNIT_TYPES[type];
+        const needs = d.requires && !tm.research[d.requires];
         addBtn(d.name, d.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'produce', buildingId: first.id, unit: type }),
-          { title: `${d.name} — ${d.cost} scrap, ${d.buildTime}s\n${d.desc}` });
+          { title: `${d.name} — ${d.cost} scrap, ${d.buildTime}s\n${d.desc}`, locked: needs, note: needs ? 'Research first' : null });
       });
       if (first.queue.length) {
         const q = document.createElement('div'); q.className = 'queue';
@@ -728,10 +759,13 @@ function refreshPanel() {
   if (tanks.length) addBtn('Patrol', null, keys.shift(), () => order('patrol', tanks), { title: 'Loop around your buildings, fighting anything met' });
   if (arty.length) addBtn('Defend', null, keys.shift(), () => { view.aim = 'defend'; refreshPanel(); },
     { active: view.aim === 'defend', title: 'Then pick one of your buildings to guard' });
+  const hurt = sel.filter(e => e.kind === 'unit' && e.hp < e.maxHp);
+  if (hurt.length && game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1))
+    addBtn('Go repair', null, keys.shift(), () => order('gorepair', hurt), { title: 'Drive to the nearest Repair Pad' });
   const mobileHq = ofType(sel, 'mobileRecycler');
   if (mobileHq.length) addBtn('Deploy base', null, keys.shift(), () => { view.aim = 'deploy'; refreshPanel(); },
     { active: view.aim === 'deploy', title: 'Drive onto a scrap geyser and set up your base there' });
-  else if (scavs.length) addBtn('Deploy on geyser', null, keys.shift(), () => { view.aim = 'deploy'; refreshPanel(); },
+  else if (scavs.some(u => u.def.canDeploy)) addBtn('Deploy on geyser', null, keys.shift(), () => { view.aim = 'deploy'; refreshPanel(); },
     { active: view.aim === 'deploy', title: 'Turn into an Extractor on a scrap geyser' });
   const haulers = ofType(sel, 'transport');
   if (haulers.length) {
@@ -762,7 +796,7 @@ function refreshPanel() {
 function updateHud() {
   const me = game.teams[view.team];
   const units = game.entities.filter(e => e.kind === 'unit' && e.team === view.team).length;
-  const scavs = game.entities.filter(e => e.type === 'scavenger' && e.team === view.team).length;
+  const scavs = game.entities.filter(e => baseType(e) === 'scavenger' && e.team === view.team).length;
   const cap = scrapCapacity(game, view.team);
   $('scrap').textContent = `${Math.floor(me.scrap)} / ${cap}`;
   $('scrap').classList.toggle('full', me.scrap >= cap - 1);
