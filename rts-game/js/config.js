@@ -27,40 +27,50 @@ const TEAMS = {
 
 // role: 'harvester' collects scrap, 'builder' constructs buildings,
 //       'combat' fights. Weapons: range and sight are in pixels.
+// Speeds (pixels per second) follow a chain: Transport is the slowest worker,
+// Scavengers are 10% faster, Constructors match Scavengers. Artillery is
+// kept the slowest of all.
 const UNIT_TYPES = {
+  // The starting vehicle. Drive it onto a scrap geyser and deploy it to
+  // found your base. While mobile it still holds your scrap.
+  mobileRecycler: {
+    name: 'Recycler (mobile)', role: 'hq', cost: 0, buildTime: 1,
+    hp: 2500, speed: 30, radius: 22, sight: 300, capacity: 300,
+    desc: 'Your base on wheels. Drive it to a scrap geyser and deploy it. If it is destroyed, you lose.',
+  },
   scavenger: {
     name: 'Scavenger', role: 'harvester', cost: 60, buildTime: 6,
-    hp: 180, speed: 70, radius: 13, sight: 200,
+    hp: 180, speed: 43, radius: 13, sight: 200,
     carryMax: 25, gatherRate: 4,
     desc: 'Collects loose scrap and hauls it home. Can deploy onto a scrap geyser to become an Extractor.',
   },
   constructor: {
     name: 'Constructor', role: 'builder', cost: 80, buildTime: 8,
-    hp: 160, speed: 66, radius: 13, sight: 220, repairRate: 25,
+    hp: 160, speed: 43, radius: 13, sight: 220, repairRate: 25,
     desc: 'Builds and repairs structures.',
   },
   // No gun. A shield soaks up damage first and recharges once out of combat.
   transport: {
     name: 'Transport', role: 'hauler', cost: 70, buildTime: 7,
-    hp: 120, speed: 78, radius: 14, sight: 200,
+    hp: 120, speed: 39, radius: 14, sight: 200,
     carryMax: 60, shield: 150, shieldRegen: 20, shieldDelay: 3,
-    desc: 'Ferries scrap from Outpost Silos and Extractors back to base. Unarmed, but shielded.',
+    desc: 'Ferries scrap from Extractors that have no Extractor Silo back to base. Unarmed, but shielded.',
   },
   scout: {
     name: 'Scout', role: 'combat', cost: 50, buildTime: 5,
-    hp: 140, speed: 130, radius: 11, sight: 330,
+    hp: 140, speed: 98, radius: 11, sight: 330,
     weapon: { range: 170, damage: 8, cooldown: 0.35, projectile: 'bullet', vsBuilding: 0.5 },
     desc: 'Fast and far-sighted. Can scout the map on its own or as a roaming pack.',
   },
   tank: {
     name: 'Tank', role: 'combat', cost: 100, buildTime: 9,
-    hp: 400, speed: 80, radius: 15, sight: 260,
+    hp: 400, speed: 40, radius: 15, sight: 260,
     weapon: { range: 200, damage: 34, cooldown: 1.2, projectile: 'shell', vsBuilding: 1 },
     desc: 'The backbone of your army. Tough, steady damage. Can patrol between your buildings.',
   },
   artillery: {
     name: 'Artillery', role: 'combat', cost: 140, buildTime: 12,
-    hp: 200, speed: 42, radius: 15, sight: 220,
+    hp: 200, speed: 32, radius: 15, sight: 220,
     weapon: { range: 440, minRange: 110, damage: 60, cooldown: 3.5, projectile: 'artillery',
               splash: 55, vsBuilding: 1.6 },
     desc: 'Huge range, splash damage, very slow. Needs scouts to see targets. Can dig in to defend a building.',
@@ -70,7 +80,10 @@ const UNIT_TYPES = {
 // size is in map squares. produces = units this building can make.
 const BUILDING_TYPES = {
   recycler: {
-    name: 'Recycler', cost: 0, buildTime: 1, hp: 4000, size: 3, sight: 300, buildable: false,
+    // Made by deploying the mobile Recycler over a geyser (buildTime = deploy time).
+    // It pumps that geyser very slowly: a twentieth of an Extractor.
+    name: 'Recycler', cost: 0, buildTime: 10, hp: 4000, size: 3, sight: 300, buildable: false,
+    income: 0.05, demolishable: false,
     produces: ['scavenger', 'constructor', 'transport'], dropoff: true, capacity: 300, buildRadius: 14,
     weapon: { range: 210, damage: 24, cooldown: 0.8, projectile: 'bullet', vsBuilding: 1 },
     desc: 'Your headquarters, with a light defence gun. Lose it and you lose the battle.',
@@ -84,8 +97,8 @@ const BUILDING_TYPES = {
   // turns into one. buildTime is how long the deployment takes.
   extractor: {
     name: 'Extractor', cost: 0, buildTime: 8, hp: 900, size: 2, sight: 240,
-    income: 1.0, store: 30, buildRadius: 9, buildable: false,
-    desc: 'Pumps scrap from a geyser into nearby Outpost Silos. Holds only a little itself. Expands your territory.',
+    income: 1.0, store: 30, buildRadius: 9, buildable: false, salvageValue: 60,
+    desc: 'Pumps scrap from a geyser. With an Extractor Silo joined on, scrap goes straight to your total; without one it fills a small tank for Transports.',
   },
   // Built next to the Recycler: raises how much scrap you can hold.
   basesilo: {
@@ -93,11 +106,12 @@ const BUILDING_TYPES = {
     capacity: 300, dropoff: true, buildRadius: 8, placeNear: 'recycler', placeRange: 7,
     desc: 'Adds 300 to your scrap storage. Must be built next to your Recycler.',
   },
-  // Built next to an Extractor: holds what it pumps until a Transport collects it.
+  // Joined directly onto an Extractor: that Extractor's scrap then goes
+  // straight into your total, no Transport needed. Pricey and small.
   outsilo: {
-    name: 'Outpost Silo', cost: 150, buildTime: 10, hp: 700, size: 2, sight: 200,
-    store: 150, dropoff: true, buildRadius: 5, placeNear: 'extractor', placeRange: 6,
-    desc: 'Holds 150 scrap from a nearby Extractor until a Transport hauls it home.',
+    name: 'Extractor Silo', cost: 500, buildTime: 12, hp: 800, size: 2, sight: 200,
+    capacity: 125, dropoff: true, buildRadius: 5, placeNear: 'extractor', adjacent: true,
+    desc: 'Must touch an Extractor. Sends its scrap straight to your total and adds 125 storage.',
   },
   tower: {
     name: 'Gun Tower', cost: 110, buildTime: 14, hp: 1000, size: 2, sight: 300,

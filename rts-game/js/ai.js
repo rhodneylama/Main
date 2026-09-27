@@ -24,7 +24,15 @@ function aiUpdate(game, team) {
   const tm = game.teams[team];
   const enemy = 3 - team;
   const hq = buildings.find(b => b.type === 'recycler');
-  if (!hq) return;
+  if (!hq) {
+    // Still on wheels: deploy the Recycler on the nearest free geyser.
+    const mobile = units.find(u => u.type === 'mobileRecycler');
+    if (mobile && mobile.order.type !== 'deploy') {
+      const g = game.geysers.filter(x => !geyserTaken(game, x)).sort((a, b) => dist(a, mobile) - dist(b, mobile))[0];
+      if (g) issueCommand(game, team, { type: 'deploy', ids: [mobile.id], geyserId: g.id });
+    }
+    return;
+  }
   const count = type => units.filter(u => u.type === type).length +
     buildings.reduce((n, b) => n + b.queue.filter(q => q === type).length, 0);
   const has = type => buildings.filter(b => b.type === type).length;
@@ -35,10 +43,12 @@ function aiUpdate(game, team) {
   // --- Economy -------------------------------------------------------------
   const scavWanted = Math.min(diff.maxScavengers, 3 + Math.floor(game.time / 150));
   const extractors = buildings.filter(b => b.type === 'extractor' && b.built >= 1);
+  const hasSilo = x => buildings.some(s => s.type === 'outsilo' && footprintGap(x, s.tx, s.ty, s.size) <= 1);
+  const unjoined = extractors.filter(x => !hasSilo(x));
   if (!hq.queue.length) {
     if (count('constructor') < 1 && tm.scrap >= UNIT_TYPES.constructor.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'constructor' });
-    // One Transport per Extractor to haul its scrap home.
-    else if (count('transport') < extractors.length && tm.scrap >= UNIT_TYPES.transport.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'transport' });
+    // One Transport per Extractor that has no Extractor Silo yet.
+    else if (count('transport') < unjoined.length && tm.scrap >= UNIT_TYPES.transport.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'transport' });
     else if (count('scavenger') < scavWanted && tm.scrap >= UNIT_TYPES.scavenger.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'scavenger' });
   }
 
@@ -65,10 +75,10 @@ function aiUpdate(game, team) {
     else if (damaged) cmd({ type: 'repair', ids: [builder.id], targetId: damaged.id });
     else if (!has('factory')) want = 'factory';
     else if (has('tower') < 1 && game.time > (easy ? 300 : 90)) want = 'tower';
-    // Every Extractor gets an Outpost Silo to pump into.
-    else if ((near = extractors.find(x => !buildings.some(s => s.type === 'outsilo' && dist(s, x) < 8 * CONFIG.TILE)))) want = 'outsilo';
     // More storage once the bank keeps filling up.
     else if (has('basesilo') < diff.maxBaseSilos && tm.scrap >= scrapCapacity(game, team) * 0.7 && game.time > 150) want = 'basesilo';
+    // Extractor Silos are expensive: only once there is room to save for one.
+    else if (unjoined.length && scrapCapacity(game, team) >= BUILDING_TYPES.outsilo.cost && tm.scrap >= BUILDING_TYPES.outsilo.cost) { want = 'outsilo'; near = unjoined[0]; }
     else if (diff.secondFactory && has('factory') < 2 && game.time > 300) want = 'factory';
     else if (has('tower') < 1 + has('extractor') && game.time > 200) {
       // Guard the outpost that has the fewest towers nearby.
@@ -138,8 +148,10 @@ function aiUpdate(game, team) {
 function pickObjective(game, team, hq) {
   let best = null, bd = Infinity;
   for (const b of game.entities) {
-    if (b.team === team || b.kind !== 'building') continue;
-    if (b.type !== 'recycler' && !b.seen[team]) continue;  // everyone knows where the HQ is
+    if (b.team === team) continue;
+    // Everyone knows where the enemy HQ is, deployed or still on wheels.
+    const hqTarget = b.type === 'recycler' || b.type === 'mobileRecycler';
+    if (!hqTarget && (b.kind !== 'building' || !b.seen[team])) continue;
     const d = dist(hq, b);
     if (d < bd) { bd = d; best = b; }
   }
@@ -170,7 +182,7 @@ function findBuildSpot(game, team, type, hq, towardAngle, near) {
   const world = (tx, ty) => flip ? { x: W - size - tx, y: H - size - ty } : { x: tx, y: ty };
   const ok = (tx, ty) => { const w = world(tx, ty); return canPlaceBuilding(game, team, type, w.x, w.y).ok; };
   // Leave a gap around buildings so units can drive between them.
-  const fits = (tx, ty) => ok(tx - 1, ty - 1) && ok(tx, ty) && ok(tx + 1, ty + 1);
+  const fits = BUILDING_TYPES[type].adjacent ? ok : (tx, ty) => ok(tx - 1, ty - 1) && ok(tx, ty) && ok(tx + 1, ty + 1);
   const home = local(hq);
   if (near) {
     const goal = local(near);

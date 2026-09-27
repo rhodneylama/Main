@@ -7,7 +7,8 @@ you're never months away from seeing progress.
 
 - Top-down battlefield with fog of war, a minimap, and mirrored random maps
 - Scrap economy: Scavengers, salvage from wrecks, and scrap geysers that Scavengers deploy onto as Extractors
-- Limited scrap storage: Base Silos add room; Outpost Silos hold Extractor output until Transports haul it home
+- Limited scrap storage: Base Silos add room; Extractor Silos join onto Extractors to bank their output directly; Transports haul from the rest
+- Mobile Recycler that deploys onto a geyser; demolishing buildings for half their cost as loose scrap; waypoints for production buildings
 - Base building with a Constructor; you can only build inside your territory
 - Five combat and support vehicles, four buildings
 - Win by destroying the enemy Recycler; lose if yours falls

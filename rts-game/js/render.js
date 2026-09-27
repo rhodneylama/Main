@@ -125,6 +125,8 @@ function drawGame(ctx, game, view) {
     ctx.strokeStyle = 'rgba(140,255,160,0.5)'; ctx.setLineDash([6, 6]); ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.lineTo(e.rally.x, e.rally.y); ctx.stroke(); ctx.setLineDash([]);
     ctx.fillStyle = '#8cffa0'; ctx.beginPath(); ctx.arc(e.rally.x, e.rally.y, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ddd'; ctx.fillRect(e.rally.x - 1, e.rally.y - 22, 2, 22);
+    ctx.fillStyle = '#8cffa0'; ctx.beginPath(); ctx.moveTo(e.rally.x + 1, e.rally.y - 22); ctx.lineTo(e.rally.x + 14, e.rally.y - 18); ctx.lineTo(e.rally.x + 1, e.rally.y - 13); ctx.fill();
   }
 
   const selectedIds = new Set(view.selected.map(e => e.id));
@@ -208,10 +210,17 @@ function drawTerritory(ctx, game, team, placing) {
   const T = CONFIG.TILE;
   const def = BUILDING_TYPES[placing];
   if (def && def.placeNear) {
-    // Silos have their own rule: right next to the Recycler, or an Extractor.
+    // Silos have their own rule: next to the Recycler, or joined onto an Extractor.
     ctx.fillStyle = 'rgba(232,207,130,0.10)'; ctx.strokeStyle = 'rgba(232,207,130,0.6)'; ctx.setLineDash([8, 8]); ctx.lineWidth = 2;
     for (const e of game.entities) if (e.team === team && e.type === def.placeNear && e.built >= 1) {
-      ctx.beginPath(); ctx.arc(e.x, e.y, (def.placeRange + e.size / 2) * T, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      if (def.adjacent) {
+        // The ring of squares a silo can occupy while touching this Extractor.
+        const pad = def.size + 1;
+        ctx.fillRect((e.tx - pad) * T, (e.ty - pad) * T, (e.size + pad * 2) * T, (e.size + pad * 2) * T);
+        ctx.strokeRect((e.tx - pad) * T, (e.ty - pad) * T, (e.size + pad * 2) * T, (e.size + pad * 2) * T);
+      } else {
+        ctx.beginPath(); ctx.arc(e.x, e.y, (def.placeRange + e.size / 2) * T, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      }
     }
     ctx.setLineDash([]);
     return;
@@ -418,6 +427,18 @@ function drawUnit(ctx, u, selected, time) {
       ctx.fillStyle = hull; ctx.fillRect(-r * 0.8, -r * 0.65, r * 1.2, r * 1.3);
       ctx.fillStyle = '#9a9a8a'; ctx.fillRect(r * 0.5, -r * 0.8, r * 0.6, r * 1.6);  // scoop
       if (u.carry > 0) { ctx.fillStyle = '#b8a36a'; ctx.fillRect(-r * 0.6, -r * 0.45, r * 0.9 * u.carry / u.def.carryMax, r * 0.9); }
+      break;
+    }
+    case 'mobileRecycler': {
+      // A big six-wheeled rig with the Recycler's drum folded on its back.
+      ctx.fillStyle = dark;
+      for (const wx of [-r * 0.7, 0, r * 0.7]) { ctx.fillRect(wx - 5, -r * 0.85, 10, 6); ctx.fillRect(wx - 5, r * 0.85 - 6, 10, 6); }
+      ctx.fillStyle = hull; ctx.fillRect(-r, -r * 0.65, r * 2, r * 1.3);
+      ctx.fillStyle = TEAMS[u.team].dark; ctx.fillRect(r * 0.45, -r * 0.5, r * 0.5, r);  // cab
+      ctx.fillStyle = '#2b2e2a'; ctx.beginPath(); ctx.arc(-r * 0.2, 0, r * 0.5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = TEAMS[u.team].light; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(-r * 0.2, 0, r * 0.32, 0.4, 2.4); ctx.stroke();
+      ctx.beginPath(); ctx.arc(-r * 0.2, 0, r * 0.32, 3.5, 5.5); ctx.stroke();
       break;
     }
     case 'transport': {

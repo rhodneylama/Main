@@ -35,12 +35,12 @@ function startGame(difficulty, watch = false) {
   resize();
   // Small screens start zoomed out so more of the battlefield fits.
   view.cam.zoom = Math.max(0.55, Math.min(1, Math.min(view.screenW, view.screenH) / 700));
-  centerOn(game.entities.find(e => e.team === 1 && e.type === 'recycler'));
+  const hq0 = findHQ(watch ? 1 : view.team); centerOn(hq0); if (!watch) select([hq0]);
   $('menu').classList.add('hidden');
   $('end').classList.add('hidden');
   $('log').innerHTML = '';
   paused = false; speed = 1; $('speedval').textContent = '×1';
-  logMessage(watch ? 'Spectating: two AI commanders fight it out.' : 'Build up, defend your Recycler, and destroy the enemy base. Good luck, Commander.', 'info');
+  logMessage(watch ? 'Spectating: two AI commanders fight it out.' : 'Drive your Recycler onto the glowing geyser and deploy it to set up your base.', 'info');
   refreshPanel();
 }
 
@@ -80,14 +80,19 @@ function clampCamera() {
   const c = view.cam, T = CONFIG.TILE;
   const ww = game.map.W * T, wh = game.map.H * T;
   const vw = view.screenW / c.zoom, vh = view.screenH / c.zoom;
+  // Let the map's edges scroll clear of the top bar and bottom panel.
+  const top = $('topbar').offsetHeight / c.zoom, bottom = $('panel').offsetHeight / c.zoom;
   c.x = Math.max(-100, Math.min(ww - vw + 100, c.x));
-  c.y = Math.max(-100, Math.min(wh - vh + 260, c.y));
+  c.y = Math.max(-40 - top, Math.min(wh - vh + bottom + 40, c.y));
 }
 
+// Put a point in the middle of the part of the map you can actually see,
+// between the top bar and the bottom panel.
 function centerOn(p) {
   if (!p) return;
+  const top = $('topbar').offsetHeight, bottom = view.screenH - $('panel').offsetHeight;
   view.cam.x = p.x - view.screenW / view.cam.zoom / 2;
-  view.cam.y = p.y - view.screenH / view.cam.zoom / 2;
+  view.cam.y = p.y - (top + bottom) / 2 / view.cam.zoom;
   clampCamera();
 }
 
@@ -206,13 +211,16 @@ function attackMoveAt(w, pad = 0) {
 }
 
 function cancelModes() {
-  view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null;
+  view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null; view.confirmDemolish = null;
   refreshPanel();
 }
 
 function geyserAt(wx, wy, pad = 0) {
   return game.geysers.find(g => Math.hypot(g.x - wx, g.y - wy) < 30 + pad && !geyserTaken(game, g));
 }
+
+// Your Recycler, whether it is still driving or already deployed.
+const findHQ = team => game.entities.find(e => e.team === team && (e.type === 'recycler' || e.type === 'mobileRecycler'));
 
 const ofType = (list, type) => mine(list).filter(e => e.kind === 'unit' && e.type === type);
 
@@ -223,10 +231,15 @@ function aimAt(w, pad) {
     if (!b || b.team !== view.team || b.kind !== 'building') { logMessage('Tap one of your buildings to defend it', 'warn'); sound('error'); return; }
     issueCommand(game, view.team, { type: 'guard', ids: ofType(view.selected, 'artillery').map(u => u.id), targetId: b.id });
     ping(b, '#8cc8ff');
+  } else if (view.aim === 'rally') {
+    const b = mine(view.selected).find(e => e.kind === 'building');
+    if (b) issueCommand(game, view.team, { type: 'rally', buildingId: b.id, x: w.x, y: w.y });
+    ping(w, '#8cffa0');
   } else if (view.aim === 'deploy') {
     const g = geyserAt(w.x, w.y, pad);
     if (!g) { logMessage('Tap a free, glowing scrap geyser', 'warn'); sound('error'); return; }
-    issueCommand(game, view.team, { type: 'deploy', ids: ofType(view.selected, 'scavenger').map(u => u.id), geyserId: g.id });
+    const ids = [...ofType(view.selected, 'mobileRecycler'), ...ofType(view.selected, 'scavenger')].map(u => u.id);
+    issueCommand(game, view.team, { type: 'deploy', ids, geyserId: g.id });
     ping(g, '#f0c040');
   }
   sound('ack');
@@ -417,7 +430,7 @@ function rightClick(w, pad = 0) {
     const rest = ids.filter(id => !haulers.some(h => h.id === id));
     if (rest.length) issueCommand(game, view.team, { type: 'move', ids: rest, x: w.x, y: w.y });
     ping(t, '#f0c040');
-  } else if (geyser && units.some(u => u.def.role === 'harvester')) {
+  } else if (geyser && units.some(u => u.def.role === 'harvester' || u.def.role === 'hq')) {
     issueCommand(game, view.team, { type: 'deploy', ids, geyserId: geyser.id });
     ping(geyser, '#f0c040');
   } else if (t && t.team === view.team && t.kind === 'building' && arty.length && !units.some(u => u.def.role === 'builder')) {
@@ -504,7 +517,7 @@ window.addEventListener('keydown', e => {
   input.keys.add(e.key);
   const key = e.key.toUpperCase();
   if (e.key === 'Escape') {
-    if (view.placing || view.attackMode || view.aim) cancelModes();
+    if (view.placing || view.attackMode || view.aim || view.confirmDemolish) cancelModes();
     else if (!$('help').classList.contains('hidden')) $('help').classList.add('hidden');
     else select([]);
     return;
@@ -524,7 +537,7 @@ window.addEventListener('keydown', e => {
   }
   if (e.key === 'Enter' && view.placing) { confirmPlacement(); return; }
   if (key === 'P' || e.key === 'Pause') { togglePause(); return; }
-  if (key === 'H') { centerOn(game.entities.find(x => x.team === view.team && x.type === 'recycler')); return; }
+  if (key === 'H') { centerOn(findHQ(view.team)); return; }
   if (key === 'M') { toggleMute(); return; }
   if (e.key === ' ') { if (view.selected[0]) centerOn(view.selected[0]); e.preventDefault(); return; }
   if (e.key === 'F1' || e.key === '?') { $('help').classList.toggle('hidden'); e.preventDefault(); return; }
@@ -566,7 +579,7 @@ function select(list) {
   // Buildings can only be selected one at a time.
   const units = list.filter(e => e.kind === 'unit');
   view.selected = units.length ? units : list.slice(0, 1);
-  view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null;
+  view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null; view.confirmDemolish = null;
   $('armymenu').classList.add('hidden');
   if (view.selected.length && view.selected[0].team === view.team) sound('select');
   refreshPanel();
@@ -583,7 +596,8 @@ function refreshPanel() {
   const info = $('selinfo'), cmds = $('commands');
   const sel = view.selected.filter(e => e.hp > 0);
   // Only rebuild the buttons when something about them actually changed.
-  const key = game ? JSON.stringify([sel.map(e => e.id), view.placing, view.placeReady, view.attackMode, view.aim, spectating,
+  const key = game ? JSON.stringify([sel.map(e => e.id), view.placing, view.placeReady, view.attackMode, view.aim, view.confirmDemolish, spectating,
+    sel.map(e => !!e.rally),
     sel.map(e => [e.built >= 1, e.queue && e.queue.join(), e.queue && e.queue.length && Math.floor(e.prodTime), e.blocked]),
     Object.values(UNIT_TYPES).concat(Object.values(BUILDING_TYPES)).map(d => game.teams[view.team].scrap >= d.cost)]) : '';
   const rebuild = key !== panelKey;
@@ -602,10 +616,15 @@ function refreshPanel() {
     if (e.kind === 'building' && e.built < 1) extra = `Under construction — ${Math.floor(e.built * 100)}%`;
     if (e.kind === 'building' && d.weapon && e.built >= 1) extra = `Damage ${d.weapon.damage} · Range ${d.weapon.range}`;
     if (e.kind === 'building' && d.income) extra = e.built >= 1
-      ? `Pumping about ${Math.round(d.income * 60)} scrap a minute. Holding ${Math.floor(e.stored)} / ${d.store}.${e.stored >= d.store - 1 ? ' Full: build an Outpost Silo beside it.' : ''}`
+      ? (game.entities.some(x => x.type === 'outsilo' && x.team === e.team && x.built >= 1 && footprintGap(e, x.tx, x.ty, x.size) <= 1)
+        ? `Pumping about ${Math.round(d.income * 60)} scrap a minute straight into your total`
+        : `Pumping about ${Math.round(d.income * 60)} scrap a minute into its tank: ${Math.floor(e.stored)} / ${d.store}.${e.stored >= d.store - 1 ? ' Full: send a Transport, or join an Extractor Silo onto it.' : ''}`)
       : `Setting up — ${Math.floor(e.built * 100)}%`;
-    if (e.kind === 'building' && e.type === 'outsilo' && e.built >= 1) extra = `Holding ${Math.floor(e.stored)} / ${d.store} scrap for Transports`;
     if (e.kind === 'building' && d.capacity && e.built >= 1) extra = `Stores ${d.capacity} scrap`;
+    if (e.type === 'outsilo' && e.built >= 1) extra = `Stores ${d.capacity} scrap, and sends its Extractor's scrap straight to your total`;
+    if (e.type === 'recycler' && e.built >= 1) extra = `Stores ${d.capacity} scrap · pumps its geyser very slowly (${(d.income * 60).toFixed(0)} a minute)`;
+    if (e.type === 'recycler' && e.built < 1) extra = `Deploying — ${Math.floor(e.built * 100)}%`;
+    if (e.type === 'mobileRecycler') extra = e.order.type === 'deploy' ? 'Driving to the geyser to deploy' : 'Not deployed yet. Drive it onto a scrap geyser.';
     if (e.kind === 'unit' && e.def.role === 'hauler') extra = `Shield ${Math.ceil(e.shield)} / ${d.shield} · Carrying ${Math.floor(e.carry)} / ${d.carryMax}` +
       (e.order.type === 'haul' ? (e.order.phase === 'full' ? ' · Waiting: storage full' : ' · Hauling') : '');
     if (e.kind === 'unit' && e.order.type === 'scout') extra = e.order.packId ? 'Scouting with the pack' : 'Scouting alone';
@@ -628,33 +647,57 @@ function refreshPanel() {
     if (opts.title) b.title = opts.title;
     if (opts.active) b.classList.add('active');
     if (opts.primary) b.classList.add('primary');
+    if (opts.danger) b.classList.add('danger');
     if (cost && game.teams[view.team].scrap < cost) b.classList.add('poor');
     onPress(b, () => { onClick(); sound('click'); });
     cmds.appendChild(b);
   };
 
   const first = sel[0];
-  if (first.kind === 'building' && first.built >= 1 && first.def.produces) {
-    first.def.produces.forEach((type, i) => {
-      const d = UNIT_TYPES[type];
-      addBtn(d.name, d.cost, HOTKEYS[i], () => issueCommand(game, view.team, { type: 'produce', buildingId: first.id, unit: type }),
-        { title: `${d.name} — ${d.cost} scrap, ${d.buildTime}s\n${d.desc}` });
-    });
-    if (first.queue.length) {
-      const q = document.createElement('div'); q.className = 'queue';
-      q.innerHTML = '<span class="dim small">Queue (click to cancel):</span>';
-      first.queue.forEach((type, i) => {
-        const chip = document.createElement('button'); chip.className = 'chip';
-        chip.textContent = UNIT_TYPES[type].name + (i === 0 ? ` ${Math.floor(first.prodTime / UNIT_TYPES[type].buildTime * 100)}%` : '');
-        onPress(chip, () => { issueCommand(game, view.team, { type: 'cancel', buildingId: first.id, index: i }); refreshPanel(); });
-        q.appendChild(chip);
-      });
-      if (first.blocked) q.innerHTML += '<span class="warn small">Unit limit reached</span>';
-      cmds.appendChild(q);
-    }
+  if (first.kind === 'building') {
+    const keys = [...HOTKEYS];
     const tip = document.createElement('div'); tip.className = 'dim small tip';
-    tip.textContent = 'Right-click the map to set where new vehicles go.';
-    cmds.appendChild(tip);
+    if (first.built >= 1 && first.def.produces) {
+      first.def.produces.forEach(type => {
+        const d = UNIT_TYPES[type];
+        addBtn(d.name, d.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'produce', buildingId: first.id, unit: type }),
+          { title: `${d.name} — ${d.cost} scrap, ${d.buildTime}s\n${d.desc}` });
+      });
+      if (first.queue.length) {
+        const q = document.createElement('div'); q.className = 'queue';
+        q.innerHTML = `<span class="dim small">Queue (${isTouch ? 'tap' : 'click'} to cancel):</span>`;
+        first.queue.forEach((type, i) => {
+          const chip = document.createElement('button'); chip.className = 'chip';
+          chip.textContent = UNIT_TYPES[type].name + (i === 0 ? ` ${Math.floor(first.prodTime / UNIT_TYPES[type].buildTime * 100)}%` : '');
+          onPress(chip, () => { issueCommand(game, view.team, { type: 'cancel', buildingId: first.id, index: i }); refreshPanel(); });
+          q.appendChild(chip);
+        });
+        if (first.blocked) {
+          const warn = document.createElement('span'); warn.className = 'warn small'; warn.textContent = 'Unit limit reached';
+          q.appendChild(warn);
+        }
+        cmds.appendChild(q);
+      }
+      // Waypoint: where every new vehicle from this building drives to.
+      addBtn(first.rally ? 'Move waypoint' : 'Set waypoint', null, keys.shift(), () => { view.aim = 'rally'; refreshPanel(); },
+        { active: view.aim === 'rally', title: 'New vehicles drive straight to the waypoint' });
+      if (first.rally) addBtn('Clear waypoint', null, keys.shift(), () => issueCommand(game, view.team, { type: 'rally', buildingId: first.id, clear: true }));
+      tip.textContent = view.aim === 'rally' ? `${isTouch ? 'Tap' : 'Click'} the map where new vehicles should go.`
+        : first.rally ? 'New vehicles drive to the waypoint (the green marker).' : 'No waypoint: new vehicles wait beside the building, and workers start work.';
+    }
+    if (first.def.demolishable !== false) {
+      const refund = Math.round((first.def.salvageValue ?? first.def.cost) * 0.5);
+      if (view.confirmDemolish === first.id) {
+        addBtn('Confirm demolish', null, 'Z', () => { issueCommand(game, view.team, { type: 'demolish', buildingId: first.id }); view.confirmDemolish = null; sound('build'); },
+          { danger: true, title: `Leaves ${refund} scrap on the ground` });
+        addBtn('Keep it', null, 'Esc', () => { view.confirmDemolish = null; refreshPanel(); });
+        tip.textContent = `Demolishing leaves ${refund} scrap on the ground (half its cost). Scavengers can collect it.`;
+      } else {
+        addBtn('Demolish', null, 'Z', () => { view.confirmDemolish = first.id; refreshPanel(); }, { title: `Leaves ${refund} scrap on the ground` });
+      }
+    }
+    if (view.aim === 'rally') addBtn('Cancel', null, 'Esc', cancelModes);
+    if (tip.textContent) cmds.appendChild(tip);
     return;
   }
   const builder = sel.find(e => e.kind === 'unit' && e.def.role === 'builder');
@@ -685,19 +728,23 @@ function refreshPanel() {
   if (tanks.length) addBtn('Patrol', null, keys.shift(), () => order('patrol', tanks), { title: 'Loop around your buildings, fighting anything met' });
   if (arty.length) addBtn('Defend', null, keys.shift(), () => { view.aim = 'defend'; refreshPanel(); },
     { active: view.aim === 'defend', title: 'Then pick one of your buildings to guard' });
-  if (scavs.length) addBtn('Deploy on geyser', null, keys.shift(), () => { view.aim = 'deploy'; refreshPanel(); },
+  const mobileHq = ofType(sel, 'mobileRecycler');
+  if (mobileHq.length) addBtn('Deploy base', null, keys.shift(), () => { view.aim = 'deploy'; refreshPanel(); },
+    { active: view.aim === 'deploy', title: 'Drive onto a scrap geyser and set up your base there' });
+  else if (scavs.length) addBtn('Deploy on geyser', null, keys.shift(), () => { view.aim = 'deploy'; refreshPanel(); },
     { active: view.aim === 'deploy', title: 'Turn into an Extractor on a scrap geyser' });
   const haulers = ofType(sel, 'transport');
   if (haulers.length) {
     addBtn('Auto-haul', null, keys.shift(), () => order('haul', haulers), { title: 'Collect from whichever silo is fullest' });
     const tip = document.createElement('div'); tip.className = 'dim small tip';
-    tip.textContent = `${isTouch ? 'Tap' : 'Right-click'} an Outpost Silo or Extractor to haul from that one only.`;
+    tip.textContent = `${isTouch ? 'Tap' : 'Right-click'} an Extractor to haul from that one only.`;
     cmds.appendChild(tip);
   }
   if (view.aim) {
     addBtn('Cancel', null, 'Esc', cancelModes);
     const tip = document.createElement('div'); tip.className = 'dim small tip';
     tip.textContent = view.aim === 'defend' ? `${isTouch ? 'Tap' : 'Click'} one of your buildings to defend it.`
+      : mobileHq.length ? `${isTouch ? 'Tap' : 'Click'} a glowing scrap geyser. Your Recycler drives there and deploys as your base.`
       : `${isTouch ? 'Tap' : 'Click'} a glowing scrap geyser. The Scavenger drives there and becomes an Extractor.`;
     cmds.appendChild(tip);
   }
@@ -722,12 +769,12 @@ function updateHud() {
   $('income').textContent = `${scavs} scavenger${scavs === 1 ? '' : 's'}`;
   $('units').textContent = `${units} / ${CONFIG.UNIT_CAP}`;
   // Base health bars. You only know the enemy's once you have seen it.
-  const hq = t => game.entities.find(e => e.team === t && e.type === 'recycler');
+  const hq = findHQ;
   const myHq = hq(view.team), theirs = hq(3 - view.team);
   const pct = e => e ? Math.max(0, e.hp / e.maxHp * 100) : 0;
   $('hq-me').textContent = `${Math.round(pct(myHq))}%`;
   $('hq-me-bar').style.width = `${pct(myHq)}%`;
-  const known = theirs && (spectating || theirs.seen[view.team]);
+  const known = theirs && (spectating || (theirs.seen && theirs.seen[view.team]));
   $('hq-foe').textContent = known ? `${Math.round(pct(theirs))}%` : '?';
   $('hq-foe-bar').style.width = known ? `${pct(theirs)}%` : '0%';
   const m = Math.floor(game.time / 60), s = Math.floor(game.time % 60);
@@ -848,7 +895,7 @@ $('helpclose').onclick = () => $('help').classList.add('hidden');
 $('pausebtn').onclick = togglePause;
 onPress($('q-army'), () => game && toggleArmyMenu());
 for (const b of document.querySelectorAll('#armymenu button')) onPress(b, () => game && selectArmyType(b.dataset.army));
-onPress($('q-base'), () => game && centerOn(game.entities.find(x => x.team === view.team && x.type === 'recycler')));
+onPress($('q-base'), () => game && centerOn(findHQ(view.team)));
 onPress($('q-idle'), () => game && idleWorker());
 onPress($('q-clear'), () => game && select([]));
 $('speedbtn').onclick = () => { speed = speed === 1 ? 2 : speed === 2 ? 4 : 1; $('speedval').textContent = `×${speed}`; };

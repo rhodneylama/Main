@@ -65,6 +65,7 @@
   #commands > button { display: flex; flex-direction: column; align-items: flex-start; min-width: 104px; padding: 5px 9px; position: relative; }
   #commands > button.poor .cost { color: var(--bad); }
   #commands > button.primary { background: #2c4a2c; border-color: var(--accent); }
+  #commands > button.danger { background: #4a2420; border-color: var(--bad); }
   .hk { position: absolute; top: 3px; right: 6px; font-size: 10px; color: var(--dim); }
   .lbl { font-weight: 600; }
   .cost { font-size: 12px; color: #e8cf82; }
@@ -148,6 +149,23 @@
     .card { padding: 18px 18px; }
     .card h1 { font-size: 26px; }
   }
+  /* Phone held sideways: little height to spare, so the quick buttons stack
+     down the left edge instead of covering the middle of the map. */
+  @media (max-height: 520px) {
+    #quickbar { flex-direction: column; bottom: auto; top: calc(var(--top-h) + 8px); gap: 5px; }
+    #quickbar button { min-height: 36px; padding: 4px 10px; font-size: 12px; text-align: left; }
+    #armymenu { flex-direction: column; bottom: auto; top: calc(var(--top-h) + 8px); left: calc(112px + var(--safe-l)); }
+    #log { left: calc(112px + var(--safe-l)); font-size: 11px; }
+    #log .msg:nth-last-child(n+3) { display: none; }  /* only the latest two */
+    /* One row of buttons (scrolls sideways if needed) keeps the panel short. */
+    #panel { max-height: 34vh; }
+    #commands { flex-wrap: nowrap; overflow-x: auto; align-items: flex-start; }
+    #commands > button { flex-shrink: 0; }
+    .queue { flex-wrap: nowrap; width: auto; flex-shrink: 0; }
+    /* Instructions float just above the panel instead of making it taller. */
+    #commands .tip { position: fixed; left: calc(112px + var(--safe-l)); right: 150px; bottom: calc(var(--panel-h) + 6px);
+      width: auto; background: rgba(0,0,0,.7); padding: 4px 9px; border-radius: 4px; pointer-events: none; z-index: 6; }
+  }
   @media (max-width: 460px) {
     #topbar { gap: 8px; }
     #clock { display: none; }
@@ -203,14 +221,15 @@
     <div class="dim">Gather scrap. Build your base. Destroy theirs.</div>
     <h2>Your mission</h2>
     <ul>
-      <li><b>Collect scrap.</b> Scavengers gather it automatically. Scrap pays for everything.</li>
-      <li><b>Build up.</b> Make a Factory, build an army, and put Gun Towers where the enemy will attack.</li>
-      <li><b>Claim scrap geysers.</b> Send a Scavenger to a glowing geyser and it turns into an <b>Extractor</b> that pumps scrap
-        forever. Build an <b>Outpost Silo</b> beside it to hold the scrap, and a <b>Transport</b> from your Recycler to haul it home.</li>
-      <li><b>Mind your storage.</b> You can only hold as much scrap as your base has room for (300 to start).
+      <li><b>Deploy your base.</b> You start with your Recycler on wheels. Drive it onto a glowing scrap geyser and
+        press <b>Deploy base</b>. It becomes your headquarters and slowly pumps that geyser.</li>
+      <li><b>Collect scrap.</b> Scavengers gather loose scrap automatically. Scrap pays for everything.</li>
+      <li><b>Claim more geysers.</b> Send a Scavenger to another geyser to turn it into an <b>Extractor</b>. Join an
+        <b>Extractor Silo</b> onto it and its scrap flows straight into your total. Until then, a <b>Transport</b> hauls it home.</li>
+      <li><b>Mind your storage.</b> You can only hold as much scrap as you have room for (300 to start).
         Build <b>Base Silos</b> next to your Recycler to hold more.</li>
-      <li><b>Protect your Recycler</b> (your HQ) at all costs. If it falls, you lose.
-        <b>Destroy the enemy Recycler</b> in the far corner to win.</li>
+      <li><b>Protect your Recycler</b> at all costs. If it falls, you lose.
+        <b>Destroy the enemy Recycler</b> to win.</li>
     </ul>
     <h2>Basic controls</h2>
     <ul class="only-mouse">
@@ -256,7 +275,9 @@
       <tr><td><b>Patrol</b></td><td>Tanks loop around your buildings and fight anything they meet.</td></tr>
       <tr><td><b>Defend</b></td><td>Artillery digs in beside one of your buildings and shells anything in range. Press Defend, then pick the building.</td></tr>
       <tr><td><b>Deploy on geyser</b></td><td>A Scavenger drives onto a scrap geyser and becomes an Extractor.</td></tr>
-      <tr><td><b>Auto-haul</b></td><td>Transports collect from whichever Outpost Silo or Extractor is fullest. Pick one yourself by tapping or right-clicking it.</td></tr>
+      <tr><td><b>Auto-haul</b></td><td>Transports empty the tanks of Extractors that have no Extractor Silo. Pick one yourself by tapping or right-clicking it.</td></tr>
+      <tr><td><b>Waypoint</b></td><td>Select your Recycler or a Factory, press Set waypoint, then pick a spot. Every new vehicle drives there. Clear waypoint removes it.</td></tr>
+      <tr><td><b>Demolish</b></td><td>Select a building and press Demolish, then Confirm. Half its cost is left on the ground as scrap for Scavengers.</td></tr>
 </table>
     <table class="only-mouse">
       <tr><td><b>Left-click / drag</b></td><td>Select vehicles. Double-click selects all of that type on screen. Hold <kbd>Shift</kbd> to add.</td></tr>
@@ -273,7 +294,9 @@
       <tr><td><b>Patrol</b></td><td>Tanks loop around your buildings and fight anything they meet.</td></tr>
       <tr><td><b>Defend</b></td><td>Artillery digs in beside one of your buildings and shells anything in range. Press Defend, then pick the building.</td></tr>
       <tr><td><b>Deploy on geyser</b></td><td>A Scavenger drives onto a scrap geyser and becomes an Extractor.</td></tr>
-      <tr><td><b>Auto-haul</b></td><td>Transports collect from whichever Outpost Silo or Extractor is fullest. Pick one yourself by tapping or right-clicking it.</td></tr>
+      <tr><td><b>Auto-haul</b></td><td>Transports empty the tanks of Extractors that have no Extractor Silo. Pick one yourself by tapping or right-clicking it.</td></tr>
+      <tr><td><b>Waypoint</b></td><td>Select your Recycler or a Factory, press Set waypoint, then pick a spot. Every new vehicle drives there. Clear waypoint removes it.</td></tr>
+      <tr><td><b>Demolish</b></td><td>Select a building and press Demolish, then Confirm. Half its cost is left on the ground as scrap for Scavengers.</td></tr>
 </table>
     <h2>Tips</h2>
     <ul>

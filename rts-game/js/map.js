@@ -84,7 +84,8 @@ function generateMap(seed) {
 
   // Scrap geysers: fixed spots where a Scavenger can deploy as an Extractor.
   // Given as tile corners; the Extractor sits on the 2x2 tiles around each.
-  const halfGeysers = [{ x: 16, y: 54 }, { x: 22, y: 20 }, { x: 34, y: 50 }, { x: 44, y: 34 }];
+  // The first one sits under each starting position, for the Recycler.
+  const halfGeysers = [{ x: bases[1].x, y: bases[1].y + 1 }, { x: 16, y: 54 }, { x: 22, y: 20 }, { x: 34, y: 50 }, { x: 44, y: 34 }];
   const geyserTiles = [];
   for (const g of halfGeysers) { geyserTiles.push(g); geyserTiles.push({ x: W - g.x, y: H - g.y }); }
 
