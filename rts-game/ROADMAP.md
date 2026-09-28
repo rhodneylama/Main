@@ -10,10 +10,12 @@ you're never months away from seeing progress.
 - Limited scrap storage: Base Silos add room; Extractor Silos join onto Extractors to bank their output directly; Transports haul from the rest
 - Mobile Recycler that deploys onto a geyser; demolishing buildings for half their cost as loose scrap; waypoints for production buildings
 - Base building with a Constructor; you can only build inside your territory
-- Five combat and support vehicles, four buildings
+- Twelve vehicle types (including Mk II upgrades) and nine buildings
+- Tech tree: Recycler II and Factory II upgrades, a Research Lab, Radar pings and a Repair Pad
 - Win by destroying the enemy Recycler; lose if yours falls
 - Expand your territory outward by claiming geysers
-- Unit orders: Scout (solo or as a pack), Patrol, Defend, Deploy
+- Unit orders: Scout (solo or as a pack), Patrol, Defend, Deploy, Go repair
+- Collapsible minimap; random starting corners
 - An AI opponent with three difficulty levels
 - AI-vs-AI spectator mode (`?watch`)
 
