@@ -666,7 +666,8 @@ Recycler at its first attack.
 | Scroll / zoom | One-finger drag / pinch. |
 | Build | Select the Constructor, pick a building, tap where it goes, then press **Build here**. |
 | Upgrade / research | Select the building and press its **Upgrade** or research button. |
-| Quick buttons | **Army ▾** (menu: All combat / Scouts / Tanks / Artillery), **Base**, **Idle worker**, **Deselect**. |
+| Quick buttons (top bar) | **Army ▾** (menu: All combat / Scouts / Tanks / Artillery), **Base**, **Idle worker**, **Deselect**. |
+| Pause / Help | **Pause** button (❚❚ on narrow phones). The pause screen has **Resume** and **Help**. |
 | Minimap | Tap to move the camera. **Map ▾ / Map ▸** folds it away or brings it back. |
 
 ### Mouse and keyboard
@@ -693,12 +694,17 @@ The game speed button cycles through ×1, ×2 and ×4.
 ## 16. Screen layout
 
 - **Top bar:** scrap held / capacity, workers, units / 50, your base's
-  health %, the enemy base's health % (or `?`), clock, speed, pause, help.
+  health %, the enemy base's health % (or `?`), the quick buttons, clock,
+  speed and pause. On a narrow phone the clock is hidden, Pause becomes a ❚❚
+  symbol, and the quick buttons get their own second row.
+- **Quick buttons (in the top bar):** Army ▾ (its menu drops down under
+  it), Base, Idle worker, Deselect.
+- **Pause screen:** Resume and **Help**. Help is only reachable from here
+  (or `F1` on a keyboard, which also pauses).
 - **Bottom panel:** the selected unit or building's details, plus its
-  command buttons. On phones the buttons stay in one row that scrolls
-  sideways, so the panel never grows over the map.
-- **Quick buttons:** Army ▾, Base, Idle worker, Deselect. They sit above the
-  panel, or down the left edge on a phone held sideways.
+  command buttons. On phones the details shrink to a one- or two-line summary
+  and the buttons wrap into rows of three (portrait) or sit beside the
+  summary (sideways), so nothing needs scrolling.
 - **Minimap:** bottom-right corner (top-right on phones). Shows fog, units,
   buildings, geysers and alerts. Tap it to move the camera. The **Map**
   button above it folds it down to a small tab; the choice is remembered on
@@ -1097,3 +1103,6 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     must now park and lower stabiliser legs (0.6 s) before firing and raise
     them (0.6 s) before driving, a small nerf. The Recycler keeps its gun
     without a visible barrel.
+14. **Phone layout tidy-up.** Quick buttons moved into the top bar; Help
+    moved onto the pause screen; the selection panel shrank to a short
+    summary with action buttons wrapping into rows instead of scrolling.

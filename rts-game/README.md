@@ -57,7 +57,8 @@ The game works on touch screens. Turning your phone sideways gives the best view
 | Select fighters | **Army** button, then All, Scouts, Tanks or Artillery |
 | Scroll / zoom | Drag one finger / pinch |
 | Build | Select the Constructor, pick a building, tap where it goes, then press **Build here** |
-| Deselect, jump home, find an idle worker | **Deselect**, **Base**, **Idle worker** buttons |
+| Deselect, jump home, find an idle worker | **Deselect**, **Base**, **Idle worker** buttons in the top bar |
+| Help | Press **Pause**, then **Help** |
 | Hide or show the minimap | **Map** button above it |
 
 ## Controls (mouse and keyboard)

@@ -54,6 +54,8 @@
   .tbar div { height: 100%; transition: width .3s; }
   #topbar .spacer { flex: 1; }
   #topbar button { padding: 4px 9px; font-size: 12px; }
+  #pausebtn .picon { display: none; width: 11px; height: 13px; margin: 0 2px; vertical-align: -2px;
+    border-left: 4px solid currentColor; border-right: 4px solid currentColor; }
 
   /* Bottom panel */
   #panel { position: fixed; left: 0; bottom: 0; right: 232px; height: calc(132px + var(--safe-b)); display: flex; gap: 12px;
@@ -61,6 +63,7 @@
     background: var(--panel); border-top: 1px solid var(--edge); z-index: 5; }
   #selinfo { width: 260px; flex-shrink: 0; overflow: hidden; }
   .selname { font-weight: 700; font-size: 16px; }
+  .selname .hp { font-weight: 400; font-size: 13px; color: var(--text); margin-left: 6px; }
   #commands { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; }
   #commands > button { display: flex; flex-direction: column; align-items: flex-start; min-width: 104px; padding: 5px 9px; position: relative; }
   #commands > button.poor .cost { color: var(--bad); }
@@ -83,9 +86,9 @@
   #minimap-wrap.collapsed { width: auto; height: auto; padding: 6px calc(6px + var(--safe-r)) calc(6px + var(--safe-b)) 6px; }
   #minimap-wrap.collapsed #minimap { display: none; }
   #minimap-wrap.collapsed #maptoggle { margin-bottom: 0; }
-  #quickbar { position: fixed; left: calc(10px + var(--safe-l)); bottom: calc(var(--panel-h) + 8px); z-index: 5; display: flex; gap: 6px; }
-  #quickbar button { background: var(--panel); padding: 6px 11px; font-size: 13px; }
-  #armymenu { position: fixed; left: calc(10px + var(--safe-l)); bottom: calc(var(--panel-h) + 52px); z-index: 6;
+  #quickbar { display: flex; gap: 6px; }
+  /* Placed just under the Army button by main.js. */
+  #armymenu { position: fixed; left: calc(10px + var(--safe-l)); top: calc(var(--top-h) + 6px); z-index: 6;
     display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100vw - 20px); }
   #armymenu button { background: #1d2a1d; border-color: #5a7a56; min-height: 38px; }
   #armymenu button:disabled { opacity: .4; cursor: default; }
@@ -98,8 +101,12 @@
   .msg.bad { border-color: var(--bad); }
   .msg.warn { border-color: var(--warn); }
   .msg.fade { opacity: 0; }
-  #paused { position: fixed; top: 40%; left: 0; right: 0; text-align: center; font-size: 42px; font-weight: 800;
-    letter-spacing: .2em; color: rgba(255,255,255,.85); pointer-events: none; z-index: 6; text-shadow: 0 2px 10px #000; }
+  #paused { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 7;
+    background: rgba(0,0,0,.35); }
+  .pausebox { text-align: center; background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; padding: 18px 26px; }
+  .pausebox .row { justify-content: center; }
+  .pausetitle { font-size: 34px; font-weight: 800; letter-spacing: .2em; color: rgba(255,255,255,.9); }
+  #helpbtn { font-size: 17px; padding: 10px 22px; }
 
   /* Overlays */
   .overlay { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
@@ -138,20 +145,22 @@
     #income-stat, .tbar, .wide { display: none; }
     .bases { gap: 10px; }
     #topbar button { padding: 6px 9px; }
-    #panel { right: 0; height: auto; max-height: 42vh; flex-direction: row; gap: 10px; padding: 6px 10px calc(6px + var(--safe-b)) calc(10px + var(--safe-l)); overflow-y: auto; }
-    #selinfo { width: 34%; max-width: 190px; font-size: 12px; line-height: 1.3; }
+    /* The quick buttons get their own row in the top bar. */
+    #quickbar { order: 10; flex-basis: 100%; gap: 5px; }
+    #quickbar button { flex: 1; min-height: 38px; padding: 4px 6px; font-size: 13px; white-space: nowrap; }
+    /* Panel: a short summary line on top, then every action button in rows
+       that wrap, so nothing has to be scrolled to. */
+    #panel { right: 0; height: auto; max-height: 48vh; flex-direction: column; gap: 5px;
+      padding: 6px 10px calc(6px + var(--safe-b)) calc(10px + var(--safe-l)); overflow-y: auto; }
+    #selinfo { width: 100%; max-width: none; font-size: 12px; line-height: 1.3; }
     .selname { font-size: 14px; }
     #selinfo .small { display: none; }
-    #commands { flex: 1; gap: 5px; }
-    /* One row of buttons that scrolls sideways keeps the panel short, so it
-       never pushes the quick buttons up over the map. */
-    #panel { max-height: 34vh; }
-    #commands { flex-wrap: nowrap; overflow-x: auto; align-items: flex-start; align-content: flex-start; flex-direction: row; }
-    #commands > button { flex-shrink: 0; }
-    .queue { flex-wrap: nowrap; width: auto; flex-shrink: 0; }
-    #commands .tip { flex-shrink: 0; width: auto; max-width: 60vw; white-space: normal; }
-    #commands > button { min-width: 88px; min-height: 44px; padding: 4px 8px; font-size: 13px; }
+    #selinfo .extra { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #commands { gap: 5px; }
+    #commands > button { flex: 0 1 calc(33.3% - 4px); min-width: 0; min-height: 42px; padding: 4px 7px; font-size: 13px; text-align: left; }
+    #commands > button .lbl { line-height: 1.15; }
     #commands > button .hk { display: none; }
+    #commands .tip { width: 100%; }
     .chip { min-height: 32px; }
     .tip { font-size: 11px; }
     #minimap-wrap { top: calc(var(--top-h) + 6px); bottom: auto; right: calc(6px + var(--safe-r)); width: auto; height: auto; padding: 4px;
@@ -159,7 +168,6 @@
     #minimap { width: 132px; height: 99px; }
     #maptoggle { padding: 4px 9px; min-height: 30px; }
     #minimap-wrap.collapsed { padding: 4px; }
-    #quickbar button { min-height: 40px; padding: 6px 12px; }
     #log { font-size: 12px; max-width: calc(100vw - 170px); }
     .card { padding: 18px 18px; }
     .card h1 { font-size: 26px; }
@@ -167,19 +175,31 @@
   /* Phone held sideways: little height to spare, so the quick buttons stack
      down the left edge instead of covering the middle of the map. */
   @media (max-height: 520px) {
-    #quickbar { flex-direction: column; bottom: auto; top: calc(var(--top-h) + 8px); gap: 5px; }
-    #quickbar button { min-height: 36px; padding: 4px 10px; font-size: 12px; text-align: left; }
-    #armymenu { flex-direction: column; bottom: auto; top: calc(var(--top-h) + 8px); left: calc(112px + var(--safe-l)); }
-    #log { left: calc(112px + var(--safe-l)); font-size: 11px; }
+    /* Sideways there's room for the quick buttons on the top bar's one row. */
+    #quickbar { order: 0; flex-basis: auto; }
+    #quickbar button { flex: none; min-height: 32px; padding: 4px 9px; font-size: 12px; }
+    #armymenu { flex-direction: column; }
+    #log { font-size: 11px; }
+    /* Summary on the left, buttons wrapping beside it. */
+    #panel { flex-direction: row; max-height: 45vh; }
+    #selinfo { width: 150px; flex-shrink: 0; }
+    #selinfo .extra { white-space: normal; }
+    #commands { flex: 1; }
+    #commands > button { flex: 0 1 auto; min-width: 92px; min-height: 38px; }
     #log .msg:nth-last-child(n+3) { display: none; }  /* only the latest two */
     /* Instructions float just above the panel instead of making it taller. */
-    #commands .tip { position: fixed; left: calc(112px + var(--safe-l)); right: 150px; bottom: calc(var(--panel-h) + 6px);
+    #commands .tip { position: fixed; left: calc(10px + var(--safe-l)); right: 150px; bottom: calc(var(--panel-h) + 6px);
       width: auto; background: rgba(0,0,0,.7); padding: 4px 9px; border-radius: 4px; pointer-events: none; z-index: 6; }
   }
   @media (max-width: 460px) {
-    #topbar { gap: 8px; }
+    #topbar { gap: 7px; padding-left: calc(10px + var(--safe-l)); padding-right: calc(8px + var(--safe-r)); }
     #clock { display: none; }
     #topbar button { padding: 6px 7px; }
+    #topbar .spacer { display: none; }
+    #speedbtn { margin-left: auto; }
+    /* Narrow phones: Pause shrinks to a symbol so it stays on the first row. */
+    #pausebtn .ptext { display: none; }
+    #pausebtn .picon { display: inline-block; }
   }
 </style>
 </head>
@@ -196,15 +216,28 @@
     <div class="tbar"><div id="hq-foe-bar" style="background:var(--red)"></div></div>
     <div class="stat"><span class="label" style="color:var(--red)">Enemy<span class="wide"> base</span></span><b id="hq-foe">?</b></div>
   </div>
+  <div id="quickbar">
+    <button id="q-army" title="Select your combat vehicles: all, or one kind">Army ▾</button>
+    <button id="q-base" title="Jump to your Recycler (H)">Base</button>
+    <button id="q-idle" title="Find an idle worker (X)">Idle worker</button>
+    <button id="q-clear" title="Deselect (Esc)">Deselect</button>
+  </div>
   <div class="spacer"></div>
   <b id="clock">0:00</b>
   <button id="speedbtn" title="Game speed"><span class="wide">Speed </span><span id="speedval">×1</span></button>
-  <button id="pausebtn" title="Pause">Pause<span class="only-mouse"> (P)</span></button>
-  <button id="helpbtn" title="Help">Help<span class="only-mouse"> (F1)</span></button>
+  <button id="pausebtn" title="Pause" aria-label="Pause"><span class="ptext">Pause<span class="only-mouse"> (P)</span></span><span class="picon"></span></button>
 </div>
 
 <div id="log"></div>
-<div id="paused" class="hidden">PAUSED</div>
+<div id="paused" class="hidden">
+  <div class="pausebox">
+    <div class="pausetitle">PAUSED</div>
+    <div class="row">
+      <button id="resumebtn" class="big">Resume</button>
+      <button id="helpbtn">Help<span class="only-mouse"> (F1)</span></button>
+    </div>
+  </div>
+</div>
 
 <div id="panel">
   <div id="selinfo"></div>
@@ -215,12 +248,6 @@
   <button data-army="scout">Scouts <span class="n">0</span></button>
   <button data-army="tank">Tanks <span class="n">0</span></button>
   <button data-army="artillery">Artillery <span class="n">0</span></button>
-</div>
-<div id="quickbar">
-  <button id="q-army" title="Select your combat vehicles: all, or one kind">Army ▾</button>
-  <button id="q-base" title="Jump to your Recycler (H)">Base</button>
-  <button id="q-idle" title="Find an idle worker (X)">Idle worker</button>
-  <button id="q-clear" title="Deselect (Esc)">Deselect</button>
 </div>
 <div id="minimap-wrap">
   <button id="maptoggle" aria-expanded="true" title="Show or hide the minimap">Map ▾</button>
@@ -267,7 +294,7 @@
     <div class="row" style="margin-top:20px">
       <button id="start" class="big">Start battle</button>
       <button id="watch">Watch AI vs AI</button>
-      <span class="dim small only-mouse">Press <kbd>F1</kbd> in game for all controls.</span>
+      <span class="dim small">Pause the game to open Help<span class="only-mouse"> (or press <kbd>F1</kbd>)</span>.</span>
     </div>
   </div>
 </div>
@@ -283,7 +310,7 @@
       <tr><td><b>One-finger drag</b></td><td>Scroll the map</td></tr>
       <tr><td><b>Pinch</b></td><td>Zoom in and out</td></tr>
       <tr><td><b>Attack-move</b></td><td>Press the button, then tap: vehicles travel there and fight anything on the way</td></tr>
-      <tr><td><b>Army · Base · Idle worker · Deselect</b></td><td>Quick buttons above the bottom panel. Army opens a menu: all fighters, or just one kind.</td></tr>
+      <tr><td><b>Army · Base · Idle worker · Deselect</b></td><td>Quick buttons in the top bar. Army opens a menu: all fighters, or just one kind.</td></tr>
       <tr><td><b>Building</b></td><td>Pick a building, tap where it should go, then press <b>Build here</b></td></tr>
           <tr><td><b>Scout</b></td><td>Scouts explore on their own. With several selected, <b>Scout as pack</b> keeps them together; <b>Scout solo</b> spreads them out.</td></tr>
       <tr><td><b>Patrol</b></td><td>Tanks loop around your buildings and fight anything they meet.</td></tr>

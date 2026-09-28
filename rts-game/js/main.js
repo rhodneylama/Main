@@ -40,6 +40,7 @@ function startGame(difficulty, watch = false) {
   $('end').classList.add('hidden');
   $('log').innerHTML = '';
   paused = false; speed = 1; $('speedval').textContent = '×1';
+  $('paused').classList.add('hidden'); $('help').classList.add('hidden');
   logMessage(watch ? 'Spectating: two AI commanders fight it out.' : 'Drive your Recycler onto the glowing geyser and deploy it to set up your base.', 'info');
   refreshPanel();
 }
@@ -258,6 +259,9 @@ function toggleArmyMenu() {
     b.querySelector('.n').textContent = n;
     b.disabled = n === 0;
   }
+  const r = $('q-army').getBoundingClientRect();
+  menu.style.left = `${Math.max(6, Math.min(r.left, window.innerWidth - 200))}px`;
+  menu.style.top = `${r.bottom + 6}px`;
   menu.classList.remove('hidden');
 }
 
@@ -541,7 +545,7 @@ window.addEventListener('keydown', e => {
   if (key === 'H') { centerOn(findHQ(view.team)); return; }
   if (key === 'M') { toggleMute(); return; }
   if (e.key === ' ') { if (view.selected[0]) centerOn(view.selected[0]); e.preventDefault(); return; }
-  if (e.key === 'F1' || e.key === '?') { $('help').classList.toggle('hidden'); e.preventDefault(); return; }
+  if (e.key === 'F1' || e.key === '?') { if ($('help').classList.contains('hidden')) openHelp(); else $('help').classList.add('hidden'); e.preventDefault(); return; }
   if (key === 'A' && !view.placing && mine(view.selected).some(u => u.kind === 'unit' && u.def.weapon)) { view.attackMode = true; refreshPanel(); return; }
   if (key === 'S' && !view.placing) { issueCommand(game, view.team, { type: 'stop', ids: mine(view.selected).map(u => u.id) }); return; }
   if (key === 'X' && !view.placing) { idleWorker(); return; }
@@ -640,13 +644,13 @@ function refreshPanel() {
     if (e.kind === 'building' && e.researching) extra = `Researching ${RESEARCH[e.researching.key].name} — ${Math.floor(e.researching.t / RESEARCH[e.researching.key].time * 100)}%`;
     if (e.type === 'radar' && e.built >= 1) extra = `Next radar ping in ${Math.ceil(e.pingTimer)}s`;
     if (e.type === 'repairpad' && e.built >= 1) extra = 'Drive damaged vehicles onto the pad to repair them.';
-    info.innerHTML = `<div class="selname" style="color:${TEAMS[e.team].color}">${e.kind === 'building' ? nameOf(e) : d.name}</div>
-      <div>Health ${Math.ceil(e.hp)} / ${e.maxHp}</div><div class="dim">${extra}</div><div class="dim small">${d.desc}</div>`;
+    info.innerHTML = `<div class="selname" style="color:${TEAMS[e.team].color}">${e.kind === 'building' ? nameOf(e) : d.name}<span class="hp">Health ${Math.ceil(e.hp)} / ${e.maxHp}</span></div>
+      <div class="dim extra">${extra}</div><div class="dim small">${d.desc}</div>`;
   } else {
     const counts = {};
     for (const e of sel) counts[e.def.name] = (counts[e.def.name] || 0) + 1;
     info.innerHTML = `<div class="selname">${sel.length} vehicles</div>` +
-      Object.entries(counts).map(([n, c]) => `<div>${c} × ${n}</div>`).join('');
+      `<div class="extra">${Object.entries(counts).map(([n, c]) => `${c} × ${n}`).join(' · ')}</div>`;
   }
   if (!own || !rebuild) return;
 
@@ -924,9 +928,12 @@ document.querySelectorAll('[data-difficulty]').forEach(b => b.addEventListener('
 $('start').onclick = () => startGame(chosenDifficulty);
 $('watch').onclick = () => startGame(chosenDifficulty, true);
 $('again').onclick = () => { $('end').classList.add('hidden'); $('menu').classList.remove('hidden'); };
-$('helpbtn').onclick = () => $('help').classList.toggle('hidden');
+// Help lives on the pause screen, so opening it always pauses the battle.
+function openHelp() { if (game && !paused) togglePause(); $('help').classList.remove('hidden'); }
+$('helpbtn').onclick = openHelp;
 $('helpclose').onclick = () => $('help').classList.add('hidden');
 $('pausebtn').onclick = togglePause;
+$('resumebtn').onclick = () => { if (paused) togglePause(); };
 
 // The minimap can be folded away to free up screen space. The choice is
 // remembered on this device.
