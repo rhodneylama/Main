@@ -297,7 +297,8 @@ function drawScrap(ctx, s) {
 }
 
 // Which design from the unit sheet (js/sprites.js) each game type uses.
-const SPRITE_ID = { mobileRecycler: 'recyclerV', repairpad: 'repair', basesilo: 'silo', outsilo: 'exsilo' };
+// No prototype, so a type like "constructor" isn't mistaken for a built-in.
+const SPRITE_ID = Object.assign(Object.create(null), { mobileRecycler: 'recyclerV', repairpad: 'repair', basesilo: 'silo', outsilo: 'exsilo' });
 const spriteId = type => SPRITE_ID[type] || type;
 const teamName = t => (t === 1 ? 'blue' : 'red');
 // Seconds since a gun last fired, while its recoil and muzzle flash still show.

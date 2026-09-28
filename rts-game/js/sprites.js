@@ -4,12 +4,12 @@
  * See UNIT_SPRITES.md for the API and animation rules. */
 (function (root) {
 'use strict';
-const BASE = { h:'#9aa1aa', l:'#c9ced4', m:'#6b727b', d:'#3f444b', k:'#15171a', g:'#eaf6ff', gold:'#f0b93a', gr:'#4fd16a', gl:'#bfe6ff' };
+const BASE = { h:'#9aa1aa', l:'#c9ced4', m:'#6b727b', d:'#3f444b', k:'#15171a', g:'#eaf6ff', gold:'#f0b93a', gr:'#4fd16a', gl:'#bfe6ff', tr:'#1b1d21', tc:'#4a5059' };
 const TEAM = { blue:{ t:'#4aa3ff', td:'#1f6fc2' }, red:{ t:'#ff5a4a', td:'#b8352a' } };
-const MASK = { h:'#4a4e55', l:'#5a5f66', m:'#3c4046', d:'#2d3035', k:'#15171a', g:'#6a6f76', gold:'#6a6f76', gr:'#6a6f76', gl:'#5a5f66', t:'#ffffff', td:'#d0d0d0' };
-const WRECK = { h:'#55585c', l:'#62656a', m:'#43464a', d:'#303235', k:'#15171a', g:'#62656a', gold:'#55585c', gr:'#55585c', gl:'#55585c', t:'#4a4d51', td:'#3c3f43' };
+const MASK = { h:'#4a4e55', l:'#5a5f66', m:'#3c4046', d:'#2d3035', k:'#15171a', g:'#6a6f76', gold:'#6a6f76', gr:'#6a6f76', gl:'#5a5f66', t:'#ffffff', td:'#d0d0d0', tr:'#15171a', tc:'#2d3035' };
+const WRECK = { h:'#55585c', l:'#62656a', m:'#43464a', d:'#303235', k:'#15171a', g:'#62656a', gold:'#55585c', gr:'#55585c', gl:'#55585c', t:'#4a4d51', td:'#3c3f43', tr:'#1e2023', tc:'#303235' };
 const SW = 0.6;
-const tk = (x0, x1, y, hh, st) => { let d = ''; for (let x = x0; x <= x1; x += st) d += `M${x} ${y}v${hh}`; return ['s', d, 'm', .5]; };
+const tk = (x0, x1, y, hh, st) => { let d = ''; for (let x = x0; x <= x1; x += st) d += `M${x} ${y}v${hh}`; return ['s', d, 'tc', .6]; };
 const chev = (x, y, s) => ['s', `M${x} ${y-s}L${x+s} ${y}L${x} ${y+s}M${x+s*1.3} ${y-s}L${x+s*2.3} ${y}L${x+s*1.3} ${y+s}`, 'gold', s*.5];
 const plate = (a) => ['r', -a, -a, a*2, a*2, 'd', 3];
 function hazard(S) {
@@ -21,7 +21,7 @@ function hazard(S) {
 const VEH = [
   { id:'tank', code:'V-01', name:'Tank', sub:'Line combat', D:30, R:15, reach:22, layers:'Hull · Team · Turret', mkName:'Mk II',
     role:'The reference silhouette: octagonal hull on full-length tracks, a dominant turret and a barrel that clears the nose. Everything else contrasts with it.',
-    s:[['r',-14,-15,28,6,'d',1.5],['r',-14,9,28,6,'d',1.5],tk(-12,12,-15,6,3),tk(-12,12,9,6,3),
+    s:[['r',-14,-15,28,6,'tr',1.5],['r',-14,9,28,6,'tr',1.5],tk(-12,12,-15,6,3),tk(-12,12,9,6,3),
        ['p','M-9 -10H8L12 -6V6L8 10H-9L-12 7V-7Z','h'],['p','M8 -10L12 -6V6L8 10Z','l'],['r',-11.5,-6,3,12,'t'],['s','M-8 -8.5H6M-8 8.5H6','m',.6]],
     mk:[['r',-13,-11,22,2,'l',.5],['r',-13,9,22,2,'l',.5]],
     tur:{ m:[-1,0], s:[['r',5,-1.4,15,2.8,'d'],['p','M-7 -6H3L7 -3V3L3 6H-7L-9 3V-3Z','h'],['c',-3,0,2.2,'l'],['r',-8.5,-2,1.8,4,'t'],['r',18,-2,5,4,'k']] },
@@ -33,7 +33,7 @@ const VEH = [
     mk:[['p','M-5 -8L-11 -11.5L-8.5 -6Z','d'],['p','M-5 8L-11 11.5L-8.5 6Z','d'],chev(-8,0,1.6)] },
   { id:'artillery', code:'V-03', name:'Artillery', sub:'Siege', D:30, R:15, reach:36, layers:'Hull · Team · Turret', mkName:'Mk II',
     role:'Tracked, with a barrel that overhangs the hull by more than a body length. It must stop to fire: four stabiliser legs swing out, it fires, then they fold back under the hull before it moves.', legs:true,
-    s:[['r',-13,-13,24,4.5,'d',1.2],['r',-13,8.5,24,4.5,'d',1.2],tk(-11,9,-13,4.5,2.5),tk(-11,9,8.5,4.5,2.5),
+    s:[['r',-13,-13,24,4.5,'tr',1.2],['r',-13,8.5,24,4.5,'tr',1.2],tk(-11,9,-13,4.5,2.5),tk(-11,9,8.5,4.5,2.5),
        ['r',-13,-8.5,24,17,'h',1],['r',-12.5,-6,3.5,12,'t'],['s','M-8 -7H8M-8 7H8','m',.6]],
     tur:{ m:[0,0], s:[['r',4,-1.7,28,3.4,'d'],['r',4,-2.6,9,5.2,'m',.5],['r',31,-2.8,5,5.6,'k'],['r',-7,-6.5,13,13,'h',2],['r',-5.5,-4.5,7,9,'l',1],['r',-7,-2,1.8,4,'t']] },
     tmk:[chev(-4.5,0,2)] },
@@ -59,7 +59,7 @@ const VEH = [
     shield:true },
   { id:'recyclerV', code:'V-07', name:'Recycler', sub:'Mobile HQ', D:44, R:22, reach:22, layers:'Hull · Team',
     role:'Unarmed mobile headquarters. Widest tracks in the game and a big processing drum that reads from any zoom. Deploys into the Recycler building.',
-    s:[['r',-20,-22,38,8,'d',2],['r',-20,14,38,8,'d',2],tk(-18,16,-22,8,3.5),tk(-18,16,14,8,3.5),
+    s:[['r',-20,-22,38,8,'tr',2],['r',-20,14,38,8,'tr',2],tk(-18,16,-22,8,3.5),tk(-18,16,14,8,3.5),
        ['p','M-18 -14H12L20 -8V8L12 14H-18L-21 10V-10Z','h'],['r',-18,-13,28,2.5,'t'],['r',-18,10.5,28,2.5,'t'],
        ['p','M12 -14L20 -8V8L12 14Z','l'],['s','M14.5 -6V6M17 -4V4','d',.8],['r',-20.5,-8,3,16,'d',1],
        ['c',-4,0,9,'m'],['o',-4,0,6,'d',1],['c',-4,0,2.5,'l']] }
@@ -110,7 +110,7 @@ const BLD = [
     s:[plate(30),['c',0,0,22,'h'],['o',0,0,18,'t',3],['c',0,0,14,'m'],['c',0,0,5,'d']],
     spin:{ rate:90, s:[['s','M-2 0H12','d',1.6],['p','M-3 -19Q13 0 -3 19L-8 17Q5 0 -8 -17Z','l'],['c',12,0,2.2,'g']] } }
 ];
-const ALL = [...VEH, ...BLD], BY = {}; ALL.forEach(d => { BY[d.id] = d; });
+const ALL = [...VEH, ...BLD], BY = Object.create(null); ALL.forEach(d => { BY[d.id] = d; });
 
 const DEG = Math.PI / 180;
 // Parsed outlines are cached: building a Path2D from text every frame for

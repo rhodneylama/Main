@@ -1106,3 +1106,8 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
 14. **Phone layout tidy-up.** Quick buttons moved into the top bar; Help
     moved onto the pause screen; the selection panel shrank to a short
     summary with action buttons wrapping into rows instead of scrolling.
+15. **Constructor sprite fix and darker treads.** Constructors were drawn as
+    only a shadow (their name clashed with a built-in JavaScript word in the
+    sprite lookup). Tank, Artillery and mobile Recycler treads are now
+    near-black with lighter cleats for contrast. A pixel test now checks
+    every vehicle and building draws for both teams, upgraded and wrecked.

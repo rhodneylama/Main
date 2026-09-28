@@ -130,10 +130,16 @@
   #end-stats { border-collapse: collapse; margin-top: 10px; }
   #end-stats td, #end-stats th { padding: 4px 14px 4px 0; text-align: left; }
 
+  .stat b, #quickbar button { white-space: nowrap; }
+  /* Mid-size screens: drop the extras so the top bar stays on one row. */
+  @media (max-width: 1150px) {
+    #income-stat, .tbar { display: none; }
+    #topbar { gap: 12px; }
+  }
   @media (max-width: 900px) {
     #selinfo { width: 160px; }
-    .tbar { width: 60px; }
-    #topbar { gap: 12px; }
+    #topbar { gap: 10px; }
+    #quickbar button, #topbar button { padding: 4px 7px; }
   }
 
   /* Phones: minimap moves to the top corner, the panel spans the full width,
