@@ -88,7 +88,7 @@ The game works on touch screens. Turning your phone sideways gives the best view
 | Transport | 70 | Hauls scrap from Extractors that have no Extractor Silo back to base. Unarmed, but has a recharging shield. | **Auto-haul**: empties whichever Extractor tank is fullest. Tap or right-click an Extractor to haul from that one only. |
 | Scout | 50 | Fast, sees far. Spots targets for artillery. | **Scout**: explores the map. With several selected, **Scout as pack** keeps them together; **Scout solo** spreads them out. |
 | Tank | 100 | Tough all-rounder. | **Patrol**: loops around your buildings and fights anything it meets. |
-| Artillery | 140 | Very long range and splash damage, but very slow, and it can only hit what your side can see. | **Defend**: digs in beside one of your buildings and shells anything in range. |
+| Artillery | 140 | Very long range and splash damage, but very slow, and it can only hit what your side can see. It must stop and lower its legs (about half a second) before it can fire. | **Defend**: digs in beside one of your buildings and shells anything in range. |
 | Scout / Tank / Artillery Mk II | 75 / 150 / 210 | Researched at a Research Lab, built at a Factory II. About +40% armour, +30% damage, +20% speed. Marked with gold chevrons. | As the basic version. |
 
 | Building | Cost | Role |
@@ -149,7 +149,8 @@ point an AI assistant when you want to change something.
 | `js/map.js` | Builds the random, mirrored battlefield and finds routes around obstacles. |
 | `js/sim.js` | The rules: movement, combat, gathering, building, territory, winning. |
 | `js/ai.js` | The computer opponent's decision-making. |
-| `js/render.js` | Draws everything on screen. |
+| `js/sprites.js` | The unit design sheet: how every vehicle and building looks. |
+| `js/render.js` | Draws everything on screen, using `sprites.js` for vehicles and buildings. |
 | `js/main.js` | Mouse, keyboard, the on-screen panels, sound, and the main loop. |
 
 ### Changing the game with an AI assistant

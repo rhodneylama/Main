@@ -17,6 +17,10 @@ const CONFIG = {
   UNIT_CAP: 50,        // most units a side can have at once
 
   WRECK_SCRAP_FRACTION: 0.3, // share of a destroyed unit's cost left as salvage
+  // Artillery must stop and put down four stabiliser legs before it can fire,
+  // and fold them away before it can move (seconds each way).
+  ARTILLERY_DEPLOY: 0.6,
+  ARTILLERY_RETRACT: 0.6,
   SCRAP_NODE_AMOUNT: 400,    // scrap in each fresh scrap pile
 };
 

@@ -111,12 +111,16 @@ function drawGame(ctx, game, view) {
     drawScrap(ctx, s);
   }
 
-  // Wrecks
-  for (const fx of game.effects) if (fx.kind === 'wreck' && onScreen(fx.x, fx.y)) {
-    ctx.save(); ctx.translate(fx.x, fx.y); ctx.rotate(fx.a);
-    ctx.globalAlpha = Math.min(1, (fx.life - fx.t) / 3) * 0.8;
-    ctx.fillStyle = '#2a2622'; ctx.fillRect(-fx.r, -fx.r * 0.7, fx.r * 2, fx.r * 1.4);
-    ctx.fillStyle = '#16130f'; ctx.beginPath(); ctx.arc(0, 0, fx.r * 0.5, 0, Math.PI * 2); ctx.fill();
+  // Wrecks (burnt-out vehicles in their own shape) and craters where buildings stood
+  for (const fx of game.effects) if ((fx.kind === 'wreck' || fx.kind === 'crater') && onScreen(fx.x, fx.y)) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, (fx.life - fx.t) / 3);
+    if (fx.kind === 'crater') UnitSprites.drawCrater(ctx, spriteId(fx.type), fx.x, fx.y);
+    else if (fx.t > 0.36) {
+      // Appears once the explosion has cleared, then smoulders for a while.
+      UnitSprites.drawSprite(ctx, spriteId(fx.type), { x: fx.x, y: fx.y, heading: fx.a, team: teamName(fx.team), mk: fx.mk, wreck: true });
+      if (fx.t < 8) UnitSprites.drawDamage(ctx, spriteId(fx.type), fx.x, fx.y, game.time);
+    }
     ctx.restore();
   }
 
@@ -136,7 +140,7 @@ function drawGame(ctx, game, view) {
     if (!onScreen(b.x, b.y, 120)) continue;
     const seen = view.revealAll || b.team === team || isVisibleTo(game, team, b);
     if (!seen && !b.seen[team]) continue;
-    drawBuilding(ctx, b, selectedIds.has(b.id), !seen);
+    drawBuilding(ctx, b, selectedIds.has(b.id), !seen, game.time);
   }
 
   // Move-order lines for selected units
@@ -159,7 +163,7 @@ function drawGame(ctx, game, view) {
   }
 
   for (const fx of game.effects) {
-    if (fx.kind === 'wreck' || !onScreen(fx.x, fx.y) || !visAt(fx.x, fx.y)) continue;
+    if (fx.kind === 'wreck' || fx.kind === 'crater' || !onScreen(fx.x, fx.y) || !visAt(fx.x, fx.y)) continue;
     drawEffect(ctx, fx);
   }
 
@@ -292,125 +296,41 @@ function drawScrap(ctx, s) {
   ctx.restore();
 }
 
-function drawBuilding(ctx, b, selected, ghost) {
-  const T = CONFIG.TILE, s = b.size * T, tc = TEAMS[b.team];
-  ctx.save(); ctx.translate(b.x, b.y);
-  if (ghost) ctx.globalAlpha = 0.5;
-  if (b.type === 'repairpad' && b.built >= 1) {
-    // A flat pad vehicles drive onto: hazard-striped rim and a green cross.
-    ctx.fillStyle = b.hitFlash > 0 ? '#ffffff' : '#34382f'; ctx.fillRect(-s / 2, -s / 2, s, s);
-    ctx.save(); ctx.beginPath(); ctx.rect(-s / 2, -s / 2, s, s); ctx.rect(-s / 2 + 7, -s / 2 + 7, s - 14, s - 14); ctx.clip('evenodd');
-    for (let i = -s; i < s; i += 14) { ctx.fillStyle = (i / 14) % 2 ? '#d8b640' : '#1d1f1c'; ctx.beginPath(); ctx.moveTo(i, -s / 2); ctx.lineTo(i + 7, -s / 2); ctx.lineTo(i + 7 + s, s / 2); ctx.lineTo(i + s, s / 2); ctx.fill(); }
-    ctx.restore();
-    const glow = 0.5 + 0.3 * Math.sin(performance.now() / 300);
-    ctx.fillStyle = `rgba(110,224,110,${glow})`;
-    ctx.fillRect(-s * 0.08, -s * 0.28, s * 0.16, s * 0.56); ctx.fillRect(-s * 0.28, -s * 0.08, s * 0.56, s * 0.16);
-    ctx.strokeStyle = tc.color; ctx.lineWidth = 2; ctx.strokeRect(-s / 2 + 1, -s / 2 + 1, s - 2, s - 2);
-    ctx.restore();
-    if (selected) drawSelection(ctx, b);
-    return;
-  }
-  // Shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(-s / 2 + 5, -s / 2 + 7, s, s);
-  if (b.built < 1) {
-    // Construction site
-    ctx.strokeStyle = tc.color; ctx.lineWidth = 2; ctx.setLineDash([6, 5]);
-    ctx.strokeRect(-s / 2 + 2, -s / 2 + 2, s - 4, s - 4); ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(40,40,40,0.8)';
-    const h = (s - 8) * b.built;
-    ctx.fillRect(-s / 2 + 4, s / 2 - 4 - h, s - 8, h);
-    ctx.strokeStyle = 'rgba(255,210,80,0.6)'; ctx.lineWidth = 1;
-    for (let i = -s; i < s; i += 12) { ctx.beginPath(); ctx.moveTo(i, -s / 2 + 4); ctx.lineTo(i + s / 2, s / 2 - 4); ctx.stroke(); }
-    ctx.restore();
-    if (selected) drawSelection(ctx, b);
-    return;
-  }
-  const base = b.hitFlash > 0 ? '#ffffff' : '#3b3f3a';
-  ctx.fillStyle = base; ctx.fillRect(-s / 2 + 2, -s / 2 + 2, s - 4, s - 4);
-  ctx.fillStyle = tc.dark; ctx.fillRect(-s / 2 + 6, -s / 2 + 6, s - 12, s - 12);
-  ctx.strokeStyle = tc.color; ctx.lineWidth = 2; ctx.strokeRect(-s / 2 + 2, -s / 2 + 2, s - 4, s - 4);
+// Which design from the unit sheet (js/sprites.js) each game type uses.
+const SPRITE_ID = { mobileRecycler: 'recyclerV', repairpad: 'repair', basesilo: 'silo', outsilo: 'exsilo' };
+const spriteId = type => SPRITE_ID[type] || type;
+const teamName = t => (t === 1 ? 'blue' : 'red');
+// Seconds since a gun last fired, while its recoil and muzzle flash still show.
+const sinceShot = (e, now) => (e.lastShot !== undefined && now - e.lastShot < 0.5 ? now - e.lastShot : null);
 
-  switch (b.type) {
-    case 'recycler': {
-      ctx.fillStyle = '#2b2e2a'; ctx.beginPath(); ctx.arc(0, 0, s * 0.3, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = tc.color; ctx.lineWidth = 3;
-      for (let i = 0; i < 3; i++) {
-        const a = i * Math.PI * 2 / 3 + (b.queue.length ? performance.now() / 600 : 0);
-        ctx.beginPath(); ctx.arc(0, 0, s * 0.2, a, a + 1.5); ctx.stroke();
-      }
-      ctx.fillStyle = tc.light; ctx.fillRect(-s / 2 + 8, -s / 2 + 8, 10, 10);
-      break;
-    }
-    case 'factory': {
-      ctx.fillStyle = '#2b2e2a'; ctx.fillRect(-s * 0.32, -s * 0.2, s * 0.64, s * 0.5);
-      ctx.fillStyle = tc.color;
-      for (let i = 0; i < 4; i++) ctx.fillRect(-s * 0.3 + i * s * 0.16, -s * 0.36, s * 0.1, s * 0.12);
-      ctx.fillStyle = '#555'; ctx.fillRect(s * 0.18, -s * 0.44, s * 0.12, s * 0.2);
-      break;
-    }
-    case 'extractor': {
-      // A pump over the geyser: a turning drill head and scrap-coloured glow.
-      const spin = performance.now() / 500;
-      ctx.fillStyle = 'rgba(232,190,90,0.35)'; ctx.beginPath(); ctx.arc(0, 0, s * 0.34, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#2b2e2a'; ctx.beginPath(); ctx.arc(0, 0, s * 0.26, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = '#e8cf82'; ctx.lineWidth = 3;
-      for (let k = 0; k < 3; k++) {
-        const a = spin + k * Math.PI * 2 / 3;
-        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * s * 0.22, Math.sin(a) * s * 0.22); ctx.stroke();
-      }
-      ctx.fillStyle = tc.color; ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2); ctx.fill();
-      break;
-    }
-    case 'basesilo':
-    case 'outsilo': {
-      // A round tank; the gold fill shows how much it holds.
-      const big = b.type === 'basesilo';
-      ctx.fillStyle = '#4a4636'; ctx.beginPath(); ctx.arc(0, 0, s * 0.36, 0, Math.PI * 2); ctx.fill();
-      const k = big ? 1 : b.stored / b.def.store;
-      if (k > 0.01) { ctx.fillStyle = 'rgba(232,207,130,0.85)'; ctx.beginPath(); ctx.arc(0, 0, s * 0.3 * Math.sqrt(k), 0, Math.PI * 2); ctx.fill(); }
-      ctx.strokeStyle = tc.color; ctx.lineWidth = big ? 4 : 2; ctx.beginPath(); ctx.arc(0, 0, s * 0.36, 0, Math.PI * 2); ctx.stroke();
-      if (big) { ctx.fillStyle = tc.light; ctx.fillRect(-4, -s * 0.46, 8, 8); }
-      break;
-    }
-    case 'lab': {
-      // A glass dome with a glowing core; it pulses while researching.
-      const busy = b.researching ? 0.5 + 0.5 * Math.sin(performance.now() / 200) : 0.2;
-      ctx.fillStyle = '#2b2e2a'; ctx.beginPath(); ctx.arc(0, 0, s * 0.34, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = `rgba(150,230,255,${0.25 + busy * 0.5})`; ctx.beginPath(); ctx.arc(0, 0, s * 0.26, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = tc.light; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(0, 0, s * 0.26, 0, Math.PI * 2); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(-s * 0.26, 0); ctx.lineTo(s * 0.26, 0); ctx.moveTo(0, -s * 0.26); ctx.lineTo(0, s * 0.26); ctx.stroke();
-      break;
-    }
-    case 'radar': {
-      // A rotating dish on a mast.
-      ctx.fillStyle = '#2b2e2a'; ctx.beginPath(); ctx.arc(0, 0, s * 0.3, 0, Math.PI * 2); ctx.fill();
-      ctx.rotate(performance.now() / 700);
-      ctx.strokeStyle = tc.light; ctx.lineWidth = 4;
-      ctx.beginPath(); ctx.arc(0, 0, s * 0.3, -0.9, 0.9); ctx.stroke();
-      ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(s * 0.3, 0); ctx.stroke();
-      ctx.fillStyle = tc.color; ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2); ctx.fill();
-      break;
-    }
-    case 'tower': {
-      ctx.fillStyle = '#2b2e2a'; ctx.beginPath(); ctx.arc(0, 0, s * 0.32, 0, Math.PI * 2); ctx.fill();
-      ctx.rotate(b.turret);
-      ctx.fillStyle = '#1d1f1c'; ctx.fillRect(0, -3.5, s * 0.55, 7);
-      ctx.fillStyle = tc.color; ctx.beginPath(); ctx.arc(0, 0, s * 0.2, 0, Math.PI * 2); ctx.fill();
-      break;
-    }
-  }
-  ctx.restore();
-  if (b.level > 1) drawChevrons(ctx, b.x - s / 2 + 12, b.y - s / 2 + 12, 0);
-  if (selected) drawSelection(ctx, b);
+// A brief white flash over something that has just been hit.
+function flashOver(ctx, x, y, r) {
+  ctx.save(); ctx.globalAlpha = 0.35; ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.restore();
 }
 
-// Two small gold chevrons: marks upgraded buildings and Mk II vehicles.
-function drawChevrons(ctx, x, y, a) {
-  ctx.save(); ctx.translate(x, y); ctx.rotate(a);
-  ctx.strokeStyle = '#f0c040'; ctx.lineWidth = 2;
-  for (const o of [-3, 2]) { ctx.beginPath(); ctx.moveTo(o - 3, -4); ctx.lineTo(o, 0); ctx.lineTo(o - 3, 4); ctx.stroke(); }
+function drawBuilding(ctx, b, selected, ghost, time) {
+  const T = CONFIG.TILE, s = b.size * T, id = spriteId(b.type), team = teamName(b.team);
+  ctx.save();
+  if (ghost) ctx.globalAlpha = 0.5;
+  if (b.built < 1) {
+    // Construction site: the design fades in as it is built, inside a dashed outline.
+    ctx.globalAlpha *= 0.2 + 0.55 * b.built;
+    UnitSprites.drawSprite(ctx, id, { x: b.x, y: b.y, team, turret: b.turret });
+    ctx.globalAlpha = ghost ? 0.5 : 1;
+    ctx.strokeStyle = TEAMS[b.team].color; ctx.lineWidth = 2; ctx.setLineDash([6, 5]);
+    ctx.strokeRect(b.x - s / 2 + 2, b.y - s / 2 + 2, s - 4, s - 4); ctx.setLineDash([]);
+    ctx.restore();
+    if (selected) drawSelection(ctx, b);
+    return;
+  }
+  // The lab's dome only pulses while it is researching.
+  const t = b.type === 'lab' && !b.researching ? 0 : time;
+  UnitSprites.drawSprite(ctx, id, { x: b.x, y: b.y, team, mk: b.level > 1, t, turret: b.turret, fire: sinceShot(b, time) });
+  if (b.hp < b.maxHp * 0.5) UnitSprites.drawDamage(ctx, id, b.x, b.y, time);
+  if (b.hitFlash > 0) flashOver(ctx, b.x, b.y, s * 0.45);
   ctx.restore();
+  if (selected) drawSelection(ctx, b);
 }
 
 function drawSelection(ctx, e) {
@@ -428,90 +348,19 @@ function drawSelection(ctx, e) {
 }
 
 function drawUnit(ctx, u, selected, time) {
-  const tc = TEAMS[u.team], r = u.radius;
+  const r = u.radius, id = spriteId(baseType(u));
   if (selected) drawSelection(ctx, u);
-  ctx.save(); ctx.translate(u.x, u.y);
-  // Shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(3, 5, r, r * 0.8, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.rotate(u.angle);
-  const hull = u.hitFlash > 0 ? '#ffffff' : tc.color;
-  const dark = '#1d201c';
-  switch (baseType(u)) {
-    case 'scout': {
-      // Hover-craft: a sleek arrowhead with a glow underneath
-      ctx.fillStyle = 'rgba(160,220,255,0.25)'; ctx.beginPath(); ctx.arc(-2, 0, r + 1 + Math.sin(time * 12 + u.id) * 1.5, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = hull; ctx.beginPath(); ctx.moveTo(r + 3, 0); ctx.lineTo(-r, -r * 0.85); ctx.lineTo(-r * 0.5, 0); ctx.lineTo(-r, r * 0.85); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = dark; ctx.beginPath(); ctx.moveTo(r * 0.5, 0); ctx.lineTo(-r * 0.3, -r * 0.3); ctx.lineTo(-r * 0.3, r * 0.3); ctx.fill();
-      ctx.restore();
-      ctx.save(); ctx.translate(u.x, u.y); ctx.rotate(u.turret);
-      ctx.fillStyle = '#ddd'; ctx.fillRect(2, -1, r, 2);
-      break;
-    }
-    case 'tank': {
-      ctx.fillStyle = dark; ctx.fillRect(-r, -r * 0.85, r * 2, r * 0.45); ctx.fillRect(-r, r * 0.4, r * 2, r * 0.45);
-      ctx.fillStyle = hull; ctx.fillRect(-r * 0.85, -r * 0.55, r * 1.7, r * 1.1);
-      ctx.restore();
-      ctx.save(); ctx.translate(u.x, u.y); ctx.rotate(u.turret);
-      ctx.fillStyle = dark; ctx.fillRect(0, -2.5, r * 1.5, 5);
-      ctx.fillStyle = tc.dark; ctx.beginPath(); ctx.arc(0, 0, r * 0.5, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = tc.light; ctx.lineWidth = 1; ctx.stroke();
-      break;
-    }
-    case 'artillery': {
-      ctx.fillStyle = dark; ctx.fillRect(-r, -r * 0.8, r * 1.8, r * 0.4); ctx.fillRect(-r, r * 0.4, r * 1.8, r * 0.4);
-      ctx.fillStyle = hull; ctx.fillRect(-r * 0.9, -r * 0.5, r * 1.6, r);
-      ctx.restore();
-      ctx.save(); ctx.translate(u.x, u.y); ctx.rotate(u.turret);
-      ctx.fillStyle = dark; ctx.fillRect(-4, -3, r * 2.4, 6);
-      ctx.fillStyle = tc.dark; ctx.fillRect(-r * 0.5, -r * 0.4, r * 0.9, r * 0.8);
-      break;
-    }
-    case 'scavenger': {
-      ctx.fillStyle = dark; ctx.fillRect(-r, -r * 0.8, r * 1.8, r * 1.6);
-      ctx.fillStyle = hull; ctx.fillRect(-r * 0.8, -r * 0.65, r * 1.2, r * 1.3);
-      ctx.fillStyle = '#9a9a8a'; ctx.fillRect(r * 0.5, -r * 0.8, r * 0.6, r * 1.6);  // scoop
-      if (u.carry > 0) { ctx.fillStyle = '#b8a36a'; ctx.fillRect(-r * 0.6, -r * 0.45, r * 0.9 * u.carry / u.def.carryMax, r * 0.9); }
-      break;
-    }
-    case 'mobileRecycler': {
-      // A big six-wheeled rig with the Recycler's drum folded on its back.
-      ctx.fillStyle = dark;
-      for (const wx of [-r * 0.7, 0, r * 0.7]) { ctx.fillRect(wx - 5, -r * 0.85, 10, 6); ctx.fillRect(wx - 5, r * 0.85 - 6, 10, 6); }
-      ctx.fillStyle = hull; ctx.fillRect(-r, -r * 0.65, r * 2, r * 1.3);
-      ctx.fillStyle = TEAMS[u.team].dark; ctx.fillRect(r * 0.45, -r * 0.5, r * 0.5, r);  // cab
-      ctx.fillStyle = '#2b2e2a'; ctx.beginPath(); ctx.arc(-r * 0.2, 0, r * 0.5, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = TEAMS[u.team].light; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(-r * 0.2, 0, r * 0.32, 0.4, 2.4); ctx.stroke();
-      ctx.beginPath(); ctx.arc(-r * 0.2, 0, r * 0.32, 3.5, 5.5); ctx.stroke();
-      break;
-    }
-    case 'transport': {
-      ctx.fillStyle = dark; ctx.fillRect(-r, -r * 0.7, r * 2, r * 1.4);
-      ctx.fillStyle = hull; ctx.fillRect(-r * 0.2, -r * 0.6, r * 1.1, r * 1.2);
-      ctx.fillStyle = '#6b6450'; ctx.fillRect(-r * 0.95, -r * 0.6, r * 0.7, r * 1.2);  // cargo bed
-      if (u.carry > 0) { ctx.fillStyle = '#e8cf82'; ctx.fillRect(-r * 0.9, -r * 0.5, r * 0.6, r * 1.0 * u.carry / u.def.carryMax); }
-      break;
-    }
-    case 'constructor': {
-      ctx.fillStyle = dark; ctx.fillRect(-r, -r * 0.8, r * 2, r * 1.6);
-      ctx.fillStyle = hull; ctx.fillRect(-r * 0.8, -r * 0.65, r * 1.6, r * 1.3);
-      ctx.fillStyle = '#f0c040'; ctx.fillRect(-r * 0.2, -2, r * 1.5, 4);  // crane arm
-      ctx.fillStyle = '#f0c040'; ctx.beginPath(); ctx.arc(-r * 0.2, 0, 4, 0, Math.PI * 2); ctx.fill();
-      break;
-    }
-  }
-  ctx.restore();
-  if (u.def.base) drawChevrons(ctx, u.x - Math.cos(u.angle) * r * 0.55, u.y - Math.sin(u.angle) * r * 0.55, u.angle);
+  ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(u.x + 3, u.y + 5, r, r * 0.8, 0, 0, Math.PI * 2); ctx.fill();
+  UnitSprites.drawSprite(ctx, id, {
+    x: u.x, y: u.y, heading: u.angle, turret: wrapAngle(u.turret - u.angle), team: teamName(u.team),
+    mk: !!u.def.base, t: time, legE: u.legE || 0, fire: sinceShot(u, time),
+    shield: !!u.def.shield && u.shield > 1, shieldHit: u.shieldFlash > 0,
+  });
+  if (u.hp < u.maxHp * 0.5) UnitSprites.drawDamage(ctx, id, u.x, u.y, time);
+  if (u.hitFlash > 0) flashOver(ctx, u.x, u.y, r);
   if (u.repairing > 0) {
     ctx.strokeStyle = `rgba(110,224,110,${0.5 + 0.4 * Math.sin(time * 10)})`; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(u.x, u.y, r + 4, 0, Math.PI * 2); ctx.stroke();
-  }
-  // Shield bubble: brighter when it has just absorbed a hit.
-  if (u.def.shield && u.shield > 1) {
-    const k = u.shield / u.def.shield;
-    ctx.strokeStyle = `rgba(140,210,255,${(u.shieldFlash > 0 ? 0.9 : 0.35) * (0.4 + 0.6 * k)})`;
-    ctx.lineWidth = u.shieldFlash > 0 ? 3 : 1.5;
-    ctx.beginPath(); ctx.arc(u.x, u.y, r + 6, 0, Math.PI * 2); ctx.stroke();
   }
 }
 
@@ -582,6 +431,11 @@ function drawEffect(ctx, fx) {
       ctx.beginPath(); ctx.arc(fx.x + 4, fx.y - k * 20, r * 0.8, 0, Math.PI * 2); ctx.fill();
       break;
     }
+    case 'explode':
+      // Death explosion from the unit sheet, sized to what blew up.
+      if (!fx.scorched) { fx.scorched = true; scorch(fx.x, fx.y, fx.size * 0.9); }
+      UnitSprites.drawExplosion(ctx, spriteId(fx.type), fx.x, fx.y, k, teamName(fx.team));
+      break;
     case 'dust':
       ctx.fillStyle = `rgba(200,180,120,${0.6 * (1 - k)})`;
       ctx.beginPath(); ctx.arc(fx.x, fx.y - k * 8, 3 + k * 3, 0, Math.PI * 2); ctx.fill();

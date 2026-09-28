@@ -856,6 +856,12 @@ function updateDeploy(game, u, dt) {
 // Move along the current path. Returns true once the end is reached.
 function followPath(game, u, dt, stopDist = 6) {
   if (!u.path.length) return true;
+  // Deployed artillery must fold its legs away before it can drive.
+  if (u.legE > 0) {
+    u.legE = Math.max(0, u.legE - dt / CONFIG.ARTILLERY_RETRACT);
+    u.movingTick = game.tick;
+    return false;
+  }
   const wp = u.path[0];
   const d = dist(u, wp);
   const last = u.path.length === 1;
@@ -868,6 +874,7 @@ function followPath(game, u, dt, stopDist = 6) {
     if (u.noGain > 2 && d < 120) { u.path = []; return true; }
   }
   const want = angleTo(u, wp);
+  u.movingTick = game.tick;
   u.angle = turnToward(u.angle, want, 5 * dt);
   const facing = Math.cos(wrapAngle(want - u.angle));
   const step = Math.min(d, u.def.speed * dt * Math.max(0.25, facing));
@@ -1008,9 +1015,19 @@ function aimAndFire(game, e, t, dt) {
   const d = edgeDist(e, t);
   const want = angleTo(e, t);
   e.turret = turnToward(e.turret, want, 4 * dt);
-  if (e.cooldown > 0 || d > w.range || (w.minRange && d < w.minRange)) return;
+  if (d > w.range || (w.minRange && d < w.minRange)) return;
+  if (e.kind === 'unit' && w.projectile === 'artillery') {
+    // Artillery fires only when stopped with its stabiliser legs down.
+    if (e.movingTick === game.tick) return;
+    if ((e.legE || 0) < 1) {
+      e.legE = Math.min(1, (e.legE || 0) + dt / CONFIG.ARTILLERY_DEPLOY);
+      if (e.legE < 1) return;
+    }
+  }
+  if (e.cooldown > 0) return;
   if (Math.abs(wrapAngle(want - e.turret)) > 0.25) return;
   e.cooldown = w.cooldown;
+  e.lastShot = game.time;  // drives barrel recoil and the muzzle flash
   const mx = e.x + Math.cos(e.turret) * (e.radius + 4), my = e.y + Math.sin(e.turret) * (e.radius + 4);
   const p = { kind: w.projectile, team: e.team, owner: e.id, x: mx, y: my, sx: mx, sy: my, damage: w.damage, splash: w.splash || 0, vsBuilding: w.vsBuilding };
   if (w.projectile === 'artillery') {
@@ -1089,12 +1106,15 @@ function removeDead(game) {
     if (e.demolished) { demolishInto(game, e); continue; }
     if (e.kind === 'building') {
       setOccupied(game, e, -1);
-      game.effects.push({ kind: 'boom', x: e.x, y: e.y, t: 0, life: 1.2, size: e.radius * 1.6 });
+      // Explosion, then a crater where the building stood.
+      game.effects.push({ kind: 'explode', type: e.type, team: e.team, x: e.x, y: e.y, t: 0, life: 1.2, size: e.radius * 1.6 });
+      game.effects.push({ kind: 'crater', type: e.type, x: e.x, y: e.y, t: 0, life: 90 });
       pushEvent(game, e.team, `${nameOf(e)} destroyed`, 'bad', e.x, e.y);
       pushEvent(game, 3 - e.team, `Enemy ${nameOf(e)} destroyed`, 'good', e.x, e.y);
     } else {
-      game.effects.push({ kind: 'boom', x: e.x, y: e.y, t: 0, life: 0.7, size: e.radius * 2.2 });
-      game.effects.push({ kind: 'wreck', x: e.x, y: e.y, a: e.angle, t: 0, life: 20, r: e.radius });
+      // Explosion, then a burnt-out wreck in the vehicle's own shape.
+      game.effects.push({ kind: 'explode', type: baseType(e), team: e.team, x: e.x, y: e.y, t: 0, life: 1.2, size: e.radius * 2.2 });
+      game.effects.push({ kind: 'wreck', type: baseType(e), team: e.team, mk: !!e.def.base, x: e.x, y: e.y, a: e.angle, t: 0, life: 20, r: e.radius });
       const salvage = Math.round(e.def.cost * CONFIG.WRECK_SCRAP_FRACTION);
       if (salvage > 0) game.scrap.push({ id: 100000 + e.id, x: e.x, y: e.y, amount: salvage, max: salvage, wreck: true });
       game.teams[e.team].stats.lost++;

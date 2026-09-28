@@ -308,7 +308,7 @@ Scavengers, Constructors, Transports and the mobile Recycler are unarmed.
 
 | Building | Produces / offers | Other functions |
 | --- | --- | --- |
-| Recycler | Scavenger, Constructor, Transport. **Upgrade to Recycler II.** | Headquarters. Defence gun. Drop-off point. Pumps its own geyser at 3 a minute. Cannot be demolished. |
+| Recycler | Scavenger, Constructor, Transport. **Upgrade to Recycler II.** | Headquarters. Defence gun (fires from the centre drum; no visible barrel). Drop-off point. Pumps its own geyser at 3 a minute. Cannot be demolished. |
 | Recycler II | Scavenger II, Constructor II, Transport (replaces the basic workers) | As Recycler, with 5,000 HP. |
 | Factory | Scout, Tank, Artillery. **Upgrade to Factory II.** | — |
 | Factory II | Scout, Tank, Artillery, plus Scout / Tank / Artillery **Mk II** (each once researched; otherwise shown as "Research first") | 1,800 HP. |
@@ -401,6 +401,10 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
 - A unit switches to a new target only if it is at least 60 pixels closer
   than the current one.
 - Artillery cannot fire at anything closer than 110 pixels.
+- **Artillery must be parked to fire.** It stops, lowers four stabiliser
+  legs (0.6 s), and only then can shoot. Given a move order, it first raises
+  its legs (0.6 s) before it can drive. It never fires while moving. The
+  timings are `ARTILLERY_DEPLOY` and `ARTILLERY_RETRACT` in `config.js`.
 
 ### Firing
 
@@ -425,9 +429,10 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
 
 ### Death
 
-- Vehicles leave a wreck (cosmetic, fades after 20 seconds) and a salvage
-  pile worth 30% of their cost.
-- Buildings leave nothing (unless demolished by their owner).
+- Vehicles explode (1.2 s), then leave a burnt-out wreck (cosmetic, fades
+  after 20 seconds) and a salvage pile worth 30% of their cost.
+- Buildings explode and leave a scorched crater (cosmetic, fades after
+  90 seconds) but no scrap (unless demolished by their owner).
 
 ---
 
@@ -710,9 +715,37 @@ The game speed button cycles through ×1, ×2 and ×4.
 
 ## 17. Art: how things are drawn, and sprite sizes
 
-There are **no image files yet**. Every unit, building and effect is drawn
-with simple shapes in `js/render.js`, coloured by team (Blue `#4aa3ff`, Red
-`#ff5a4a`). Replacing them with sprites is planned.
+Every unit and building is drawn from the **unit design sheet**,
+`js/sprites.js` (brief: `UNIT_SPRITES.md`). It draws with vector shapes on
+the canvas, so there are **no image files** and everything stays sharp at any
+zoom. Hulls are neutral steel; only the team panels change colour (Blue
+`#4aa3ff`, Red `#ff5a4a`). `js/render.js` calls `UnitSprites.drawSprite` for
+each vehicle and building, and keeps the health bars, selection rings,
+progress bars, fog and minimap dots itself.
+
+### What the sprites show
+
+| Thing | On screen |
+| --- | --- |
+| Tank, Artillery, Gun Tower | Turret turns on its own, recoils and flashes when firing |
+| Artillery | Four stabiliser legs fold out when it parks to fire, and fold away before it drives |
+| Mk II vehicles, Tier II workers, upgraded buildings | Gold chevrons; plus side skirts (Tank Mk II), fins (Scout Mk II), clamps (Scavenger II) |
+| Transport | Dashed shield bubble while the shield is up; flickers when hit |
+| Radar | Dish spins |
+| Extractor | Pump head spins, centre glows |
+| Recycler (deployed) | Centre drum turns. **No visible gun barrel** (see below) |
+| Research Lab | Dome glows and pulses while researching |
+| Repair Pad | Hazard stripes; green cross pulses |
+| Factory | Bay lights blink |
+| Anything under half health | Scorch marks, rising smoke, sparks |
+| Vehicle destroyed | Explosion, then a burnt-out wreck |
+| Building destroyed | Explosion, then a crater |
+| Building under construction | Faded sprite that firms up as it is built, dashed outline |
+
+**Recycler gun decision:** the sheet's Recycler has no turret. The Recycler
+**keeps its defence gun** (210 range, 24 damage) and fires it from the centre
+drum without a visible barrel, so bases are no easier to rush. To remove the
+gun instead, delete the `weapon` line from the Recycler in `config.js`.
 
 ### Sizes on the map (at normal zoom)
 
@@ -734,6 +767,9 @@ start zoomed out (about 0.55×).
 | Scout / Scout Mk II | 22 px | |
 
 ### Guidance for sprite artists
+
+To change a design, edit the shape data in `js/sprites.js`. If you ever switch
+to image files instead:
 
 - Draw at **4×** these sizes (for example about 128 px for a Tank, 384 px
   for a 3×3 building), so they stay crisp when zoomed in and on sharp phone
@@ -821,7 +857,8 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `js/map.js` | Random mirrored map generation, geysers, scrap fields; route-finding (A*) |
 | `js/sim.js` | The rules: commands, movement, combat, economy, storage, deploying, upgrades, research, radar, repair pads, demolishing, vision, victory |
 | `js/ai.js` | The computer opponent |
-| `js/render.js` | Drawing the map, units, effects, fog and minimap (shapes only, no image files) |
+| `js/sprites.js` | The unit design sheet: vector drawings of every vehicle and building, their animations, damage smoke, explosions, wrecks and craters |
+| `js/render.js` | Drawing the map, fog, minimap, bars and effects; calls `sprites.js` for units and buildings |
 | `js/main.js` | Mouse, touch and keyboard input; panels and buttons; minimap toggle; sound; the game loop |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
@@ -913,7 +950,9 @@ can be rebuilt.
    Silo first).
 8. **Balance is untested with human play.** All numbers come from design
    intent and AI-vs-AI results, not from people playing.
-9. **No sprites yet.** Everything is drawn with simple shapes.
+9. **Sprites not yet checked on a real phone.** They draw in about 5 ms a
+   frame with 30+ units on a desktop; a busy late game on an older phone may
+   be slower. `UnitSprites.bake()` can cache hulls if needed.
 
 ### Open design questions
 
@@ -934,6 +973,8 @@ can be rebuilt.
 - Should vehicles go to the Repair Pad automatically when badly damaged?
 - Should the basic Constructor be able to repair at a slower rate, rather
   than not at all?
+- Should the deployed Recycler keep its (now invisible) defence gun, or lose
+  it to match the art? Currently kept.
 
 ---
 
@@ -1003,7 +1044,7 @@ to refine, not a finished plan.
 | 5. Tech tree tuning | Upgrade and research costs and times feel right; the tech path is a real choice versus more basic units. | Timing curves; basic-army vs tech-army AI matchups. |
 | 6. Difficulty curve | Easy beatable by a first-time player; Hard challenging. | "Do nothing" survival, scripted "simple player" bots, human playtests. |
 | 7. AI competence | The AI uses Scout, Patrol, Defend, the Repair Pad and Extractor Silos; recovers from losing its Scavengers. | AI-vs-AI game length; milestone logs. |
-| 8. Art | Replace shapes with sprites (section 17). | Visual review on desktop and phone; performance check. |
+| 8. Art | Done: sprites from the unit design sheet (section 17). Remaining: check on real phones; sound. | Visual review on desktop and phone; performance check. |
 | 9. Content | New units, buildings or terrain effects (roadmap Stage 2). | Each addition gets its own rules test and balance check. |
 | 10. Campaign / 4X layer | Sector map between battles (roadmap Stage 3). | Design first, then playtests. |
 | 11. Online multiplayer | Lockstep command syncing (roadmap Stage 4). | Two browsers, determinism checks, disconnect handling. |
@@ -1050,3 +1091,9 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     uses the tech tree; phone buttons kept to one scrolling row.
 11. **Collapsible minimap.**
 12. **This document brought fully up to date** (28 September 2026).
+13. **Unit design sheet.** All vehicles and buildings drawn from
+    `js/sprites.js`: turning turrets with recoil, spinning radar and pump,
+    shield bubble, damage smoke, explosions, wrecks and craters. Artillery
+    must now park and lower stabiliser legs (0.6 s) before firing and raise
+    them (0.6 s) before driving, a small nerf. The Recycler keeps its gun
+    without a visible barrel.

@@ -16,6 +16,7 @@ you're never months away from seeing progress.
 - Expand your territory outward by claiming geysers
 - Unit orders: Scout (solo or as a pack), Patrol, Defend, Deploy, Go repair
 - Collapsible minimap; random starting corners
+- Designed vehicle and building art (`js/sprites.js`) with animations, damage smoke, explosions and wrecks
 - An AI opponent with three difficulty levels
 - AI-vs-AI spectator mode (`?watch`)
 
@@ -30,8 +31,6 @@ Good next steps. Each is a self-contained request you can give an AI assistant.
 - **Veterancy.** Units that survive fights get stronger.
 - **Upgrades / tech tree.** Research armour and weapons at a new building.
 - **Unit stances.** Hold position, defensive, aggressive.
-- **Better graphics.** Swap the drawn shapes for sprite images. The drawing
-  code for each unit is in one place in `render.js`.
 - **Sound and music.** Replace the synthesised beeps with real sound files.
 
 ## Stage 3: A bigger campaign (the "4X" layer)
