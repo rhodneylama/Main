@@ -9,8 +9,8 @@
 
 const CONFIG = {
   TILE: 32,            // size of one map square, in pixels
-  MAP_W: 96,           // map width, in squares
-  MAP_H: 72,           // map height, in squares
+  MAP_W: 182,          // map width, in squares (was 96 before the map grew 1.9x)
+  MAP_H: 137,          // map height, in squares (was 72)
   TICK_RATE: 30,       // game updates per second
 
   START_SCRAP: 300,    // scrap each side starts with (the Recycler's storage is full)

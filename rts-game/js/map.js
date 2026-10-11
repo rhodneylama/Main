@@ -42,7 +42,9 @@ function makeNoise(rng, cell) {
 function generateMap(seed) {
   const W = CONFIG.MAP_W, H = CONFIG.MAP_H;
   const rng = makeRng(seed);
-  const n1 = makeNoise(rng, 9), n2 = makeNoise(rng, 4), n3 = makeNoise(rng, 6);
+  // Noise sizes grow with the map (1.9x since the 96x72 version), so rock
+  // ridges and lakes are larger features rather than more, smaller ones.
+  const n1 = makeNoise(rng, 17), n2 = makeNoise(rng, 8), n3 = makeNoise(rng, 11);
   const tiles = new Uint8Array(W * H);
   const idx = (x, y) => y * W + x;
   const mirror = (x, y) => [W - 1 - x, H - 1 - y];
@@ -61,19 +63,24 @@ function generateMap(seed) {
     }
   }
 
+  // Bases stay tucked into opposite corners, 10 squares from the edges.
   const bases = { 1: { x: 10, y: H - 11 }, 2: { x: W - 11, y: 10 } };
+  // Everything below is listed for the bottom-left player's half only and
+  // mirrored through the centre for the other player.
   // Open clearings: good spots for outposts and battles.
-  const halfClearings = [{ x: 22, y: 20 }, { x: 34, y: 50 }];
+  const halfClearings = [{ x: 42, y: 38 }, { x: 65, y: 95 }];
   // The centre clearing is carved twice, once as its own mirror image, so
   // the middle of the map stays perfectly symmetric.
   const mid = { x: Math.floor(W / 2), y: Math.floor(H / 2) };
   const clearings = [...halfClearings, mid, { x: W - 1 - mid.x, y: H - 1 - mid.y }];
   for (const f of halfClearings) { const [x, y] = mirror(f.x, f.y); clearings.push({ x, y }); }
 
+  // Loose scrap fields: 11 per side, from home out to the contested middle.
   const halfFields = [
-    { x: 20, y: H - 8 }, { x: 7, y: H - 24 },   // home fields
-    { x: 42, y: 60 }, { x: 16, y: 34 },          // near expansions
-    { x: 40, y: 30 },                             // contested middle
+    { x: 20, y: H - 8 }, { x: 7, y: H - 24 },                       // home fields
+    { x: 48, y: 108 }, { x: 26, y: 86 }, { x: 74, y: 128 },         // near expansions
+    { x: 8, y: 56 }, { x: 52, y: 76 }, { x: 38, y: 60 },            // middle distance
+    { x: 96, y: 104 }, { x: 56, y: 32 }, { x: 70, y: 56 },          // contested, toward the middle
   ];
   const fieldTiles = [];
   for (const f of halfFields) {
@@ -84,8 +91,16 @@ function generateMap(seed) {
 
   // Scrap geysers: fixed spots where a Scavenger can deploy as an Extractor.
   // Given as tile corners; the Extractor sits on the 2x2 tiles around each.
-  // The first one sits under each starting position, for the Recycler.
-  const halfGeysers = [{ x: bases[1].x, y: bases[1].y + 1 }, { x: 16, y: 54 }, { x: 22, y: 20 }, { x: 34, y: 50 }, { x: 44, y: 34 }];
+  // 12 per side, at least 20 squares from any other geyser (including the
+  // other side's): three near home, then rings further out, the last three
+  // close to the line between the two halves.
+  const halfGeysers = [
+    { x: bases[1].x, y: bases[1].y + 1 },                 // under the starting Recycler
+    { x: 34, y: 118 }, { x: 12, y: 100 },                 // home
+    { x: 60, y: 126 }, { x: 14, y: 72 }, { x: 42, y: 92 }, // near expansions
+    { x: 84, y: 116 }, { x: 24, y: 46 }, { x: 64, y: 98 }, // forward
+    { x: 110, y: 122 }, { x: 40, y: 22 }, { x: 78, y: 74 }, // contested
+  ];
   const geyserTiles = [];
   for (const g of halfGeysers) { geyserTiles.push(g); geyserTiles.push({ x: W - g.x, y: H - g.y }); }
 
@@ -110,7 +125,7 @@ function generateMap(seed) {
   // Make sure everything important can be driven to from both bases.
   const passable = i => tiles[i] !== TILE_ROCK && tiles[i] !== TILE_WATER;
   const important = [bases[2], ...clearings, ...fieldTiles, ...geyserTiles];
-  for (let pass = 0; pass < 20; pass++) {
+  for (let pass = 0; pass < 80; pass++) {
     const reach = new Uint8Array(W * H);
     const stack = [idx(bases[1].x, bases[1].y)];
     reach[stack[0]] = 1;
@@ -156,7 +171,7 @@ function generateMap(seed) {
 
   const geysers = geyserTiles.map((g, i) => ({ id: i + 1, x: g.x * T, y: g.y * T, tx: g.x, ty: g.y, extractorId: 0 }));
 
-  return { W, H, tiles, bases, scrap, geysers, seed };
+  return { W, H, tiles, bases, scrap, geysers, seed, fields: fieldTiles };
 }
 
 // -----------------------------------------------------------------------------
@@ -196,13 +211,20 @@ function nearestOpenTile(game, tx, ty, maxR = 12) {
 }
 
 // Can a vehicle drive in a straight line from (x0,y0) to (x1,y1)?
+// Checks the line and four points 10 px either side of it every 8 px. Written
+// out longhand because route smoothing calls it a lot on the big map.
 function hasClearLine(game, x0, y0, x1, y1) {
-  const dist = Math.hypot(x1 - x0, y1 - y0);
-  const steps = Math.ceil(dist / 8);
+  const T = CONFIG.TILE, W = game.map.W, H = game.map.H, tiles = game.map.tiles, occ = game.occupied;
+  const blocked = (x, y) => {
+    const tx = Math.floor(x / T), ty = Math.floor(y / T);
+    if (tx < 0 || ty < 0 || tx >= W || ty >= H) return true;
+    const i = ty * W + tx, t = tiles[i];
+    return t === TILE_ROCK || t === TILE_WATER || occ[i] > 0;
+  };
+  const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 8);
   for (let s = 1; s <= steps; s++) {
     const x = x0 + (x1 - x0) * s / steps, y = y0 + (y1 - y0) * s / steps;
-    if (isBlockedAt(game, x, y) || isBlockedAt(game, x + 10, y) || isBlockedAt(game, x - 10, y) ||
-        isBlockedAt(game, x, y + 10) || isBlockedAt(game, x, y - 10)) return false;
+    if (blocked(x, y) || blocked(x + 10, y) || blocked(x - 10, y) || blocked(x, y + 10) || blocked(x, y - 10)) return false;
   }
   return true;
 }
@@ -243,32 +265,35 @@ function findPathOn(game, sx, sy, gx, gy) {
   const goalExact = goal.x === Math.floor(gx / T) && goal.y === Math.floor(gy / T);
 
   const N = W * H;
+  // Enough to cross the whole map around obstacles, but still bounded.
+  const maxExpand = Math.max(8000, N);
   const g = new Float32Array(N).fill(Infinity);
   const came = new Int32Array(N).fill(-1);
   const closed = new Uint8Array(N);
-  const heap = [];  // binary heap of [f, index]
+  // Binary heap of (score, square) kept in two plain number lists.
+  const hf = [], hi = [];
   const push = (f, i) => {
-    heap.push([f, i]);
-    let k = heap.length - 1;
+    let k = hf.length; hf.push(f); hi.push(i);
     while (k > 0) {
       const p = (k - 1) >> 1;
-      if (heap[p][0] <= heap[k][0]) break;
-      [heap[p], heap[k]] = [heap[k], heap[p]]; k = p;
+      if (hf[p] <= f) break;
+      hf[k] = hf[p]; hi[k] = hi[p]; k = p;
     }
+    hf[k] = f; hi[k] = i;
   };
   const pop = () => {
-    const top = heap[0], last = heap.pop();
-    if (heap.length) {
-      heap[0] = last;
+    const top = hi[0], lf = hf.pop(), li = hi.pop(), n = hf.length;
+    if (n) {
       let k = 0;
       for (;;) {
         const l = 2 * k + 1, r = l + 1;
-        let m = k;
-        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
-        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
-        if (m === k) break;
-        [heap[m], heap[k]] = [heap[k], heap[m]]; k = m;
+        let m = -1, mf = lf;
+        if (l < n && hf[l] < mf) { m = l; mf = hf[l]; }
+        if (r < n && hf[r] < mf) { m = r; }
+        if (m < 0) break;
+        hf[k] = hf[m]; hi[k] = hi[m]; k = m;
       }
+      hf[k] = lf; hi[k] = li;
     }
     return top;
   };
@@ -276,13 +301,19 @@ function findPathOn(game, sx, sy, gx, gy) {
     const dx = Math.abs(x - goal.x), dy = Math.abs(y - goal.y);
     return (dx + dy) + (Math.SQRT2 - 2) * Math.min(dx, dy);
   };
+  const tiles = game.map.tiles, occ = game.occupied;
+  const open = (x, y) => {
+    if (x < 0 || y < 0 || x >= W || y >= H) return false;
+    const i = y * W + x, t = tiles[i];
+    return t !== TILE_ROCK && t !== TILE_WATER && !(occ[i] > 0);
+  };
 
   const si = start.y * W + start.x, gi = goal.y * W + goal.x;
   g[si] = 0;
   push(h(start.x, start.y), si);
   let found = false, expanded = 0;
-  while (heap.length && expanded < 8000) {
-    const [, i] = pop();
+  while (hf.length && expanded < maxExpand) {
+    const i = pop();
     if (closed[i]) continue;
     closed[i] = 1; expanded++;
     if (i === gi) { found = true; break; }
@@ -290,9 +321,9 @@ function findPathOn(game, sx, sy, gx, gy) {
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       if (!dx && !dy) continue;
       const nx = x + dx, ny = y + dy;
-      if (isBlockedTile(game, nx, ny)) continue;
+      if (!open(nx, ny)) continue;
       // No cutting across the corner of a rock.
-      if (dx && dy && (isBlockedTile(game, x + dx, y) || isBlockedTile(game, x, y + dy))) continue;
+      if (dx && dy && (!open(x + dx, y) || !open(x, y + dy))) continue;
       const j = ny * W + nx;
       if (closed[j]) continue;
       const ng = g[i] + (dx && dy ? Math.SQRT2 : 1);
@@ -312,7 +343,9 @@ function findPathOn(game, sx, sy, gx, gy) {
   let from = { x: sx, y: sy }, k = 0;
   while (k < pts.length - 1) {
     let far = k + 1;
-    for (let j = pts.length - 1; j > k + 1; j--) {
+    // Look at most 40 squares ahead: long straight stretches just become a
+    // few shorter legs in a row, and the big map stays quick to plan on.
+    for (let j = Math.min(pts.length - 1, k + 40); j > k + 1; j--) {
       if (hasClearLine(game, from.x, from.y, pts[j].x, pts[j].y)) { far = j; break; }
     }
     out.push(pts[far]);

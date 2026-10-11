@@ -2,82 +2,164 @@
 // render.js — DRAWS EVERYTHING YOU SEE
 //
 // Nothing in here changes the game; it only paints the current state onto
-// the screen. All the vehicles are drawn with simple shapes, so there are no
-// image files to manage. Colours come from TEAMS in config.js.
+// the screen. Vehicles and buildings come from sprites.js (vector drawings,
+// no image files). Colours come from TEAMS in config.js.
 // =============================================================================
 
 const Render = {
-  terrain: null,   // the map painted once, reused every frame
+  chunks: null,    // painted squares of ground, made as the camera reaches them
+  scorches: [],    // explosion marks, repainted whenever a chunk is (re)made
   fog: null,       // a tiny image of the fog, stretched over the map
   fogData: null,
+  frame: 0,
+};
+
+// The ground is painted in chunks of 16 x 16 squares (512 px) as they come into
+// view, and chunks far off screen are thrown away. One picture of the whole map
+// would be about 25 million pixels: more than a phone allows in a single image.
+const CHUNK = 16, MAX_CHUNKS = 48;
+const TERRAIN_COLORS = {
+  [TILE_GRASS]: [[58, 74, 44], [62, 79, 46], [55, 70, 42]],
+  [TILE_DIRT]:  [[92, 80, 58], [86, 75, 54], [97, 85, 62]],
+  [TILE_ROCK]:  [[74, 72, 70], [68, 66, 64], [80, 78, 75]],
+  [TILE_WATER]: [[34, 58, 78], [32, 55, 74], [36, 61, 82]],
 };
 
 function buildTerrain(game) {
-  const { W, H, tiles } = game.map, T = CONFIG.TILE;
-  const c = document.createElement('canvas');
-  c.width = W * T; c.height = H * T;
-  const g = c.getContext('2d');
-  const rng = makeRng(game.seed + 99);
-  const colors = {
-    [TILE_GRASS]: [[58, 74, 44], [62, 79, 46], [55, 70, 42]],
-    [TILE_DIRT]:  [[92, 80, 58], [86, 75, 54], [97, 85, 62]],
-    [TILE_ROCK]:  [[74, 72, 70], [68, 66, 64], [80, 78, 75]],
-    [TILE_WATER]: [[34, 58, 78], [32, 55, 74], [36, 61, 82]],
-  };
-  const rgb = a => `rgb(${a[0]},${a[1]},${a[2]})`;
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const t = tiles[y * W + x], pal = colors[t];
-    g.fillStyle = rgb(pal[Math.floor(rng() * pal.length)]);
-    g.fillRect(x * T, y * T, T, T);
+  const { W, H } = game.map;
+  Render.game = game;
+  Render.chunks = new Map();
+  Render.scorches = [];
+  // One pixel per square: shown blurred while detailed chunks are still being painted.
+  const flat = document.createElement('canvas'); flat.width = W; flat.height = H;
+  const fg = flat.getContext('2d'), img = fg.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    const c = TERRAIN_COLORS[game.map.tiles[i]][1];
+    img.data[i * 4] = c[0]; img.data[i * 4 + 1] = c[1]; img.data[i * 4 + 2] = c[2]; img.data[i * 4 + 3] = 255;
   }
-  // Soft speckles so the ground doesn't look like a chessboard.
-  for (let i = 0; i < W * H * 3; i++) {
-    const x = rng() * W * T, y = rng() * H * T;
-    const t = tiles[Math.floor(y / T) * W + Math.floor(x / T)];
-    const pal = colors[t][Math.floor(rng() * 3)];
-    const k = rng() < 0.5 ? 0.85 : 1.15;
-    g.fillStyle = `rgba(${pal[0] * k | 0},${pal[1] * k | 0},${pal[2] * k | 0},0.7)`;
-    const r = 2 + rng() * 7;
-    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
-  }
-  // Raised rock with a lit top edge and a shadow below.
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const t = tiles[y * W + x];
-    if (t === TILE_ROCK) {
-      const below = y + 1 < H ? tiles[(y + 1) * W + x] : TILE_ROCK;
-      const above = y > 0 ? tiles[(y - 1) * W + x] : TILE_ROCK;
-      if (below !== TILE_ROCK) { g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(x * T, (y + 1) * T, T, 8); }
-      if (above !== TILE_ROCK) { g.fillStyle = 'rgba(255,255,255,0.12)'; g.fillRect(x * T, y * T, T, 4); }
-      for (let k = 0; k < 3; k++) {
-        g.fillStyle = `rgba(${rng() < 0.5 ? '40,40,40' : '120,118,112'},0.35)`;
-        g.beginPath(); g.arc(x * T + rng() * T, y * T + rng() * T, 3 + rng() * 6, 0, Math.PI * 2); g.fill();
-      }
-    } else if (t === TILE_WATER) {
-      const above = y > 0 ? tiles[(y - 1) * W + x] : TILE_WATER;
-      if (above !== TILE_WATER) { g.fillStyle = 'rgba(160,190,200,0.25)'; g.fillRect(x * T, y * T, T, 3); }
-      g.strokeStyle = 'rgba(150,190,220,0.15)'; g.lineWidth = 1.5;
-      g.beginPath(); const wy = y * T + 8 + rng() * 16, wx = x * T + rng() * 10;
-      g.moveTo(wx, wy); g.quadraticCurveTo(wx + 6, wy - 3, wx + 12, wy); g.stroke();
-    }
-  }
-  // Tactical grid, like a military map.
-  g.strokeStyle = 'rgba(255,255,255,0.05)'; g.lineWidth = 1;
-  for (let x = 0; x <= W; x += 4) { g.beginPath(); g.moveTo(x * T, 0); g.lineTo(x * T, H * T); g.stroke(); }
-  for (let y = 0; y <= H; y += 4) { g.beginPath(); g.moveTo(0, y * T); g.lineTo(W * T, y * T); g.stroke(); }
-  Render.terrain = c;
-
+  fg.putImageData(img, 0, 0);
+  Render.flat = flat;
+  minimapBase = null;
   const f = document.createElement('canvas');
   f.width = W; f.height = H;
   Render.fog = f;
   Render.fogData = f.getContext('2d').createImageData(W, H);
 }
 
-// Scorch marks are painted straight onto the terrain so they stay forever.
-function scorch(x, y, r) {
-  const g = Render.terrain.getContext('2d');
-  const grad = g.createRadialGradient(x, y, 0, x, y, r);
+// Each square has its own random numbers, so a chunk always paints the same
+// way and the speckles that spill over a chunk's edge line up with its neighbour.
+const tileRng = (seed, i) => makeRng((Math.imul(seed + 99, 2654435761) ^ Math.imul(i + 1, 40503)) >>> 0);
+
+function paintChunk(game, cx, cy) {
+  const { W, H, tiles } = game.map, T = CONFIG.TILE;
+  const x0 = cx * CHUNK, y0 = cy * CHUNK, x1 = Math.min(W, x0 + CHUNK), y1 = Math.min(H, y0 + CHUNK);
+  const c = document.createElement('canvas');
+  c.width = (x1 - x0) * T; c.height = (y1 - y0) * T;
+  const g = c.getContext('2d');
+  g.translate(-x0 * T, -y0 * T);
+  const rgb = a => `rgb(${a[0]},${a[1]},${a[2]})`;
+  const rngs = new Map();
+  // Every square's random numbers are drawn in the same order every time.
+  const rngOf = (x, y) => {
+    const i = y * W + x; let r = rngs.get(i);
+    if (!r) { r = tileRng(game.seed, i); r.color = Math.floor(r() * 3); rngs.set(i, r); }
+    return r;
+  };
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+    g.fillStyle = rgb(TERRAIN_COLORS[tiles[y * W + x]][rngOf(x, y).color]);
+    g.fillRect(x * T, y * T, T, T);
+  }
+  // Neighbouring squares (one ring outside the chunk) are included below, because
+  // their speckles and rock shadows reach a little way into this chunk.
+  const ring = [];
+  for (let y = Math.max(0, y0 - 1); y < Math.min(H, y1 + 1); y++) for (let x = Math.max(0, x0 - 1); x < Math.min(W, x1 + 1); x++) ring.push([x, y]);
+  // Soft speckles so the ground doesn't look like a chessboard.
+  for (const [x, y] of ring) {
+    const r = rngOf(x, y);
+    for (let k = 0; k < 3; k++) {
+      const px = (x + r()) * T, py = (y + r()) * T, pal = TERRAIN_COLORS[tiles[y * W + x]][Math.floor(r() * 3)];
+      const m = r() < 0.5 ? 0.85 : 1.15, rad = 2 + r() * 7;
+      g.fillStyle = `rgba(${pal[0] * m | 0},${pal[1] * m | 0},${pal[2] * m | 0},0.7)`;
+      g.beginPath(); g.arc(px, py, rad, 0, Math.PI * 2); g.fill();
+    }
+  }
+  // Raised rock with a lit top edge and a shadow below; ripples on water.
+  for (const [x, y] of ring) {
+    const t = tiles[y * W + x], r = rngOf(x, y);
+    if (t === TILE_ROCK) {
+      const below = y + 1 < H ? tiles[(y + 1) * W + x] : TILE_ROCK;
+      const above = y > 0 ? tiles[(y - 1) * W + x] : TILE_ROCK;
+      if (below !== TILE_ROCK) { g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(x * T, (y + 1) * T, T, 8); }
+      if (above !== TILE_ROCK) { g.fillStyle = 'rgba(255,255,255,0.12)'; g.fillRect(x * T, y * T, T, 4); }
+      for (let k = 0; k < 3; k++) {
+        g.fillStyle = `rgba(${r() < 0.5 ? '40,40,40' : '120,118,112'},0.35)`;
+        g.beginPath(); g.arc(x * T + r() * T, y * T + r() * T, 3 + r() * 6, 0, Math.PI * 2); g.fill();
+      }
+    } else if (t === TILE_WATER) {
+      const above = y > 0 ? tiles[(y - 1) * W + x] : TILE_WATER;
+      if (above !== TILE_WATER) { g.fillStyle = 'rgba(160,190,200,0.25)'; g.fillRect(x * T, y * T, T, 3); }
+      g.strokeStyle = 'rgba(150,190,220,0.15)'; g.lineWidth = 1.5;
+      g.beginPath(); const wy = y * T + 8 + r() * 16, wx = x * T + r() * 10;
+      g.moveTo(wx, wy); g.quadraticCurveTo(wx + 6, wy - 3, wx + 12, wy); g.stroke();
+    }
+  }
+  // Tactical grid, like a military map.
+  g.strokeStyle = 'rgba(255,255,255,0.05)'; g.lineWidth = 1;
+  for (let x = Math.ceil(x0 / 4) * 4; x <= x1; x += 4) { g.beginPath(); g.moveTo(x * T, y0 * T); g.lineTo(x * T, y1 * T); g.stroke(); }
+  for (let y = Math.ceil(y0 / 4) * 4; y <= y1; y += 4) { g.beginPath(); g.moveTo(x0 * T, y * T); g.lineTo(x1 * T, y * T); g.stroke(); }
+  const chunk = { canvas: c, x: x0 * T, y: y0 * T, w: c.width, h: c.height, used: Render.frame };
+  for (const sc of Render.scorches) paintScorch(chunk, sc);
+  return chunk;
+}
+
+function paintScorch(chunk, sc) {
+  if (sc.x + sc.r < chunk.x || sc.x - sc.r > chunk.x + chunk.w || sc.y + sc.r < chunk.y || sc.y - sc.r > chunk.y + chunk.h) return;
+  const g = chunk.canvas.getContext('2d');
+  g.setTransform(1, 0, 0, 1, -chunk.x, -chunk.y);
+  const grad = g.createRadialGradient(sc.x, sc.y, 0, sc.x, sc.y, sc.r);
   grad.addColorStop(0, 'rgba(20,16,12,0.45)'); grad.addColorStop(1, 'rgba(20,16,12,0)');
-  g.fillStyle = grad; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+  g.fillStyle = grad; g.beginPath(); g.arc(sc.x, sc.y, sc.r, 0, Math.PI * 2); g.fill();
+}
+
+// Paints the chunks that overlap the given world rectangle.
+function drawTerrain(ctx, game, vx0, vy0, vx1, vy1) {
+  const T = CONFIG.TILE, S = CHUNK * T, { W, H } = game.map;
+  Render.frame++;
+  const cx0 = Math.max(0, Math.floor(vx0 / S)), cy0 = Math.max(0, Math.floor(vy0 / S));
+  const cx1 = Math.min(Math.ceil(W / CHUNK) - 1, Math.floor(vx1 / S)), cy1 = Math.min(Math.ceil(H / CHUNK) - 1, Math.floor(vy1 / S));
+  // Painting a chunk takes a few milliseconds, so only a few are painted per
+  // frame. Until the rest are ready, a blurred low-detail map shows instead.
+  let budget = 2, flatDrawn = false;
+  for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
+    const key = cy * 1000 + cx;
+    let ch = Render.chunks.get(key);
+    if (!ch && budget > 0) { ch = paintChunk(game, cx, cy); Render.chunks.set(key, ch); budget--; }
+    if (!ch) {
+      if (!flatDrawn) {
+        flatDrawn = true;
+        const sx = Math.max(0, Math.floor(vx0 / T)), sy = Math.max(0, Math.floor(vy0 / T));
+        const sw = Math.min(W, Math.ceil(vx1 / T) + 1) - sx, sh = Math.min(H, Math.ceil(vy1 / T) + 1) - sy;
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(Render.flat, sx, sy, sw, sh, sx * T, sy * T, sw * T, sh * T);
+      }
+      continue;
+    }
+    ch.used = Render.frame;
+    ctx.drawImage(ch.canvas, ch.x, ch.y);
+  }
+  // Forget the chunks that have been off screen longest.
+  if (Render.chunks.size > MAX_CHUNKS) {
+    const old = [...Render.chunks].filter(([, c]) => c.used !== Render.frame).sort((a, b) => a[1].used - b[1].used);
+    for (const [k] of old.slice(0, Render.chunks.size - MAX_CHUNKS)) Render.chunks.delete(k);
+  }
+}
+
+// Scorch marks stay on the ground for the rest of the battle.
+function scorch(x, y, r) {
+  const sc = { x, y, r };
+  Render.scorches.push(sc);
+  if (Render.scorches.length > 3000) Render.scorches.shift();
+  for (const ch of Render.chunks.values()) paintScorch(ch, sc);
 }
 
 function drawGame(ctx, game, view) {
@@ -94,7 +176,7 @@ function drawGame(ctx, game, view) {
   const visAt = (x, y) => view.revealAll || tm.vis[Math.floor(y / T) * W + Math.floor(x / T)] === 1;
   const exploredAt = (x, y) => view.revealAll || tm.explored[Math.floor(y / T) * W + Math.floor(x / T)] === 1;
 
-  ctx.drawImage(Render.terrain, 0, 0);
+  drawTerrain(ctx, game, vx0, vy0, vx1, vy1);
 
   // Territory edges (where you're allowed to build) while placing a building.
   if (view.placing) drawTerritory(ctx, game, team, view.placing);
@@ -473,7 +555,8 @@ function drawMinimap(ctx, game, view) {
   if (!minimapBase) {
     minimapBase = document.createElement('canvas');
     minimapBase.width = cw; minimapBase.height = ch;
-    minimapBase.getContext('2d').drawImage(Render.terrain, 0, 0, cw, ch);
+    const mg = minimapBase.getContext('2d');
+    mg.imageSmoothingEnabled = true; mg.drawImage(Render.flat, 0, 0, cw, ch);
   }
   ctx.drawImage(minimapBase, 0, 0);
   if (!view.revealAll) {
