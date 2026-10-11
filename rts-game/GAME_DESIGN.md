@@ -8,7 +8,9 @@ improvements.
 
 **Last updated:** 11 October 2026. It covers everything up to and including
 the tech tree (upgrades, research, Radar, Repair Pad), the sprite art, the
-1.9× bigger map with 24 geysers, and recycling at the Repair Pad.
+1.9× bigger map, recycling at the Repair Pad, and the October economy
+retune (12 geysers, slower Extractors with bigger tanks, smaller Transports,
+an AI that favours geysers).
 
 All values below are copied from the code. The balance numbers live in
 `js/config.js`; a few rules are fixed inside the other files and are named
@@ -140,17 +142,14 @@ mirrors them (a tile (x, y) becomes (181 − x, 136 − y); a geyser corner
 | Feature | Positions (bottom-left half) | Notes |
 | --- | --- | --- |
 | Starting position | (10, 126) | Mirrored: (171, 10). Still 10 tiles from the corner edges. A 10-tile radius is cleared. |
-| Scrap geysers: home | (10, 127) under the start, (34, 118), (12, 100) | 1, 25 and 26 tiles from the start. |
-| Scrap geysers: near | (60, 126), (14, 72), (42, 92) | 47 to 54 tiles out. |
-| Scrap geysers: forward | (84, 116), (24, 46), (64, 98) | 61 to 81 tiles out. |
-| Scrap geysers: contested | (110, 122), (40, 22), (78, 74) | 86 to 108 tiles out, close to the line between the halves. (78, 74) is near the centre. |
+| Scrap geysers | (10, 127) under the start; (34, 118) home; (42, 92) middle distance; (84, 116) and (24, 46) forward, one on each flank; (78, 74) contested, near the centre | 1, 25, 47, 74, 81 and 86 tiles from the start. |
 | Scrap fields | Home (20, 129), (7, 113); near (48, 108), (26, 86), (74, 128); middle (8, 56), (52, 76), (38, 60); contested (96, 104), (56, 32), (70, 56) | 22 fields in total, 11 per half. Each has 5 to 7 piles of 400 scrap within about 3 tiles. |
 | Open clearings | (42, 38), (65, 95), plus the map centre | Terrain cleared to a 4-tile radius. |
 
-**Geysers:** 24 in total, 12 per half, positions are tile corners. No two
-geysers (on either side) are closer than 20 tiles; the closest pair is
-22.8 tiles apart. The two map corners away from the bases have scrap fields
-but no geysers.
+**Geysers:** 12 in total, 6 per half (halved from 24 in October 2026),
+positions are tile corners. No two geysers (on either side) are closer than
+20 tiles. The two map corners away from the bases have scrap fields but no
+geysers.
 
 **Total loose scrap on a fresh map:** about 22 fields × 6 piles × 400 ≈
 52,500, so roughly 26,000 per side (was about 12,000 per side).
@@ -179,8 +178,8 @@ Each side begins with:
 | Buildings | None |
 | Research | None |
 
-A geyser sits about 66 pixels from the starting Recycler. Two more are
-about 25 tiles (800 pixels) away; they need a Scavenger II.
+A geyser sits about 66 pixels from the starting Recycler. The next is about
+25 tiles (800 pixels) away; it needs a Scavenger II.
 
 ---
 
@@ -214,8 +213,8 @@ lost. The top bar shows `held / capacity` and turns yellow when full. A
 | Source | Rate | Delivered how | Runs out? |
 | --- | --- | --- | --- |
 | Scavenger (either tier) collecting loose scrap | Gathers 4 per second, carries 25 per trip. Real income depends on distance: roughly 40 to 70 a minute per Scavenger near home. | Drives it to the Recycler, a Base Silo or an Extractor Silo | Yes. Each pile holds 400, and fields empty over time. |
-| Extractor on a geyser (needs a **Scavenger II** to create) | 1.0 per second (60 a minute) | With an Extractor Silo touching it, straight into storage. Without one, into its own 30-scrap tank, which Transports empty. | No |
-| Deployed Recycler | 0.05 per second (3 a minute), a twentieth of an Extractor | Straight into storage | No |
+| Extractor on a geyser (needs a **Scavenger II** to create) | 0.7 per second (42 a minute) | With an Extractor Silo touching it, straight into storage. Without one, into its own 120-scrap tank, which Transports empty. | No |
+| Deployed Recycler | 0.035 per second (2.1 a minute), a twentieth of an Extractor | Straight into storage | No |
 | Salvage from destroyed vehicles | 30% of the vehicle's cost, left as a pile on the ground | Collected by Scavengers | Yes |
 | Demolishing your own building | 50% of its cost, left as piles of at most 40 on the ground | Collected by Scavengers | Yes |
 | Cancelling a unit in a build queue | 100% of its cost, straight to storage (if there is room) | Immediate | n/a |
@@ -236,8 +235,8 @@ be demolished (see section 7).
 ```
 loose scrap ──Scavenger──▶ Recycler / Base Silo / Extractor Silo ──▶ STORAGE
 geyser ──Extractor (from a Scavenger II)──▶ Extractor Silo touching it? ──yes──▶ STORAGE
-                                                                     └─no──▶ tank (30) ──Transport──▶ STORAGE
-Recycler's own geyser ──(3/min)──▶ STORAGE
+                                                                     └─no──▶ tank (120) ──Transport (30 a trip)──▶ STORAGE
+Recycler's own geyser ──(2.1/min)──▶ STORAGE
 ```
 
 ---
@@ -298,7 +297,7 @@ Scavengers, Constructors, Transports and the mobile Recycler are unarmed.
 | Scavenger II | As Scavenger, plus **Deploy on geyser:** becomes an Extractor (8 s to set up). |
 | Constructor | Builds buildings and finishes construction sites. **Cannot** repair. |
 | Constructor II | Builds, and **repairs** damaged buildings at 25 HP per second. |
-| Transport | **Auto-haul:** empties the fullest Extractor tank (at least 15 stored), preferring ones no other Transport is heading to. Loads 40 per second, carries 60. **Shield:** absorbs the first 150 damage; recharges at 20 per second after 3 seconds without being hit. |
+| Transport | **Auto-haul:** empties the fullest Extractor tank (at least 15 stored), preferring ones no other Transport is heading to. Loads 40 per second, carries 30. **Shield:** absorbs the first 150 damage; recharges at 20 per second after 3 seconds without being hit. |
 | Scout (and Mk II) | **Scout** (alone) or **Scout as pack** / **Scout solo** (groups). |
 | Tank (and Mk II) | **Patrol:** loops around all your buildings. |
 | Artillery (and Mk II) | **Defend:** holds a post beside one of your buildings. |
@@ -313,7 +312,7 @@ Scavengers, Constructors, Transports and the mobile Recycler are unarmed.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Recycler | — | 10 s (deploy) | 4,000 (5,000 as Recycler II) | 3×3 | 300 | 300 | 14 | Deploying the mobile Recycler on a geyser |
 | Factory | 150 | 18 s | 1,400 (1,800 as Factory II) | 3×3 | 220 | — | 10 | Constructor |
-| Extractor | — | 8 s (deploy) | 900 | 2×2 | 240 | tank of 30 | 9 | Deploying a Scavenger II on a geyser |
+| Extractor | — | 8 s (deploy) | 900 | 2×2 | 240 | tank of 120 | 9 | Deploying a Scavenger II on a geyser |
 | Base Silo | 250 | 14 s | 1,100 | 2×2 | 200 | 300 | 8 | Constructor |
 | Extractor Silo | 500 | 12 s | 800 | 2×2 | 200 | 125 | 5 | Constructor |
 | Gun Tower | 110 | 14 s | 1,000 | 2×2 | 300 | — | — | Constructor |
@@ -325,11 +324,11 @@ Scavengers, Constructors, Transports and the mobile Recycler are unarmed.
 
 | Building | Produces / offers | Other functions |
 | --- | --- | --- |
-| Recycler | Scavenger, Constructor, Transport. **Upgrade to Recycler II.** | Headquarters. Defence gun (fires from the centre drum; no visible barrel). Drop-off point. Pumps its own geyser at 3 a minute. Cannot be demolished. |
+| Recycler | Scavenger, Constructor, Transport. **Upgrade to Recycler II.** | Headquarters. Defence gun (fires from the centre drum; no visible barrel). Drop-off point. Pumps its own geyser at 2.1 a minute. Cannot be demolished. |
 | Recycler II | Scavenger II, Constructor II, Transport (replaces the basic workers) | As Recycler, with 5,000 HP. |
 | Factory | Scout, Tank, Artillery. **Upgrade to Factory II.** | — |
 | Factory II | Scout, Tank, Artillery, plus Scout / Tank / Artillery **Mk II** (each once researched; otherwise shown as "Research first") | 1,800 HP. |
-| Extractor | — | Pumps 60 a minute from its geyser. Salvage value counts as 60 (the Scavenger it came from). |
+| Extractor | — | Pumps 42 a minute from its geyser into a 120 tank. Salvage value counts as 60 (the Scavenger it came from). |
 | Base Silo | — | Adds 300 storage. Drop-off point. Must be within 7 tiles of your Recycler's edge. |
 | Extractor Silo | — | Adds 125 storage. Drop-off point. Must touch one of your Extractors (at most one empty square between them). Makes that Extractor send its scrap straight to storage. |
 | Gun Tower | — | Defensive gun (see Weapons). |
@@ -583,10 +582,13 @@ each decision it runs through these steps in order:
    - a Constructor II, if upgraded and it has none (so it can repair);
    - a Scavenger II, if it wants a new geyser and has no Scavenger II
      available to deploy;
-   - a Transport, if it has fewer Transports than Extractors without an
-     Extractor Silo;
+   - a Transport, if it has fewer than it needs to keep up with its
+     Extractors that have no Extractor Silo: for each, enough trips to carry
+     its output given the round trip to the Recycler (at least 1, at most 2
+     per Extractor);
    - a Scavenger (Scavenger II once upgraded), if it has fewer than
-     `min(maxScavengers, 3 + minutes ÷ 2.5)`.
+     `min(maxScavengers, 3 + minutes ÷ 2.5)` minus one for every two
+     Extractors it runs (never below 3).
 4. **Expansion:** once upgraded, if not already deploying, below
    `maxExtractors`, past 90 seconds (360 on Easy) and at least 30 seconds
    since its last attempt, it sends its nearest Scavenger II to the nearest
@@ -599,15 +601,17 @@ each decision it runs through these steps in order:
    4. a first Gun Tower after 90 seconds (300 on Easy);
    5. a Base Silo, if under `maxBaseSilos`, storage at least 70% full, and
       past 150 seconds;
-   6. an Extractor Silo on an Extractor lacking one, once its storage can
-      hold 500 and it has 500;
+   6. an Extractor Silo on its furthest Extractor lacking one, after
+      `extractorSilos` seconds (10:00 Normal, 7:00 Hard, never on Easy) and
+      once its storage can hold 500. It saves up for it (army production
+      pauses meanwhile);
    7. a Research Lab after `labAfter` (never on Easy);
    8. a Radar after `radarAfter` (never on Easy);
    9. a second Factory after 300 seconds (not on Easy);
    10. more Gun Towers, up to 1 plus the number of Extractors, after 200
        seconds, placed at Extractors that have none nearby.
 
-   While saving for a Base Silo, it pauses army production.
+   While saving for a Base Silo or an Extractor Silo, it pauses army production.
 6. **Research and Factory upgrade:** an idle lab researches Advanced Tanks,
    then Scouts, then Artillery. Once anything is researched, it upgrades one
    Factory at a time to Factory II. It saves for both, pausing army
@@ -669,7 +673,8 @@ then mirrored, so both corners place buildings identically.
 | Wave growth (extra units per minute) | 0.25 | 0.8 | 1.5 |
 | Most combat vehicles | 8 | 25 | 40 |
 | Army growth limit (units per minute, on top of 3) | 0.7 | 3 | none |
-| Most Extractors | 1 | 3 | 4 |
+| Most Extractors | 2 | 4 | 5 |
+| Saves for Extractor Silos after | never | 10:00 | 7:00 |
 | Most Base Silos | 1 | 2 | 3 |
 | Most Scavengers | 3 | 6 | 7 |
 | Seconds between decisions | 2.5 | 1.0 | 0.5 |
@@ -680,11 +685,15 @@ then mirrored, so both corners place buildings identically.
 | Builds a Radar after | never | 8:00 | 6:00 |
 
 **Measured "do nothing" survival** (the player deploys the Recycler and then
-does nothing; one test map, after the tech tree was added):
+does nothing; one test map, seed 5):
 
-| Easy | Normal | Hard |
-| --- | --- | --- |
-| about 16 min | about 9 min | about 5 min |
+| Version | Easy | Normal | Hard |
+| --- | --- | --- | --- |
+| After the tech tree | about 16 min | about 9 min | about 5 min |
+| Big map (early October) | about 17 min | about 13 min | about 8 min |
+| October economy retune | about 21 min | about 11 min | about 6 min |
+
+The first attack still lands at 10:00 / 5:00 / 3:00.
 
 If the player never deploys at all, the enemy kills the unarmed mobile
 Recycler at its first attack.
@@ -881,12 +890,12 @@ times.
 
 **Economy:**
 
-- An Extractor (60 a minute) pays for an Extractor Silo (500) in about 8
+- An Extractor (42 a minute) pays for an Extractor Silo (500) in about 12
   minutes. It makes storage room and removes the need for a Transport.
 - A Base Silo (250 for +300 storage) is the cheapest way to raise the cap.
 - The full tech path costs 250 (Recycler II) + 200 (Lab) + 200 (research) +
   200 (Factory II) = 850 scrap before the first Tank Mk II, plus its 150.
-- The Recycler's trickle of 3 a minute is symbolic: 180 scrap per hour.
+- The Recycler's trickle of 2.1 a minute is symbolic: 126 scrap per hour.
 - Salvage: a destroyed Tank leaves 30; a demolished Factory leaves 75.
 
 ---
@@ -905,7 +914,7 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `js/sprites.js` | The unit design sheet: vector drawings of every vehicle and building, their animations, damage smoke, explosions, wrecks and craters |
 | `js/render.js` | Drawing the map, fog, minimap, bars and effects; calls `sprites.js` for units and buildings. The ground is painted in chunks as they scroll into view (see below). |
 | `js/main.js` | Mouse, touch and keyboard input; panels and buttons; minimap toggle; sound; the game loop |
-| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (40 checks). |
+| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (43 checks). |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
 tables), `ROADMAP.md` (planned stages), and this file.
@@ -949,7 +958,7 @@ rebuilt.
 
 | Test type | Method | What it checks |
 | --- | --- | --- |
-| **Rules tests** (`tests/rules.js`, 40 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 24 geysers, 20-tile spacing, 12 per half, mirrored geysers and scrap, 20 to 24 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; **every vehicle kind repaired on the pad**; Transport shields; **workers wait on the pad**; **Recycle** (refund, removed, no wreck, only on the pad, not the Recycler, not the enemy's pad, overflow left as scrap); artillery stabilisers. |
+| **Rules tests** (`tests/rules.js`, 43 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 12 geysers, 20-tile spacing, 6 per half, mirrored geysers and scrap, 20 to 24 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; Extractor output (42 a minute) and tank (120); Transport load (30); basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; **every vehicle kind repaired on the pad**; Transport shields; **workers wait on the pad**; **Recycle** (refund, removed, no wreck, only on the pad, not the Recycler, not the enemy's pad, overflow left as scrap); artillery stabilisers. |
 | **AI-vs-AI batches** | Run 30 to 120 full games between two computer players on different seeds. | Games end, typical length, and **fairness** by team and by corner. |
 | **AI tech progression** | Log when the AI reaches each milestone at each difficulty. | The AI actually upgrades, researches and fields Mk II units. |
 | **"Do nothing" survival** | The player deploys and then does nothing, at each difficulty. | Difficulty pacing: when the first attack lands and how long a passive player lasts. |
@@ -1007,7 +1016,7 @@ rebuilt.
    (250 scrap, 40 s, with a storage cap of 300), so the early game relies on
    loose scrap for several minutes.
 4. **Economic death spiral.** If a side loses all its Scavengers and has no
-   Extractors, its only income is the Recycler's 3 a minute (1.5 on Easy for
+   Extractors, its only income is the Recycler's 2.1 a minute (about 1 on Easy for
    the AI). It may never recover. Seen in an Easy AI-vs-AI game.
 5. **Never tested on a real phone.** Touch controls have only been tested
    in a simulated iPhone.
@@ -1068,8 +1077,8 @@ only on purpose.
 8. **Buildings can be demolished** for 50% of their cost, left as scrap on
    the ground.
 9. **Waypoints** on the Recycler and Factory, which can be set and cleared.
-9b. **Map size and geysers:** the map is 182 × 137 (1.9× per side), with 24
-    geysers (12 per half, at least 20 tiles apart, from home out to the
+9b. **Map size and geysers:** the map is 182 × 137 (1.9× per side), with 12
+    geysers (6 per half, at least 20 tiles apart, from home out to the
     contested middle) and 22 scrap fields.
 9c. **Recycling** happens only on a Repair Pad, for 50% of the vehicle's cost
     (the demolish share), with a confirm step; never the Recycler.

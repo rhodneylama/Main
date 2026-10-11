@@ -94,9 +94,9 @@ The game works on touch screens. Turning your phone sideways gives the best view
 
 | Building | Cost | Role |
 | --- | --- | --- |
-| Recycler | — | Your HQ, made by deploying the mobile Recycler on a geyser. Makes Scavengers, Constructors and Transports. Holds 300 scrap, has a defence gun, and pumps its geyser very slowly (3 a minute). Can't be demolished. |
+| Recycler | — | Your HQ, made by deploying the mobile Recycler on a geyser. Makes Scavengers, Constructors and Transports. Holds 300 scrap, has a defence gun, and pumps its geyser very slowly (about 2 a minute). Can't be demolished. |
 | Factory | 150 | Makes Scouts, Tanks and Artillery. |
-| Extractor | a Scavenger | Made by deploying a Scavenger onto a scrap geyser. Pumps about 60 scrap a minute. With an Extractor Silo joined on, that goes straight to your total; without one it fills a 30-scrap tank for Transports. Expands the area you can build in. |
+| Extractor | a Scavenger | Made by deploying a Scavenger onto a scrap geyser. Pumps about 42 scrap a minute. With an Extractor Silo joined on, that goes straight to your total; without one it fills a 120-scrap tank for Transports (each carries 30 a trip). Expands the area you can build in. |
 | Base Silo | 250 | Adds 300 to your scrap storage. Must be next to your Recycler. |
 | Extractor Silo | 500 | Must be joined right onto an Extractor. Sends that Extractor's scrap straight to your total and adds 125 storage. |
 | Gun Tower | 110 | Defensive turret. |
@@ -125,7 +125,7 @@ Scrap reaches your bank two ways:
 **Demolish** any building except the Recycler: select it and press Demolish,
 then Confirm. Half of what it cost is left on the ground as loose scrap.
 
-**The battlefield** is 182 × 137 squares, with 24 scrap geysers (12 near each
+**The battlefield** is 182 × 137 squares, with 12 scrap geysers (6 near each
 side, spread from home out to the contested middle) and 22 fields of loose
 scrap. Expect longer drives than on a small map: a Tank takes over two and a
 half minutes to cross from base to base.

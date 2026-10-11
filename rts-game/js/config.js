@@ -149,7 +149,7 @@ const BUILDING_TYPES = {
   extractor: {
     name: 'Extractor', cost: 0, buildTime: 8, hp: 900, size: 2, sight: 240,
     income: 0.7, store: 120, buildRadius: 9, buildable: false, salvageValue: 60,
-    desc: 'Pumps scrap from a geyser. With an Extractor Silo joined on, scrap goes straight to your total; without one it fills a small tank for Transports.',
+    desc: 'Pumps scrap from a geyser. With an Extractor Silo joined on, scrap goes straight to your total; without one it fills a 120-scrap tank for Transports.',
   },
   // Built next to the Recycler: raises how much scrap you can hold.
   basesilo: {
