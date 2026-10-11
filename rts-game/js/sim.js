@@ -145,6 +145,9 @@ function bankScrap(game, team, amount, quiet = false) {
   return added;
 }
 
+// What recycling a vehicle on a Repair Pad gives back: half its cost.
+const recycleValue = u => Math.round(u.def.cost * 0.5);
+
 const isBank = b => b.kind === 'building' && b.built >= 1 && !!b.def.capacity;
 const isStore = b => b.kind === 'building' && b.built >= 1 && !!b.def.store;
 
@@ -385,6 +388,26 @@ function issueCommand(game, team, cmd) {
       if (b && b.kind === 'building') b.rally = cmd.clear ? null : { x: cmd.x, y: cmd.y };
       break;
     }
+    case 'recycle': {
+      // Only vehicles parked on one of your Repair Pads can be recycled, and
+      // never the Recycler. Half the cost goes back into storage (the same
+      // share as demolishing); anything that doesn't fit is left on the pad
+      // as loose scrap.
+      let value = 0, count = 0, at = null;
+      for (const u of units) {
+        if (u.def.role === 'hq' || !(u.def.cost > 0)) continue;
+        const pad = padUnder(game, u);
+        if (!pad) continue;
+        const refund = recycleValue(u);
+        const banked = bankScrap(game, team, refund, true);
+        if (refund - banked > 0) game.scrap.push({ id: 300000 + u.id, x: u.x, y: u.y, amount: refund - banked, max: refund - banked, wreck: true });
+        u.recycled = true; u.hp = 0;
+        value += refund; count++; at = pad;
+      }
+      if (!count) { pushEvent(game, team, 'Only vehicles parked on a Repair Pad can be recycled', 'warn'); return; }
+      pushEvent(game, team, `${count > 1 ? count + ' vehicles' : 'Vehicle'} recycled for ${value} scrap`, 'good', at.x, at.y);
+      break;
+    }
     case 'demolish': {
       const b = own(cmd.buildingId);
       if (!b || b.kind !== 'building' || b.def.demolishable === false) return;
@@ -549,12 +572,26 @@ function updateBuilding(game, b, dt) {
 }
 
 // Vehicles of the pad's side parked on it are repaired, shields too.
+// Is this vehicle parked on (inside the footprint of) this Repair Pad?
+function onPad(b, u) {
+  const T = CONFIG.TILE;
+  return u.x >= b.tx * T && u.x <= (b.tx + b.size) * T && u.y >= b.ty * T && u.y <= (b.ty + b.size) * T;
+}
+
+// The finished Repair Pad of its own side that a vehicle is parked on, if any.
+function padUnder(game, u) {
+  for (const b of game.entities) if (b.type === 'repairpad' && b.team === u.team && b.built >= 1 && b.hp > 0 && onPad(b, u)) return b;
+  return null;
+}
+
+const needsRepair = u => u.hp < u.maxHp || (u.def.shield && u.shield < u.def.shield);
+
+// Every kind of vehicle parked on the pad is repaired, workers included.
 function repairOnPad(game, b, dt) {
-  const T = CONFIG.TILE, x0 = b.tx * T, y0 = b.ty * T, x1 = x0 + b.size * T, y1 = y0 + b.size * T;
   for (const u of game.entities) {
-    if (u.kind !== 'unit' || u.team !== b.team || u.x < x0 || u.x > x1 || u.y < y0 || u.y > y1) continue;
-    const hurt = u.hp < u.maxHp, lowShield = u.def.shield && u.shield < u.def.shield;
-    if (!hurt && !lowShield) continue;
+    // Never "repair" something already destroyed or recycled this tick.
+    if (u.kind !== 'unit' || u.team !== b.team || u.hp <= 0 || !onPad(b, u)) continue;
+    if (!needsRepair(u)) continue;
     u.hp = Math.min(u.maxHp, u.hp + b.def.repairRate * dt);
     if (u.def.shield) u.shield = Math.min(u.def.shield, u.shield + b.def.repairRate * dt);
     u.repairing = 0.3;  // lets the renderer show the repair glow
@@ -617,6 +654,10 @@ function updateUnit(game, u, dt) {
           if (!u.path.length) planPath(game, u, o.gx, o.gy);
           followPath(game, u, dt);
         } else if (!engaged) u.path = [];
+      } else if (needsRepair(u) && padUnder(game, u)) {
+        // Workers parked on a Repair Pad wait there until they're fixed,
+        // instead of driving straight back to work.
+        followPath(game, u, dt);
       } else if (u.def.role === 'hauler') {
         // Idle transports go back to hauling unless told to stop.
         if (followPath(game, u, dt) && u.autoHaul && game.tick % 30 === u.id % 30) u.order = { type: 'haul', phase: 'pick', fixedId: 0 };
@@ -1104,6 +1145,7 @@ function removeDead(game) {
     if (e.deployed) continue;
     if (e.kind === 'building' && e.geyserId) { const g = game.geysers.find(x => x.id === e.geyserId); if (g) g.extractorId = 0; }
     if (e.demolished) { demolishInto(game, e); continue; }
+    if (e.recycled) { game.effects.push({ kind: 'recycle', team: e.team, x: e.x, y: e.y, t: 0, life: 0.9, r: e.radius }); continue; }
     if (e.kind === 'building') {
       setOccupied(game, e, -1);
       // Explosion, then a crater where the building stood.

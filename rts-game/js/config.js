@@ -179,7 +179,7 @@ const BUILDING_TYPES = {
   repairpad: {
     name: 'Repair Pad', cost: 150, buildTime: 12, hp: 800, size: 3, sight: 180, walkable: true,
     repairRate: 30,
-    desc: 'Vehicles parked on the pad are repaired (30 health a second each). Transports get their shields back too.',
+    desc: 'Every vehicle parked on the pad is repaired (30 health a second each); Transports get their shields back too. Vehicles parked here can be recycled for half their cost.',
   },
   tower: {
     name: 'Gun Tower', cost: 110, buildTime: 14, hp: 1000, size: 2, sight: 300,

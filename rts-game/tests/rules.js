@@ -19,7 +19,7 @@ function load() {
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
     'createGame, generateMap, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
-    'findHQ: typeof findHQ === "function" ? findHQ : null, aiUpdate, dist, isBlockedTile });', ctx);
+    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue });', ctx);
   return ctx;
 }
 
@@ -191,6 +191,58 @@ section('Combat, demolish and the Repair Pad');
     hurt.filter(u => !healed.includes(u)).map(u => u.type).join(',') || 'all repaired');
   const tr = hurt.find(u => u.type === 'transport');
   check('Transports get their shield back on the pad', tr.shield >= tr.def.shield - 1);
+}
+
+section('Repair Pad: workers wait, and Recycle');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const pad = placeDone(S, g, 1, 'repairpad', { x: rec.x + 150, y: rec.y - 200 });
+  // Hurt workers sent to the pad stay until repaired instead of going back to work.
+  const scav = mine(g, 1, 'scavenger')[0], tr = S.addUnit(g, 'transport', 1, rec.x + 60, rec.y);
+  tr.autoHaul = true;
+  for (const u of [scav, tr]) { u.hp = u.maxHp * 0.3; if (u.def.shield) u.shield = 0; }
+  S.issueCommand(g, 1, { type: 'gorepair', ids: [scav.id, tr.id] });
+  run(g, S, 60);
+  check('a hurt Scavenger waits on the pad until fully repaired', scav.hp >= scav.maxHp - 1, `${Math.round(scav.hp)}/${scav.maxHp}`);
+  check('a hurt Transport waits on the pad until fully repaired', tr.hp >= tr.maxHp - 1, `${Math.round(tr.hp)}/${tr.maxHp}`);
+  run(g, S, 10);
+  check('repaired workers then go back to work', !S.padUnder(g, scav) || scav.order.type !== 'idle');
+
+  // Recycle: half the cost back, only on the pad, never the Recycler.
+  const T = S.CONFIG.TILE;
+  const onPad = (k, i) => S.addUnit(g, k, 1, (pad.tx + 0.6 + i * 0.9) * T, (pad.ty + 1.5) * T);
+  const tank = onPad('tank', 0), art2 = onPad('artillery2', 1), cons = onPad('constructor', 2);
+  const away = S.addUnit(g, 'tank', 1, rec.x + 400, rec.y - 400);
+  placeDone(S, g, 1, 'basesilo', rec);                     // room to bank the refund
+  for (const u of g.entities) if (u.team === 1 && u.def.role === 'harvester') u.hp = 0;  // no deliveries meanwhile
+  run(g, S, 0.1);
+  g.teams[1].scrap = 0;
+  S.issueCommand(g, 1, { type: 'recycle', ids: [tank.id, art2.id, cons.id, away.id] });
+  run(g, S, 0.2);
+  const want = 50 + 105 + 40;
+  check('recycling on the pad refunds half the cost', Math.round(g.teams[1].scrap) === want, `${g.teams[1].scrap} of ${want}`);
+  check('recycled vehicles are removed', ![tank, art2, cons].some(u => g.entities.includes(u)));
+  check('recycled vehicles leave no wreck or salvage', !g.scrap.some(p => p.id === 100000 + tank.id) && !g.effects.some(e => e.kind === 'wreck' && Math.hypot(e.x - tank.x, e.y - tank.y) < 1));
+  check('a vehicle off the pad cannot be recycled', g.entities.includes(away) && away.hp > 0);
+  const mobile = S.addUnit(g, 'mobileRecycler', 1, pad.x, pad.y);
+  S.issueCommand(g, 1, { type: 'recycle', ids: [mobile.id] });
+  run(g, S, 0.2);
+  check('the mobile Recycler cannot be recycled', g.entities.includes(mobile) && mobile.hp > 0);
+  mobile.hp = 0; run(g, S, 0.1);
+  const enemy = S.addUnit(g, 'scout', 2, pad.x, pad.y);
+  S.issueCommand(g, 1, { type: 'recycle', ids: [enemy.id] });
+  S.issueCommand(g, 2, { type: 'recycle', ids: [enemy.id] });
+  run(g, S, 0.2);
+  check("nobody can recycle on the other side's pad", g.entities.includes(enemy));
+  // Storage full: the refund that doesn't fit is left on the pad as loose scrap.
+  g.teams[1].scrap = S.scrapCapacity(g, 1) - 10;
+  const t2 = onPad('tank', 0);
+  const before = g.scrap.reduce((a, p) => a + p.amount, 0);
+  S.issueCommand(g, 1, { type: 'recycle', ids: [t2.id] });
+  const after = g.scrap.reduce((a, p) => a + p.amount, 0);
+  check('with storage full, the rest of the refund is left on the pad', g.teams[1].scrap === S.scrapCapacity(g, 1) && after - before === 40, `banked 10, ground ${after - before}`);
 }
 
 section('Artillery stabilisers');

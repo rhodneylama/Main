@@ -212,7 +212,7 @@ function attackMoveAt(w, pad = 0) {
 }
 
 function cancelModes() {
-  view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null; view.confirmDemolish = null;
+  view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
   refreshPanel();
 }
 
@@ -522,7 +522,7 @@ window.addEventListener('keydown', e => {
   input.keys.add(e.key);
   const key = e.key.toUpperCase();
   if (e.key === 'Escape') {
-    if (view.placing || view.attackMode || view.aim || view.confirmDemolish) cancelModes();
+    if (view.placing || view.attackMode || view.aim || view.confirmDemolish || view.confirmRecycle) cancelModes();
     else if (!$('help').classList.contains('hidden')) $('help').classList.add('hidden');
     else select([]);
     return;
@@ -584,7 +584,7 @@ function select(list) {
   // Buildings can only be selected one at a time.
   const units = list.filter(e => e.kind === 'unit');
   view.selected = units.length ? units : list.slice(0, 1);
-  view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null; view.confirmDemolish = null;
+  view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
   $('armymenu').classList.add('hidden');
   if (view.selected.length && view.selected[0].team === view.team) sound('select');
   refreshPanel();
@@ -596,12 +596,42 @@ function onPress(el, fn) {
   el.addEventListener('click', e => { if (e.detail === 0) fn(); });  // keyboard hotkeys
 }
 
+// Recycling. For a selected Repair Pad: your vehicles parked on it. For
+// selected vehicles: those of them parked on one of your pads. The mobile
+// Recycler can never be recycled.
+function recycleCandidates(sel) {
+  if (!game || spectating || !sel.length) return [];
+  const pad = sel.length === 1 && sel[0].type === 'repairpad' && sel[0].team === view.team && sel[0].built >= 1 ? sel[0] : null;
+  const pool = pad ? game.entities.filter(u => u.kind === 'unit' && u.team === view.team && onPad(pad, u)) : sel;
+  return pool.filter(u => u.kind === 'unit' && u.team === view.team && u.hp > 0 && u.def.role !== 'hq' && u.def.cost > 0 && padUnder(game, u));
+}
+
+// Recycle needs a second, separate press to confirm, so a stray tap can't
+// throw a vehicle away. The confirm button has no keyboard shortcut.
+function addRecycleButtons(addBtn, list, tip, keys) {
+  const value = list.reduce((a, u) => a + recycleValue(u), 0);
+  const ids = list.map(u => u.id).join(',');
+  const what = list.length === 1 ? (list[0].def.name) : `${list.length} vehicles`;
+  if (view.confirmRecycle === ids) {
+    addBtn('Confirm recycle', null, '', () => {
+      issueCommand(game, view.team, { type: 'recycle', ids: list.map(u => u.id) });
+      view.confirmRecycle = null; sound('build'); refreshPanel();
+    }, { danger: true, note: `+${value} scrap`, title: `Take ${what} apart for ${value} scrap` });
+    addBtn('Keep', null, 'Esc', () => { view.confirmRecycle = null; refreshPanel(); });
+    tip.textContent = `Recycle ${what} for ${value} scrap (half the cost)? ${list.length === 1 ? 'It' : 'They'} will be gone for good.`;
+  } else {
+    addBtn('Recycle', null, keys.shift(), () => { view.confirmRecycle = ids; refreshPanel(); },
+      { note: `+${value} scrap`, title: `Take ${what} apart on the Repair Pad for half the cost` });
+  }
+}
+
 let panelKey = '';
 function refreshPanel() {
   const info = $('selinfo'), cmds = $('commands');
   const sel = view.selected.filter(e => e.hp > 0);
   // Only rebuild the buttons when something about them actually changed.
   const key = game ? JSON.stringify([sel.map(e => e.id), view.placing, view.placeReady, view.attackMode, view.aim, view.confirmDemolish, spectating,
+    view.confirmRecycle, recycleCandidates(sel).map(u => u.id),
     sel.map(e => !!e.rally),
     sel.map(e => [e.level, e.upgrading !== null && e.upgrading !== undefined ? Math.floor(e.upgrading) : -1, e.researching ? e.researching.key + Math.floor(e.researching.t) : 0, e.hp < e.maxHp]),
     Object.keys(game.teams[view.team].research).join(), game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1),
@@ -720,6 +750,11 @@ function refreshPanel() {
       tip.textContent = view.aim === 'rally' ? `${isTouch ? 'Tap' : 'Click'} the map where new vehicles should go.`
         : first.rally ? 'New vehicles drive to the waypoint (the green marker).' : 'No waypoint: new vehicles wait beside the building, and workers start work.';
     }
+    if (first.type === 'repairpad' && first.built >= 1) {
+      const parked = recycleCandidates(sel);
+      if (parked.length) addRecycleButtons(addBtn, parked, tip, keys);
+      else tip.textContent = 'Drive vehicles onto the pad to repair them. Vehicles parked here can also be recycled for half their cost.';
+    }
     if (first.def.demolishable !== false) {
       const refund = Math.round((first.def.salvageValue ?? first.def.cost) * 0.5);
       if (view.confirmDemolish === first.id) {
@@ -766,6 +801,9 @@ function refreshPanel() {
   const hurt = sel.filter(e => e.kind === 'unit' && e.hp < e.maxHp);
   if (hurt.length && game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1))
     addBtn('Go repair', null, keys.shift(), () => order('gorepair', hurt), { title: 'Drive to the nearest Repair Pad' });
+  const parked = recycleCandidates(sel);
+  const recycleTip = document.createElement('div'); recycleTip.className = 'dim small tip';
+  if (parked.length) addRecycleButtons(addBtn, parked, recycleTip, keys);
   const mobileHq = ofType(sel, 'mobileRecycler');
   if (mobileHq.length) addBtn('Deploy base', null, keys.shift(), () => { view.aim = 'deploy'; refreshPanel(); },
     { active: view.aim === 'deploy', title: 'Drive onto a scrap geyser and set up your base there' });
@@ -791,6 +829,7 @@ function refreshPanel() {
     if (view.attackMode) addBtn('Cancel', null, 'Esc', () => { view.attackMode = false; refreshPanel(); });
   }
   if (sel.some(e => e.kind === 'unit')) addBtn('Stop', null, 'S', () => issueCommand(game, view.team, { type: 'stop', ids: sel.map(e => e.id) }));
+  if (recycleTip.textContent) cmds.appendChild(recycleTip);
 }
 
 // -----------------------------------------------------------------------------

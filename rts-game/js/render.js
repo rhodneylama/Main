@@ -519,6 +519,18 @@ function drawEffect(ctx, fx) {
       if (!fx.scorched) { fx.scorched = true; scorch(fx.x, fx.y, fx.size * 0.9); }
       UnitSprites.drawExplosion(ctx, spriteId(fx.type), fx.x, fx.y, k, teamName(fx.team));
       break;
+    case 'recycle': {
+      // The vehicle is taken apart: a ring closes in and scrap glints rise.
+      const r = fx.r * 1.6 * (1 - k * 0.8);
+      ctx.strokeStyle = `rgba(140,255,160,${0.9 * (1 - k)})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(fx.x, fx.y, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = `rgba(232,207,130,${1 - k})`;
+      for (let i = 0; i < 6; i++) {
+        const a = i / 6 * Math.PI * 2 + k * 2;
+        ctx.fillRect(fx.x + Math.cos(a) * fx.r * 0.7 - 1.5, fx.y + Math.sin(a) * fx.r * 0.7 - k * 18 - 1.5, 3, 3);
+      }
+      break;
+    }
     case 'dust':
       ctx.fillStyle = `rgba(200,180,120,${0.6 * (1 - k)})`;
       ctx.beginPath(); ctx.arc(fx.x, fx.y - k * 8, 3 + k * 3, 0, Math.PI * 2); ctx.fill();
