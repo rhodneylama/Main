@@ -72,7 +72,7 @@ distinct roles), and 4X / RTS games (gather, build, expand, research, conquer).
 **Players:** one human (Blue Command) against one computer opponent (Red
 Legion). A spectator mode lets two computer players fight.
 
-**Match length:** roughly 8 to 30+ minutes, depending on difficulty and play.
+**Match length:** roughly 8 to 50+ minutes, depending on difficulty and play; the bigger map made games longer (see Known problems).
 
 ---
 
@@ -995,6 +995,14 @@ rebuilt.
    games reach 30 minutes without a winner (before, about 1 in 5), because
    bases can now repair and upgrade and units are slow. It is unknown
    whether human games feel too long.
+   **On the 182 × 137 map, games are much longer.** In 8 AI-vs-AI games
+   (Normal, seeds 1 to 8) with a 90-minute limit: 6 ended, after 19, 20, 22,
+   44, 45 and 48 minutes; 2 were still going at 90 minutes. At a 40-minute
+   limit, 5 of the same 8 had no winner (1 in 8 on the old map). A player who
+   does nothing still loses at about 17 / 13 / 8 minutes on Easy / Normal /
+   Hard, and the first attacks still land at 10 / 5 / 3 minutes. Travel
+   times roughly doubled (section 18) while speeds, costs and attack timing
+   were not changed.
 3. **Slower start.** No geyser can be claimed until the Recycler is upgraded
    (250 scrap, 40 s, with a storage cap of 300), so the early game relies on
    loose scrap for several minutes.
@@ -1164,6 +1172,12 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
 14. **Phone layout tidy-up.** Quick buttons moved into the top bar; Help
     moved onto the pause screen; the selection panel shrank to a short
     summary with action buttons wrapping into rows instead of scrolling.
+16. **Bigger map** (11 October 2026): 182 × 137 (1.9× per side), noise
+    scaled to match, 24 geysers at least 20 tiles apart, 22 scrap fields;
+    ground painted in chunks for phones; route-finding made about 10× faster.
+17. **Repair Pad:** repairs every vehicle, workers wait on it until fixed;
+    **Recycle** on the pad for half the cost, with a confirm step. Rules
+    tests added to the repository (`tests/rules.js`).
 15. **Constructor sprite fix and darker treads.** Constructors were drawn as
     only a shadow (their name clashed with a built-in JavaScript word in the
     sprite lookup). Tank, Artillery and mobile Recycler treads are now
