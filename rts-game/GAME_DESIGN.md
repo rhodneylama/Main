@@ -6,9 +6,9 @@ and what is known to be wrong. It is written so that someone (or an AI
 assistant) who has never seen the code can reason about the game and plan
 improvements.
 
-**Last updated:** 28 September 2026. It covers everything up to and including
-the tech tree (upgrades, research, Radar, Repair Pad) and the collapsible
-minimap.
+**Last updated:** 11 October 2026. It covers everything up to and including
+the tech tree (upgrades, research, Radar, Repair Pad), the sprite art, the
+1.9× bigger map with 24 geysers, and recycling at the Repair Pad.
 
 All values below are copied from the code. The balance numbers live in
 `js/config.js`; a few rules are fixed inside the other files and are named
@@ -96,9 +96,9 @@ The Recycler cannot be demolished by its owner.
 
 | Setting | Value |
 | --- | --- |
-| Map size | 96 × 72 squares ("tiles") |
+| Map size | 182 × 137 squares ("tiles"), 1.9× the original 96 × 72 on each side |
 | Tile size | 32 pixels |
-| Map size in pixels | 3,072 × 2,304 |
+| Map size in pixels | 5,824 × 4,384 |
 | Game updates ("ticks") per second | 30 |
 
 ### Terrain
@@ -115,6 +115,11 @@ Each tile is one of four types. Rock and water block all vehicles.
 Terrain has no effect on speed, sight or combat. It only blocks movement.
 The map edge is always rock.
 
+The noise "grain" (how big a hill or lake is) was scaled up 1.9× with the
+map: noise cell sizes 17, 8 and 11 tiles (were 9, 4 and 6). So rock ridges
+and lakes are bigger features rather than many more small ones. On average
+about 10% of the map is rock and 5% water (the old map: 11% and 4%).
+
 ### Symmetry
 
 Every map is **point-symmetric**: rotating it half a turn about its centre
@@ -123,22 +128,32 @@ come from a number called the **seed**. The same seed always gives the same
 map, and adding `?seed=42` to the address picks one.
 
 After generation the map is checked and repaired: roads are dug so both
-bases, every geyser, every scrap field and every clearing can be reached.
+bases, every geyser, every scrap field and every clearing can be reached (up
+to 80 repair passes, each mirrored).
 
 ### Fixed features
 
 Positions are in tiles, given for the bottom-left half. The top-right half
-mirrors them.
+mirrors them (a tile (x, y) becomes (181 − x, 136 − y); a geyser corner
+(x, y) becomes (182 − x, 137 − y)).
 
 | Feature | Positions (bottom-left half) | Notes |
 | --- | --- | --- |
-| Starting position | (10, 61) | Mirrored: (85, 10). A 10-tile radius is cleared. |
-| Scrap geysers | (10, 62) at the start, (16, 54), (22, 20), (34, 50), (44, 34) | 10 geysers in total, 5 per half. Positions are tile corners. |
-| Scrap fields | (20, 64), (7, 48), (42, 60), (16, 34), (40, 30) | 10 fields in total. Each has 5 to 7 piles of 400 scrap within about 3 tiles. |
-| Open clearings | (22, 20), (34, 50), plus the map centre | Terrain cleared to a 4-tile radius. |
+| Starting position | (10, 126) | Mirrored: (171, 10). Still 10 tiles from the corner edges. A 10-tile radius is cleared. |
+| Scrap geysers: home | (10, 127) under the start, (34, 118), (12, 100) | 1, 25 and 26 tiles from the start. |
+| Scrap geysers: near | (60, 126), (14, 72), (42, 92) | 47 to 54 tiles out. |
+| Scrap geysers: forward | (84, 116), (24, 46), (64, 98) | 61 to 81 tiles out. |
+| Scrap geysers: contested | (110, 122), (40, 22), (78, 74) | 86 to 108 tiles out, close to the line between the halves. (78, 74) is near the centre. |
+| Scrap fields | Home (20, 129), (7, 113); near (48, 108), (26, 86), (74, 128); middle (8, 56), (52, 76), (38, 60); contested (96, 104), (56, 32), (70, 56) | 22 fields in total, 11 per half. Each has 5 to 7 piles of 400 scrap within about 3 tiles. |
+| Open clearings | (42, 38), (65, 95), plus the map centre | Terrain cleared to a 4-tile radius. |
 
-**Total loose scrap on a fresh map:** about 10 fields × 6 piles × 400 ≈
-24,000, so roughly 12,000 per side.
+**Geysers:** 24 in total, 12 per half, positions are tile corners. No two
+geysers (on either side) are closer than 20 tiles; the closest pair is
+22.8 tiles apart. The two map corners away from the bases have scrap fields
+but no geysers.
+
+**Total loose scrap on a fresh map:** about 22 fields × 6 piles × 400 ≈
+52,500, so roughly 26,000 per side (was about 12,000 per side).
 
 ### Starting corner
 
@@ -164,7 +179,8 @@ Each side begins with:
 | Buildings | None |
 | Research | None |
 
-A geyser sits about 66 pixels from the starting Recycler.
+A geyser sits about 66 pixels from the starting Recycler. Two more are
+about 25 tiles (800 pixels) away; they need a Scavenger II.
 
 ---
 
@@ -287,6 +303,7 @@ Scavengers, Constructors, Transports and the mobile Recycler are unarmed.
 | Tank (and Mk II) | **Patrol:** loops around all your buildings. |
 | Artillery (and Mk II) | **Defend:** holds a post beside one of your buildings. |
 | Any damaged vehicle | **Go repair:** drives to the nearest Repair Pad (the button appears once you have one). |
+| Any vehicle parked on your Repair Pad (not the Recycler) | **Recycle:** takes it apart for half its cost. Needs a second press, **Confirm recycle**. |
 
 ---
 
@@ -318,7 +335,7 @@ Scavengers, Constructors, Transports and the mobile Recycler are unarmed.
 | Gun Tower | — | Defensive gun (see Weapons). |
 | Research Lab | Research: Advanced Scouts, Advanced Tanks, Advanced Artillery (see section 8) | One topic at a time. The glass dome pulses while researching. |
 | Radar | — | Pings every 30 s, revealing a 750 px circle for 4 s (see section 12). |
-| Repair Pad | — | Vehicles drive over it (it doesn't block movement). Your vehicles parked on it regain 30 HP per second, and Transport shields refill at the same rate. Nothing can be built on top of it. |
+| Repair Pad | Recycle (vehicles parked on it) | Vehicles drive over it (it doesn't block movement). Every kind of vehicle of yours parked on it regains 30 HP per second, and Transport shields refill at the same rate. Nothing can be built on top of it. Vehicles parked on it can be **recycled** (below). |
 
 ### Building lifecycle
 
@@ -456,6 +473,21 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
 | Defend | Artillery | Takes a post beside the chosen building and fires at anything in range. Never chases. Returns to its post after moving. |
 | Auto-haul | Transports | Empties Extractor tanks (see Units). Can be pinned to one Extractor. |
 | Go repair | Damaged vehicles | Drives to the nearest Repair Pad and parks on it. |
+| Recycle | Vehicles parked on one of your Repair Pads | Two steps: **Recycle**, then **Confirm recycle** (or **Keep** / `Esc` to back out). The confirm button has no keyboard shortcut, so a double key press can't recycle anything. Shown on a selected vehicle that is parked on a pad, and on the selected pad itself (recycling every vehicle parked on it). |
+
+### Recycling
+
+- Only on one of **your own, finished** Repair Pads. The vehicle must be
+  inside the pad's 3 × 3 footprint. Nowhere else.
+- You get back **50% of the vehicle's cost**, the same share as demolishing
+  a building (Scout 25, Tank 50, Artillery 70, Scavenger 30, Constructor 40,
+  Transport 35, Scout Mk II 38, Tank Mk II 75, Artillery Mk II 105,
+  Scavenger II 40, Constructor II 55).
+- The refund goes straight into storage. Whatever doesn't fit is left on
+  the pad as loose scrap for Scavengers.
+- The vehicle vanishes with a short green "taken apart" effect: no
+  explosion, no wreck, no salvage, and it doesn't count as lost.
+- The Recycler can never be recycled (as a vehicle or a building).
 
 ### Automatic behaviour
 
@@ -466,15 +498,20 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
   back to work. When a pile runs out, they look within 900 pixels.
 - **Idle Transports** resume hauling unless told to Stop.
 - **Vehicles on a Repair Pad** are repaired automatically, with a pulsing
-  green ring and rising green "+" signs. They don't leave the pad by
-  themselves.
+  green ring and rising green "+" signs. Every kind of vehicle is repaired.
+  Combat vehicles don't leave by themselves. **Idle Scavengers and
+  Transports wait on the pad until fully repaired** (and shields full), then
+  go back to work.
 - **Arrival:** a vehicle counts as arrived when it reaches its destination,
   or when it is within 120 pixels and has not got any closer for 2 seconds
   (this stops crowds jostling forever).
 - **Getting unstuck:** a vehicle that barely moves for 1.2 seconds
   re-plans its route; after 3.5 seconds it gives up.
 - **Route-finding:** A* search over the tile grid, with diagonal moves
-  that never cut rock corners, smoothed into straight legs.
+  that never cut rock corners, smoothed into straight legs. The search may
+  look at up to one tile per map square (24,934) before giving up, and
+  smoothing looks at most 40 tiles ahead, so long routes become several
+  straight legs in a row. A cross-map route takes about 5 ms on a desktop.
 
 ---
 
@@ -826,19 +863,21 @@ cap) rather than raw cost efficiency.
 **Repair:** a Repair Pad restores a Tank Mk II from 100 to full (560) in
 about 15 s. A Constructor II repairs a Base Silo from 500 to 1,100 in 24 s.
 
-**Travel:** the two starting positions are about 2,900 pixels apart.
+**Travel:** the two starting positions are about 6,350 pixels apart in a
+straight line (was 2,900); real routes are longer. These are straight-line
+times.
 
 | Unit | Time to cross from base to base |
 | --- | --- |
-| Scout Mk II | about 25 s |
-| Scout | about 30 s |
-| Tank Mk II | about 60 s |
-| Scavenger / Constructor (either tier) | about 67 s |
-| Tank | about 73 s |
-| Transport | about 74 s |
-| Artillery Mk II | about 76 s |
-| Artillery | about 91 s |
-| Mobile Recycler | about 97 s |
+| Scout Mk II | about 54 s |
+| Scout | about 65 s |
+| Tank Mk II | about 132 s |
+| Scavenger / Constructor (either tier) | about 148 s |
+| Tank | about 159 s |
+| Transport | about 163 s |
+| Artillery Mk II | about 167 s |
+| Artillery | about 198 s |
+| Mobile Recycler | about 212 s |
 
 **Economy:**
 
@@ -864,8 +903,9 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `js/sim.js` | The rules: commands, movement, combat, economy, storage, deploying, upgrades, research, radar, repair pads, demolishing, vision, victory |
 | `js/ai.js` | The computer opponent |
 | `js/sprites.js` | The unit design sheet: vector drawings of every vehicle and building, their animations, damage smoke, explosions, wrecks and craters |
-| `js/render.js` | Drawing the map, fog, minimap, bars and effects; calls `sprites.js` for units and buildings |
+| `js/render.js` | Drawing the map, fog, minimap, bars and effects; calls `sprites.js` for units and buildings. The ground is painted in chunks as they scroll into view (see below). |
 | `js/main.js` | Mouse, touch and keyboard input; panels and buttons; minimap toggle; sound; the game loop |
+| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (40 checks). |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
 tables), `ROADMAP.md` (planned stages), and this file.
@@ -877,7 +917,7 @@ tables), `ROADMAP.md` (planned stages), and this file.
   online multiplayer possible later: players would exchange commands
   rather than the whole game state. Commands include move, attack, harvest,
   deploy, build, repair, produce, cancel, rally, demolish, upgrade, research,
-  scout, patrol, guard, haul and gorepair.
+  scout, patrol, guard, haul, gorepair and recycle.
 - **Deterministic simulation.** All randomness in the rules uses a seeded
   generator (`makeRng`), including the per-tick shuffle of update order. The
   same seed and the same commands give the same game.
@@ -886,6 +926,14 @@ tables), `ROADMAP.md` (planned stages), and this file.
 - **Mirror fairness.** Route-finding and group formation always compute
   from one half of the map and mirror the result, so mirrored situations
   get mirrored outcomes.
+- **Ground drawn in chunks.** A single picture of the whole 5,824 × 4,384
+  map would be about 25 million pixels, over the roughly 16.7 million a
+  phone browser allows for one image. So the ground is painted in 16 × 16
+  tile chunks (512 px) as they come into view, at most 2 per frame; at most
+  48 are kept and the ones off screen longest are dropped. Until a chunk is
+  ready, a blurred one-pixel-per-tile map shows instead. Each tile has its
+  own random numbers, so a chunk always repaints identically. Explosion
+  scorch marks are remembered (up to 3,000) and repainted onto chunks.
 - **Unit families.** Upgraded units name their basic kind
   (`base: 'tank'`), so orders, menus and the AI treat a Tank Mk II as a
   tank. Adding a Mk III later would follow the same pattern.
@@ -894,13 +942,14 @@ tables), `ROADMAP.md` (planned stages), and this file.
 
 ## 20. What has been tested, and how
 
-Automated tests were run throughout development. The testing scripts were
-temporary (they are not in the repository); the methods are listed so they
-can be rebuilt.
+Automated tests were run throughout development. The **rules tests** are now
+in the repository (`tests/rules.js`, run with `node rts-game/tests/rules.js`);
+the other scripts were temporary, and their methods are listed so they can be
+rebuilt.
 
 | Test type | Method | What it checks |
 | --- | --- | --- |
-| **Rules tests** | Run the simulation without graphics (Node.js), set up a situation, and check the result. | Deploying; income rates; storage caps; silo placement; shields; demolish values; waypoints; tower fire rate; Recycler and Factory upgrades; research; Mk II stats; which workers can deploy and repair; radar reveal; Repair Pad healing and walkability. |
+| **Rules tests** (`tests/rules.js`, 40 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 24 geysers, 20-tile spacing, 12 per half, mirrored geysers and scrap, 20 to 24 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; **every vehicle kind repaired on the pad**; Transport shields; **workers wait on the pad**; **Recycle** (refund, removed, no wreck, only on the pad, not the Recycler, not the enemy's pad, overflow left as scrap); artillery stabilisers. |
 | **AI-vs-AI batches** | Run 30 to 120 full games between two computer players on different seeds. | Games end, typical length, and **fairness** by team and by corner. |
 | **AI tech progression** | Log when the AI reaches each milestone at each difficulty. | The AI actually upgrades, researches and fields Mk II units. |
 | **"Do nothing" survival** | The player deploys and then does nothing, at each difficulty. | Difficulty pacing: when the first attack lands and how long a passive player lasts. |
@@ -908,7 +957,7 @@ can be rebuilt.
 | **Mirror determinism trace** | Same as a duel with randomness removed, comparing both sides every tick. | Finds the exact moment and cause of any asymmetry. |
 | **Economy comparison** | Average each side's scrap, units and build times minute by minute over 20+ games. | Which phase of the game an imbalance comes from. |
 | **Browser tests** | Automated Chromium, desktop and simulated iPhone (portrait and landscape), with real taps, drags and pinches. | Every button and gesture works, no script errors, and layout doesn't hide important things. Includes upgrade and research buttons, Go repair, the Army menu and the minimap toggle. |
-| **Performance** | Measure simulation time per game-second in a long AI-vs-AI game. | About 35 ms of work per second of play in big battles on a desktop. |
+| **Performance** | Measure simulation time per game-second in a long AI-vs-AI game; on the big map also frame times while sweeping the camera across the whole map, on a desktop and on a phone-sized screen with the processor slowed 4×. | About 35 ms of work per second of play in big battles on a desktop. Big map, 10 minutes into an AI game: rules about 4 ms per second of play (12 ms on the slowed phone); a frame with the ground already painted about 0.2 ms to draw (1 ms on the slowed phone); 95% of frames under 13 ms while sweeping at extreme speed (52 ms on the slowed phone); the minimap about 0.1 ms. |
 
 ### Bugs these tests have caught (for reference)
 
@@ -924,6 +973,10 @@ can be rebuilt.
 - **Buttons:** the build queue's cancel buttons broke at the unit limit.
 - **Side bias**, from several sources: update order, route tie-breaking,
   formation tie-breaking, a non-mirrored map clearing, and decision timing.
+- **Big map:** a cross-map route took 55 ms (route smoothing re-checked long
+  sight-lines); now about 5 ms.
+- **Repair Pad:** a vehicle destroyed (or recycled) while parked on the pad
+  could be healed back to life in the same tick. Fixed.
 
 ---
 
@@ -1007,6 +1060,11 @@ only on purpose.
 8. **Buildings can be demolished** for 50% of their cost, left as scrap on
    the ground.
 9. **Waypoints** on the Recycler and Factory, which can be set and cleared.
+9b. **Map size and geysers:** the map is 182 × 137 (1.9× per side), with 24
+    geysers (12 per half, at least 20 tiles apart, from home out to the
+    contested middle) and 22 scrap fields.
+9c. **Recycling** happens only on a Repair Pad, for 50% of the vehicle's cost
+    (the demolish share), with a confirm step; never the Recycler.
 10. **Tech tree:**
     - Basic Scavengers cannot deploy; basic Constructors cannot repair. Both
       abilities need the upgraded Recycler.
@@ -1014,7 +1072,7 @@ only on purpose.
 11. **Radar** pings periodically (every 30 s) rather than giving constant
     vision, over about 2.5 times normal sight.
 12. **Repair Pad** is a wide pad that vehicles drive onto, with a visible
-    repair animation.
+    repair animation. It repairs every kind of vehicle.
 13. **The minimap can be collapsed.**
 14. **Starting corners are random** (a fairness workaround, not a design
     goal; revisit once the corner advantage is understood).

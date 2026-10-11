@@ -16,6 +16,7 @@ you're never months away from seeing progress.
 - Expand your territory outward by claiming geysers
 - Unit orders: Scout (solo or as a pack), Patrol, Defend, Deploy, Go repair
 - Collapsible minimap; random starting corners
+- A big 182 × 137 map with 24 geysers and 22 scrap fields; recycling vehicles at the Repair Pad
 - Designed vehicle and building art (`js/sprites.js`) with animations, damage smoke, explosions and wrecks
 - An AI opponent with three difficulty levels
 - AI-vs-AI spectator mode (`?watch`)

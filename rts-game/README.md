@@ -33,7 +33,7 @@ Add `?seed=42` to get the same map every time.
 
 ## How to win
 
-- **Destroy the enemy Recycler**, their headquarters in the top-right corner.
+- **Destroy the enemy Recycler**, their headquarters in the opposite corner of the map.
   Everyone starts with their Recycler on wheels: drive it onto a glowing scrap
   geyser and deploy it to found your base.
 - **Protect your own Recycler** at all costs. If it is destroyed, you lose.
@@ -102,7 +102,7 @@ The game works on touch screens. Turning your phone sideways gives the best view
 | Gun Tower | 110 | Defensive turret. |
 | Research Lab | 200 | Researches Advanced Scouts (150), Tanks (200) and Artillery (250), one at a time. |
 | Radar | 150 | Every 30 seconds, a ping reveals a wide circle (750 px, 2.5× normal sight) for 4 seconds. |
-| Repair Pad | 150 | A flat 3×3 pad. Vehicles parked on it are repaired at 30 health a second (shields too). **Go repair** sends damaged vehicles there. |
+| Repair Pad | 150 | A flat 3×3 pad. Every vehicle parked on it is repaired at 30 health a second (shields too); workers wait there until fixed. **Go repair** sends damaged vehicles there. Vehicles parked on it can be **recycled** for half their cost: press Recycle, then Confirm recycle. |
 
 **Upgrades:** the Recycler upgrades to **Recycler II** (250 scrap, 40 s), which builds Scavenger IIs and
 Constructor IIs. A Factory upgrades to **Factory II** (200 scrap, 30 s), which builds researched Mk II
@@ -124,6 +124,11 @@ Scrap reaches your bank two ways:
 
 **Demolish** any building except the Recycler: select it and press Demolish,
 then Confirm. Half of what it cost is left on the ground as loose scrap.
+
+**The battlefield** is 182 × 137 squares, with 24 scrap geysers (12 near each
+side, spread from home out to the contested middle) and 22 fields of loose
+scrap. Expect longer drives than on a small map: a Tank takes over two and a
+half minutes to cross from base to base.
 
 **Waypoints:** select your Recycler or a Factory and press Set waypoint. Every
 new vehicle from it drives straight there. Clear waypoint removes it.
@@ -152,6 +157,7 @@ point an AI assistant when you want to change something.
 | `js/ai.js` | The computer opponent's decision-making. |
 | `js/sprites.js` | The unit design sheet: how every vehicle and building looks. |
 | `js/render.js` | Draws everything on screen, using `sprites.js` for vehicles and buildings. |
+| `tests/rules.js` | Automatic checks of the game rules. Run `node rts-game/tests/rules.js` (needs Node.js). |
 | `js/main.js` | Mouse, keyboard, the on-screen panels, sound, and the main loop. |
 
 ### Changing the game with an AI assistant
