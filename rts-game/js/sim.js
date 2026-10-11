@@ -461,7 +461,17 @@ function formationSlotsOn(game, x, y, units) {
 }
 
 function planPath(game, u, x, y) {
+  // Don't search again straight away for the same spot: many orders ask for a
+  // new route every tick while they have none, and on the big map a route
+  // that can't be found costs a whole-map search. A failed search waits 2 s
+  // before retrying; any other repeat waits half a second.
+  const last = u.lastPlan;
+  if (last && Math.abs(last.x - x) < 16 && Math.abs(last.y - y) < 16 && game.time - last.t < (last.failed ? 2 : 0.5)) {
+    u.path = []; u.stuck = 0;
+    return;
+  }
   u.path = findPath(game, u.x, u.y, x, y);
+  u.lastPlan = { x, y, t: game.time, failed: !u.path.length };
   u.stuck = 0;
 }
 
