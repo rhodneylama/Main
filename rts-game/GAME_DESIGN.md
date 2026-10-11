@@ -1172,14 +1172,14 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
 14. **Phone layout tidy-up.** Quick buttons moved into the top bar; Help
     moved onto the pause screen; the selection panel shrank to a short
     summary with action buttons wrapping into rows instead of scrolling.
+15. **Constructor sprite fix and darker treads.** Constructors were drawn as
+    only a shadow (their name clashed with a built-in JavaScript word in the
+    sprite lookup). Tank, Artillery and mobile Recycler treads are now
+    near-black with lighter cleats for contrast. A pixel test now checks
+    every vehicle and building draws for both teams, upgraded and wrecked.
 16. **Bigger map** (11 October 2026): 182 × 137 (1.9× per side), noise
     scaled to match, 24 geysers at least 20 tiles apart, 22 scrap fields;
     ground painted in chunks for phones; route-finding made about 10× faster.
 17. **Repair Pad:** repairs every vehicle, workers wait on it until fixed;
     **Recycle** on the pad for half the cost, with a confirm step. Rules
     tests added to the repository (`tests/rules.js`).
-15. **Constructor sprite fix and darker treads.** Constructors were drawn as
-    only a shadow (their name clashed with a built-in JavaScript word in the
-    sprite lookup). Tank, Artillery and mobile Recycler treads are now
-    near-black with lighter cleats for contrast. A pixel test now checks
-    every vehicle and building draws for both teams, upgraded and wrecked.
