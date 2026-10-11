@@ -42,10 +42,20 @@ function aiUpdate(game, team) {
   const rally = { x: hq.x + Math.cos(toCenter) * 220, y: hq.y + Math.sin(toCenter) * 220 };
 
   // --- Economy -------------------------------------------------------------
-  const scavWanted = Math.min(diff.maxScavengers, 3 + Math.floor(game.time / 150));
   const extractors = buildings.filter(b => b.type === 'extractor' && b.built >= 1);
+  // Geysers are the long-term income, so once some are pumping the AI keeps
+  // fewer Scavengers on loose scrap (one fewer per two Extractors, at least 3).
+  const scavWanted = Math.max(3, Math.min(diff.maxScavengers, 3 + Math.floor(game.time / 150)) - Math.floor(extractors.length / 2));
   const hasSilo = x => buildings.some(s => s.type === 'outsilo' && footprintGap(x, s.tx, s.ty, s.size) <= 1);
   const unjoined = extractors.filter(x => !hasSilo(x));
+  // Enough Transports to keep up with every Extractor that has no silo: a
+  // far-off Extractor needs more trips than one next door.
+  const tr = UNIT_TYPES.transport;
+  const transportsWanted = unjoined.reduce((n, x) => {
+    const trip = 2 * dist(x, hq) / tr.speed + 6;              // there and back, plus loading
+    // At most two each: a far Extractor is better served by an Extractor Silo.
+    return n + Math.min(2, Math.max(1, Math.ceil(x.def.income * trip / tr.carryMax)));
+  }, 0);
   // --- Recycler upgrade: needed for Scavenger IIs (geysers) and Constructor IIs (repairs)
   const upgraded = hq.level > 1;
   const scavType = upgraded ? 'scavenger2' : 'scavenger', conType = upgraded ? 'constructor2' : 'constructor';
@@ -63,7 +73,7 @@ function aiUpdate(game, team) {
     // A Scavenger II to claim the next geyser.
     else if (wantsGeyser && !deployers.length && tm.scrap >= UNIT_TYPES.scavenger2.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'scavenger2' });
     // One Transport per Extractor that has no Extractor Silo yet.
-    else if (count('transport') < unjoined.length && tm.scrap >= UNIT_TYPES.transport.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'transport' });
+    else if (count('transport') < transportsWanted && tm.scrap >= UNIT_TYPES.transport.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'transport' });
     else if (count('scavenger') < scavWanted && tm.scrap >= UNIT_TYPES[scavType].cost) cmd({ type: 'produce', buildingId: hq.id, unit: scavType });
   }
 
@@ -93,8 +103,12 @@ function aiUpdate(game, team) {
     else if (has('tower') < 1 && game.time > (easy ? 300 : 90)) want = 'tower';
     // More storage once the bank keeps filling up.
     else if (has('basesilo') < diff.maxBaseSilos && tm.scrap >= scrapCapacity(game, team) * 0.7 && game.time > 150) want = 'basesilo';
-    // Extractor Silos are expensive: only once there is room to save for one.
-    else if (unjoined.length && scrapCapacity(game, team) >= BUILDING_TYPES.outsilo.cost && tm.scrap >= BUILDING_TYPES.outsilo.cost) { want = 'outsilo'; near = unjoined[0]; }
+    // Extractor Silos are expensive, but they make a geyser pay straight into
+    // storage with no Transports. Save up for one for the furthest Extractor
+    // once there is room to hold 500 scrap.
+    else if (diff.extractorSilos && unjoined.length && game.time > diff.extractorSilos && scrapCapacity(game, team) >= BUILDING_TYPES.outsilo.cost) {
+      want = 'outsilo'; near = unjoined.slice().sort((a, b) => dist(b, hq) - dist(a, hq))[0];
+    }
     else if (diff.labAfter && !has('lab') && game.time > diff.labAfter) want = 'lab';
     else if (diff.radarAfter && !has('radar') && game.time > diff.radarAfter) want = 'radar';
     else if (diff.secondFactory && has('factory') < 2 && game.time > 300) want = 'factory';
@@ -105,7 +119,7 @@ function aiUpdate(game, team) {
       near = outposts.find(s => !buildings.some(t => t.type === 'tower' && dist(t, s) < 260)) || null;
     }
     if (want === 'factory' || want === 'basesilo' || want === 'lab' || want === 'radar') near = null;  // these go around the Recycler
-    ai.saving = want === 'basesilo' && tm.scrap < BUILDING_TYPES.basesilo.cost;
+    ai.saving = (want === 'basesilo' || want === 'outsilo') && tm.scrap < BUILDING_TYPES[want].cost;
     if (want && tm.scrap >= BUILDING_TYPES[want].cost) {
       const spot = findBuildSpot(game, team, want, hq, toCenter, near);
       if (spot) cmd({ type: 'build', ids: [builder.id], building: want, tx: spot.x, ty: spot.y });

@@ -71,11 +71,11 @@ section('Map');
     for (let x = 0; x < W; x++) if (tiles[x] !== S.TILE_ROCK || tiles[(H - 1) * W + x] !== S.TILE_ROCK) edge = false;
     for (let y = 0; y < H; y++) if (tiles[y * W] !== S.TILE_ROCK || tiles[y * W + W - 1] !== S.TILE_ROCK) edge = false;
     const gs = m.geysers;
-    if (gs.length !== 24) geyserCount = false;
+    if (gs.length !== 12) geyserCount = false;
     for (let i = 0; i < gs.length; i++) for (let j = i + 1; j < gs.length; j++)
       spacing = Math.min(spacing, Math.hypot(gs[i].tx - gs[j].tx, gs[i].ty - gs[j].ty));
     const b1 = m.bases[1], b2 = m.bases[2];
-    if (gs.filter(p => Math.hypot(p.tx - b1.x, p.ty - b1.y) < Math.hypot(p.tx - b2.x, p.ty - b2.y)).length !== 12) half = false;
+    if (gs.filter(p => Math.hypot(p.tx - b1.x, p.ty - b1.y) < Math.hypot(p.tx - b2.x, p.ty - b2.y)).length !== 6) half = false;
     for (const p of gs) if (!gs.some(q => q.tx === W - p.tx && q.ty === H - p.ty)) mirrorG = false;
     const T = S.CONFIG.TILE;
     for (const p of m.scrap) if (!m.scrap.some(q => Math.abs(q.x - (W * T - p.x)) < 1e-6 && Math.abs(q.y - (H * T - p.y)) < 1e-6)) { mirrorS = false; break; }
@@ -97,9 +97,9 @@ section('Map');
   check('bases sit in opposite corners', m.bases[1].x <= 12 && m.bases[1].y >= m.H - 12 && m.bases[2].x >= m.W - 12 && m.bases[2].y <= 11);
   check('terrain is point-symmetric (10 seeds)', sym);
   check('map edge is rock (10 seeds)', edge);
-  check('24 geysers (10 seeds)', geyserCount);
+  check('12 geysers (10 seeds)', geyserCount);
   check('geysers at least 20 squares apart', spacing >= 20, `closest pair ${spacing.toFixed(1)}`);
-  check('12 geysers on each half', half);
+  check('6 geysers on each half', half);
   check('geysers mirrored exactly', mirrorG);
   check('scrap piles mirrored exactly', mirrorS);
   check('20 to 24 scrap fields, mirrored', fields, `${S.generateMap(42).fields.length} fields`);
@@ -135,7 +135,7 @@ section('Recycler and economy');
   run(g, S, 1);
   g.teams[1].scrap = 0; run(g, S, 60);
   const gain = g.teams[1].scrap;
-  check('the Recycler pumps about 3 scrap a minute', gain > 2 && gain < 4, gain.toFixed(2));
+  check('the Recycler pumps about 2 scrap a minute (a twentieth of an Extractor)', gain > 1.6 && gain < 2.6, gain.toFixed(2));
 }
 
 section('Workers and tech');
@@ -156,6 +156,12 @@ section('Workers and tech');
   S.issueCommand(g, 1, { type: 'deploy', ids: [s2.id], geyserId: free.id });
   run(g, S, 90);
   check('a Scavenger II deploys as an Extractor', mine(g, 1, 'extractor').length === 1);
+  const ex = mine(g, 1, 'extractor')[0];
+  ex.stored = 0; run(g, S, 60);
+  check('an Extractor pumps about 42 scrap a minute into its tank', Math.abs(ex.stored - 42) < 2, ex.stored.toFixed(1));
+  run(g, S, 200);
+  check('an Extractor tank holds 120', Math.abs(ex.stored - 120) < 0.01, ex.stored.toFixed(1));
+  check('a Transport carries 30', S.UNIT_TYPES.transport.carryMax === 30);
   const lab = placeDone(S, g, 1, 'lab', rec);
   g.teams[1].scrap = 300;
   S.issueCommand(g, 1, { type: 'research', buildingId: lab.id, key: 'tank2' });

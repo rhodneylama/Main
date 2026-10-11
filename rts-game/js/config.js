@@ -70,7 +70,7 @@ const UNIT_TYPES = {
   transport: {
     name: 'Transport', role: 'hauler', cost: 70, buildTime: 7,
     hp: 120, speed: 39, radius: 14, sight: 200,
-    carryMax: 60, shield: 150, shieldRegen: 20, shieldDelay: 3,
+    carryMax: 30, shield: 150, shieldRegen: 20, shieldDelay: 3,
     desc: 'Ferries scrap from Extractors that have no Extractor Silo back to base. Unarmed, but shielded.',
   },
   scout: {
@@ -129,7 +129,7 @@ const BUILDING_TYPES = {
     // Made by deploying the mobile Recycler over a geyser (buildTime = deploy time).
     // It pumps that geyser very slowly: a twentieth of an Extractor.
     name: 'Recycler', cost: 0, buildTime: 10, hp: 4000, size: 3, sight: 300, buildable: false,
-    income: 0.05, demolishable: false,
+    income: 0.035, demolishable: false,
     produces: ['scavenger', 'constructor', 'transport'], dropoff: true, capacity: 300, buildRadius: 14,
     // Upgrading (production pauses meanwhile) swaps in the better workers.
     upgrade: { name: 'Recycler II', cost: 250, time: 40, hp: 5000,
@@ -148,7 +148,7 @@ const BUILDING_TYPES = {
   // turns into one. buildTime is how long the deployment takes.
   extractor: {
     name: 'Extractor', cost: 0, buildTime: 8, hp: 900, size: 2, sight: 240,
-    income: 1.0, store: 30, buildRadius: 9, buildable: false, salvageValue: 60,
+    income: 0.7, store: 120, buildRadius: 9, buildable: false, salvageValue: 60,
     desc: 'Pumps scrap from a geyser. With an Extractor Silo joined on, scrap goes straight to your total; without one it fills a small tank for Transports.',
   },
   // Built next to the Recycler: raises how much scrap you can hold.
@@ -206,14 +206,15 @@ const HOTKEYS = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I'];
 //   upgradeBaseAfter seconds before it upgrades its Recycler (needed to claim geysers)
 //   labAfter         seconds before it builds a Research Lab (0 = never)
 //   radarAfter       seconds before it builds a Radar (0 = never)
+//   extractorSilos   seconds before it starts saving for Extractor Silos (0 = never)
 const DIFFICULTY = {
   easy:   { label: 'Easy',   incomeMult: 0.5,  firstAttack: 600, waveEvery: 240, waveBase: 3, waveGrowth: 0.25,
-            maxArmy: 8,  armyPerMinute: 0.7, maxExtractors: 1, maxBaseSilos: 1, maxScavengers: 3, thinkEvery: 2.5, artilleryAfter: 1200, secondFactory: false,
-            upgradeBaseAfter: 300, labAfter: 0, radarAfter: 0 },
+            maxArmy: 8,  armyPerMinute: 0.7, maxExtractors: 2, maxBaseSilos: 1, maxScavengers: 3, thinkEvery: 2.5, artilleryAfter: 1200, secondFactory: false,
+            upgradeBaseAfter: 300, labAfter: 0, radarAfter: 0, extractorSilos: 0 },
   normal: { label: 'Normal', incomeMult: 1.0,  firstAttack: 300, waveEvery: 150, waveBase: 5, waveGrowth: 0.8,
-            maxArmy: 25, armyPerMinute: 3, maxExtractors: 3, maxBaseSilos: 2, maxScavengers: 6, thinkEvery: 1.0, artilleryAfter: 240, secondFactory: true,
-            upgradeBaseAfter: 120, labAfter: 360, radarAfter: 480 },
+            maxArmy: 25, armyPerMinute: 3, maxExtractors: 4, maxBaseSilos: 2, maxScavengers: 6, thinkEvery: 1.0, artilleryAfter: 240, secondFactory: true,
+            upgradeBaseAfter: 120, labAfter: 360, radarAfter: 480, extractorSilos: 600 },
   hard:   { label: 'Hard',   incomeMult: 1.35, firstAttack: 180, waveEvery: 100, waveBase: 6, waveGrowth: 1.5,
-            maxArmy: 40, armyPerMinute: 0, maxExtractors: 4, maxBaseSilos: 3, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true,
-            upgradeBaseAfter: 90, labAfter: 240, radarAfter: 360 },
+            maxArmy: 40, armyPerMinute: 0, maxExtractors: 5, maxBaseSilos: 3, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true,
+            upgradeBaseAfter: 90, labAfter: 240, radarAfter: 360, extractorSilos: 420 },
 };
