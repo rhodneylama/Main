@@ -64,9 +64,18 @@ describe("CallSession", () => {
     const { brain, passes } = recordingBrain();
     const s = new CallSession(call, brain, { intervalMs: 10_000, research: false });
     s.addUtterance("Owner", "So it started in my garage.", 4000);
-    s.addUtterance("Owner", "Then we bought a second van.", 11_000);
+    s.addUtterance("Owner", "Then we bought a second van.", 15_000);
     await s.settle();
     expect(passes).toEqual([{ newFromSeq: 0, lastSeq: 1 }]);
+  });
+
+  it("starts the interval at the first line, not at zero", async () => {
+    const { brain, passes } = recordingBrain();
+    const s = new CallSession(call, brain, { intervalMs: 10_000, research: false });
+    s.addUtterance("Rep", "Hello.", 81_000);
+    s.addUtterance("Owner", "Hi.", 88_000);
+    await s.settle();
+    expect(passes).toEqual([]);
   });
 
   it("queues one follow-up pass for lines that arrive mid-pass", async () => {
@@ -77,8 +86,8 @@ describe("CallSession", () => {
     s.addUtterance("Owner", "Maybe more in July.", 5000);
     await s.settle();
     expect(passes).toEqual([
-      { newFromSeq: 0, lastSeq: 0 },
-      { newFromSeq: 1, lastSeq: 2 },
+      { newFromSeq: 0, lastSeq: 1 },
+      { newFromSeq: 2, lastSeq: 2 },
     ]);
   });
 

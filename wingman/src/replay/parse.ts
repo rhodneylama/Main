@@ -101,6 +101,8 @@ function parseText(content: string): RawLine[] {
       pendingHeader = null;
       continue;
     }
+    // Export footers like Otter's "Transcribed by https://otter.ai".
+    if (/^transcribed by\b/i.test(line)) continue;
     let m = line.match(BRACKETED);
     if (m) {
       lines.push({ speaker: m[2].trim(), text: m[3], atMs: parseClock(m[1]) });

@@ -47,6 +47,8 @@ export class CallSession extends EventEmitter {
 
   addUtterance(speaker: string, text: string, atMs: number): Utterance {
     const prev = this.utterances[this.utterances.length - 1];
+    // Recordings often start partway in, so the interval runs from the first line.
+    if (!prev) this.lastPassAtMs = atMs;
     const utterance: Utterance = {
       seq: this.utterances.length,
       speaker,
