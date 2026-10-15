@@ -3,7 +3,15 @@ import { cleanCopy } from "../brain/copy.js";
 import { describeError } from "../brain/client.js";
 import type { Brain } from "../brain/index.js";
 import { TRANSCRIPT_WINDOW } from "../brain/analyze.js";
-import { emptyState, type Call, type CallState, type Lookup, type Utterance, type WingmanEvent } from "../types.js";
+import {
+  emptyState,
+  type Call,
+  type CallState,
+  type Lookup,
+  type PostCall,
+  type Utterance,
+  type WingmanEvent,
+} from "../types.js";
 import { mergeAnalysis } from "./merge.js";
 
 /** Fewest new prospect words that make a finished turn worth a pass. */
@@ -25,6 +33,7 @@ export class CallSession extends EventEmitter {
   readonly state: CallState = emptyState();
   readonly utterances: Utterance[] = [];
   passCount = 0;
+  postCall: PostCall | null = null;
 
   private lastAnalyzedSeq = -1;
   private lastPassAtMs = 0;
@@ -45,14 +54,18 @@ export class CallSession extends EventEmitter {
     return this.call.repNames.some((name) => s.includes(name.toLowerCase()));
   }
 
-  addUtterance(speaker: string, text: string, atMs: number): Utterance {
+  /**
+   * isRep can be passed when the source knows better than the name match,
+   * such as Recall marking the meeting host.
+   */
+  addUtterance(speaker: string, text: string, atMs: number, isRep?: boolean): Utterance {
     const prev = this.utterances[this.utterances.length - 1];
     // Recordings often start partway in, so the interval runs from the first line.
     if (!prev) this.lastPassAtMs = atMs;
     const utterance: Utterance = {
       seq: this.utterances.length,
       speaker,
-      isRep: this.isRepSpeaker(speaker),
+      isRep: isRep ?? this.isRepSpeaker(speaker),
       text: text.trim(),
       atMs,
     };
@@ -106,6 +119,27 @@ export class CallSession extends EventEmitter {
     const last = this.utterances[this.utterances.length - 1];
     if (last && last.seq > this.lastAnalyzedSeq) this.requestPass(atMs, last.seq);
     await this.settle();
+  }
+
+  /**
+   * End of call. Analyzes whatever is left, then writes the summary and
+   * recap draft. The draft is only shown for review, never sent.
+   */
+  async wrapUp(atMs: number, opts: { postCall: boolean }): Promise<void> {
+    await this.flush(atMs);
+    if (!opts.postCall || !this.utterances.length) return;
+    try {
+      const raw = await this.brain.postCall(this.call, this.state, this.utterances);
+      const postCall: PostCall = {
+        summary: cleanCopy(raw.summary).text,
+        nextSteps: raw.nextSteps.map((s) => cleanCopy(s).text).filter(Boolean),
+        recapEmail: { subject: cleanCopy(raw.recapEmail.subject).text, body: cleanCopy(raw.recapEmail.body).text },
+      };
+      this.postCall = postCall;
+      this.emitEvent({ type: "postcall", postCall });
+    } catch (err) {
+      this.emitEvent({ type: "error", message: `Recap failed. ${describeError(err)}` });
+    }
   }
 
   private requestPass(atMs: number, uptoSeq: number): void {

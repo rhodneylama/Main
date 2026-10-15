@@ -31,6 +31,12 @@
     #fit li.muted { list-style: none; margin-left: -1.4em; }
     .grid > div > .panel:last-child { margin-bottom: 0; }
     button.muted-on { background: var(--warn); }
+    .actions { display: flex; gap: 8px; }
+    #end { background: var(--warn); }
+    #postcall textarea { width: 100%; min-height: 260px; padding: 10px; font: inherit; font-size: 16px; background: #0f1216; color: var(--text); border: 1px solid var(--line); border-radius: 8px; }
+    #postcall input { margin-bottom: 8px; }
+    #postcall .links { display: flex; gap: 14px; flex-wrap: wrap; font-size: 15px; }
+    #notice { font-size: 14px; color: var(--warn); margin: -4px 0 10px; min-height: 0; }
   </style>
 </head>
 <body>
@@ -38,8 +44,30 @@
   <div class="top">
     <a href="/">Wingman</a>
     <span id="status">Connecting</span>
-    <button id="mute" type="button">Mute</button>
+    <div class="actions">
+      <button id="end" type="button" class="secondary" hidden>End call</button>
+      <button id="mute" type="button">Mute</button>
+    </div>
   </div>
+  <div id="notice"></div>
+
+  <section id="postcall" class="panel" hidden>
+    <h2>After the call</h2>
+    <p id="pc-summary"></p>
+    <h2>Next steps</h2>
+    <ul id="pc-steps"></ul>
+    <h2>Recap email draft</h2>
+    <p class="muted">Review and edit before sending. Wingman never sends it.</p>
+    <label for="pc-subject">Subject</label>
+    <input id="pc-subject">
+    <label for="pc-body">Body</label>
+    <textarea id="pc-body"></textarea>
+    <p class="links">
+      <button id="pc-copy" type="button" class="secondary">Copy email</button>
+      <a id="pc-recap" href="#">Download recap</a>
+      <a id="pc-transcript" href="#">Download transcript</a>
+    </p>
+  </section>
 
   <section class="panel">
     <div id="latest-kind"></div>
@@ -152,29 +180,75 @@
     if (atBottom) box.scrollTop = box.scrollHeight;
   }
 
+  function renderPostCall(pc) {
+    $("postcall").hidden = false;
+    $("pc-summary").textContent = pc.summary;
+    $("pc-steps").innerHTML = pc.nextSteps.map((s) => `<li>${esc(s)}</li>`).join("");
+    $("pc-subject").value = pc.recapEmail.subject;
+    $("pc-body").value = pc.recapEmail.body;
+  }
+  $("pc-copy").addEventListener("click", async () => {
+    const text = `${$("pc-subject").value}\n\n${$("pc-body").value}`;
+    try { await navigator.clipboard.writeText(text); $("pc-copy").textContent = "Copied"; }
+    catch { $("pc-body").select(); }
+  });
+  $("end").addEventListener("click", async () => {
+    if (!confirm("End the call and pull the notetaker out of the meeting?")) return;
+    $("end").disabled = true;
+    $("end").textContent = "Ending";
+    const res = await fetch(`/api/calls/${encodeURIComponent(id)}/end`, { method: "POST" });
+    if (!res.ok) { $("end").disabled = false; $("end").textContent = "End call"; }
+  });
+
   renderMute();
   renderState({ form: {}, pains: [], fit: [] });
+  if (id) {
+    $("pc-recap").href = `/api/calls/${encodeURIComponent(id)}/recap.txt`;
+    $("pc-transcript").href = `/api/calls/${encodeURIComponent(id)}/transcript.txt`;
+  }
 
   if (!id) {
     $("status").textContent = "No call id in the link.";
   } else {
+    let callSource = null;
     const source = new EventSource(`/api/calls/${encodeURIComponent(id)}/stream`);
+    // A finished call's history ends with this, so do not reconnect and replay it twice.
+    source.addEventListener("done", () => source.close());
     source.onmessage = (msg) => {
       const event = JSON.parse(msg.data);
       switch (event.type) {
+        case "call": callSource = event.call.source; break;
         case "utterance": addLine(event.utterance); break;
+        case "postcall": renderPostCall(event.postCall); break;
         case "nudge": nudges.push(event.nudge); renderNudges(); break;
         case "state": renderState(event.state); break;
         case "research": research.push(event.note); renderResearch(); break;
         case "status":
           $("status").textContent = event.status === "running" ? "Live" : event.status === "ended" ? "Call ended" : "Failed";
           if (event.message) $("status").textContent += `. ${event.message}`;
+          $("end").hidden = !(callSource === "live" && event.status === "running");
+          if (event.status !== "running") { $("notice").textContent = ""; source.close(); }
           break;
-        case "error": console.warn(event.message); break;
+        case "error": $("notice").textContent = event.message; break;
       }
     };
     // A finished call's stream closes after its history, which is not an error to show.
-    source.onerror = () => { if ($("status").textContent === "Connecting") $("status").textContent = "Disconnected"; source.close(); };
+    // The stream replays the whole call on every connect, so clear the page
+    // before a reconnect redraws it.
+    let opened = false;
+    source.onopen = () => {
+      if (opened) {
+        nudges.length = 0;
+        research.length = 0;
+        $("transcript").innerHTML = "";
+        renderNudges();
+        renderResearch();
+      }
+      opened = true;
+    };
+    source.onerror = () => {
+      $("status").textContent = source.readyState === EventSource.CLOSED ? "Disconnected" : "Reconnecting";
+    };
   }
 </script>
 </body>

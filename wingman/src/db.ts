@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { config } from "./config.js";
-import type { Call, CallStatus, Utterance, WingmanEvent } from "./types.js";
+import type { Call, CallStatus, PostCall, Utterance, WingmanEvent } from "./types.js";
 import type { CallSession } from "./loop/session.js";
 
 let db: Database.Database | null = null;
@@ -46,6 +46,9 @@ export function getDb(): Database.Database {
     );
     CREATE INDEX IF NOT EXISTS events_by_call ON events(call_id, id);
   `);
+  // Columns added after the first release. SQLite has no ADD COLUMN IF NOT EXISTS.
+  const columns = (db.prepare(`PRAGMA table_info(calls)`).all() as { name: string }[]).map((c) => c.name);
+  if (!columns.includes("post_call")) db.exec(`ALTER TABLE calls ADD COLUMN post_call TEXT`);
   return db;
 }
 
@@ -64,6 +67,17 @@ export function finishCall(id: string, status: CallStatus, finalState: unknown):
     .run(status, Date.now(), JSON.stringify(finalState), id);
 }
 
+export function setRecallBotId(id: string, botId: string): void {
+  getDb().prepare(`UPDATE calls SET recall_bot_id = ? WHERE id = ?`).run(botId, id);
+}
+
+export function savePostCall(id: string, postCall: PostCall): void {
+  const draft = `${postCall.recapEmail.subject}\n\n${postCall.recapEmail.body}`;
+  getDb()
+    .prepare(`UPDATE calls SET summary = ?, recap_email_draft = ?, post_call = ? WHERE id = ?`)
+    .run(postCall.summary, draft, JSON.stringify(postCall), id);
+}
+
 /** Store every utterance and event a session emits. */
 export function recordSession(session: CallSession): void {
   const d = getDb();
@@ -76,6 +90,7 @@ export function recordSession(session: CallSession): void {
       const u: Utterance = event.utterance;
       insertUtterance.run(session.call.id, u.seq, u.speaker, u.isRep ? 1 : 0, u.text, Math.round(u.atMs));
     }
+    if (event.type === "postcall") savePostCall(session.call.id, event.postCall);
     insertEvent.run(session.call.id, event.type, JSON.stringify(event), Date.now());
   });
 }
@@ -97,4 +112,32 @@ export function storedEvents(callId: string): WingmanEvent[] {
 
 export function callExists(callId: string): boolean {
   return Boolean(getDb().prepare(`SELECT 1 FROM calls WHERE id = ?`).get(callId));
+}
+
+export interface CallRow {
+  id: string;
+  source: string;
+  status: string;
+  origin: string;
+  prospect_company: string | null;
+  prospect_website: string | null;
+  rep_names: string;
+  started_at: number;
+  ended_at: number | null;
+  recall_bot_id: string | null;
+  summary: string | null;
+  recap_email_draft: string | null;
+  final_state: string | null;
+  post_call: string | null;
+}
+
+export function getCall(callId: string): CallRow | undefined {
+  return getDb().prepare(`SELECT * FROM calls WHERE id = ?`).get(callId) as CallRow | undefined;
+}
+
+export function getUtterances(callId: string): Utterance[] {
+  const rows = getDb()
+    .prepare(`SELECT seq, speaker, is_rep, text, at_ms FROM utterances WHERE call_id = ? ORDER BY seq`)
+    .all(callId) as { seq: number; speaker: string; is_rep: number; text: string; at_ms: number }[];
+  return rows.map((r) => ({ seq: r.seq, speaker: r.speaker, isRep: r.is_rep === 1, text: r.text, atMs: r.at_ms }));
 }

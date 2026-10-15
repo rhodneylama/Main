@@ -19,6 +19,8 @@ export interface ReplayOptions {
   prospectWebsite?: string | null;
   /** Store the replay in SQLite. Off in tests. */
   persist?: boolean;
+  /** Write the summary and recap draft at the end. */
+  postCall?: boolean;
 }
 
 export interface Replay {
@@ -71,6 +73,7 @@ export function startReplay(opts: ReplayOptions): Replay {
   const done = (async () => {
     // Let callers attach listeners before the first line goes out.
     await new Promise((r) => setImmediate(r));
+    session.emitEvent({ type: "call", call });
     session.emitEvent({ type: "status", status: "running", message: repNotice ?? undefined });
     try {
       let prevAt = 0;
@@ -81,7 +84,7 @@ export function startReplay(opts: ReplayOptions): Replay {
         if (opts.speed === 0) await session.settle();
       }
       const end = lines[lines.length - 1];
-      await session.flush(end.atMs + 2000);
+      await session.wrapUp(end.atMs + 2000, { postCall: opts.postCall !== false });
       call.status = "ended";
       session.emitEvent({ type: "status", status: "ended" });
     } catch (err) {

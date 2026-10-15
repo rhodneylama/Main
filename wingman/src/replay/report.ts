@@ -23,6 +23,24 @@ export function buildReport(session: CallSession, errors: string[]): string {
   if (errors.length) out.push(`- Errors: ${errors.length}`);
   out.push("");
 
+  if (session.postCall) {
+    const pc = session.postCall;
+    out.push("## Summary");
+    out.push("");
+    out.push(pc.summary);
+    out.push("");
+    out.push("## Next steps");
+    out.push("");
+    for (const step of pc.nextSteps) out.push(`- ${step}`);
+    out.push("");
+    out.push("## Recap email draft");
+    out.push("");
+    out.push(`**${pc.recapEmail.subject}**`);
+    out.push("");
+    out.push(pc.recapEmail.body);
+    out.push("");
+  }
+
   out.push("## Discovery form");
   out.push("");
   for (const { key, label } of DISCOVERY_FIELDS) out.push(`- ${label}: ${state.form[key] ?? "not stated"}`);

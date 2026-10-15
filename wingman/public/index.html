@@ -11,6 +11,21 @@
   <h1>Wingman</h1>
 
   <section class="panel">
+    <h2>Join a live call</h2>
+    <form id="live">
+      <label for="meetingUrl">Zoom or Google Meet link</label>
+      <input id="meetingUrl" name="meetingUrl" type="url" required placeholder="https://us02web.zoom.us/j/...">
+      <label for="live-company">Prospect company (optional)</label>
+      <input id="live-company" name="company">
+      <label for="live-website">Prospect website (optional)</label>
+      <input id="live-website" name="website" type="url" placeholder="https://">
+      <p><button type="submit">Send ABU Notetaker</button></p>
+      <p id="live-error" class="error"></p>
+      <p id="live-off" class="muted" hidden>Live calls are off. Set RECALL_API_KEY and PUBLIC_BASE_URL on the server.</p>
+    </form>
+  </section>
+
+  <section class="panel">
     <h2>Replay a saved call</h2>
     <form id="replay">
       <label for="file">Transcript</label>
@@ -33,11 +48,6 @@
   </section>
 
   <section class="panel">
-    <h2>Join a live call</h2>
-    <p class="muted">Coming in step 2 with Recall.ai.</p>
-  </section>
-
-  <section class="panel">
     <h2>Recent calls</h2>
     <ul id="calls" class="plain"></ul>
   </section>
@@ -46,6 +56,9 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 
   async function load() {
+    const health = await fetch("/api/health").then((r) => r.json());
+    document.getElementById("live-off").hidden = health.recall;
+
     const samples = await fetch("/api/samples").then((r) => r.json());
     const select = document.getElementById("file");
     select.innerHTML = samples.files.length
@@ -72,6 +85,27 @@
     const data = await res.json();
     if (!res.ok) {
       document.getElementById("replay-error").textContent = data.error;
+      return;
+    }
+    location.href = `/call.html?id=${data.id}`;
+  });
+
+  document.getElementById("live").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const button = e.target.querySelector("button");
+    button.disabled = true;
+    button.textContent = "Sending the bot";
+    const body = Object.fromEntries(new FormData(e.target).entries());
+    const res = await fetch("/api/live", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      document.getElementById("live-error").textContent = data.error;
+      button.disabled = false;
+      button.textContent = "Send ABU Notetaker";
       return;
     }
     location.href = `/call.html?id=${data.id}`;

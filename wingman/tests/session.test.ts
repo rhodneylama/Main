@@ -35,6 +35,13 @@ function recordingBrain(nudge = "") {
     async research() {
       return "Plano is a north Dallas suburb.\nAbout 290 thousand people.";
     },
+    async postCall() {
+      return {
+        summary: "Owner misses calls after five \u2014 about twenty a week!",
+        nextSteps: ["Send recap"],
+        recapEmail: { subject: "Recap", body: "Hi,\n\nThanks for the time.\n\nNext steps:\nSend the info." },
+      };
+    },
   };
   return { brain, passes };
 }
@@ -101,5 +108,14 @@ describe("CallSession", () => {
     await s.settle();
     expect(events.filter((e) => e.type === "nudge")).toHaveLength(1);
     expect(s.state.research.map((r) => r.query)).toEqual(["Plano"]);
+  });
+
+  it("wraps up with a cleaned recap that keeps its paragraphs", async () => {
+    const { brain } = recordingBrain();
+    const s = new CallSession(call, brain, { intervalMs: 60_000, research: false });
+    s.addUtterance("Owner", "We miss calls after five.", 1000);
+    await s.wrapUp(5000, { postCall: true });
+    expect(s.postCall?.summary).toBe("Owner misses calls after five, about twenty a week.");
+    expect(s.postCall?.recapEmail.body).toBe("Hi,\n\nThanks for the time.\n\nNext steps.\nSend the info.");
   });
 });

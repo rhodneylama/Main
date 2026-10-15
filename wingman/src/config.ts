@@ -29,6 +29,24 @@ export const config = {
   dbPath: env("WINGMAN_DB_PATH") ?? "./data/wingman.db",
   samplesDir: env("WINGMAN_SAMPLES_DIR") ?? "../samples",
   port: Number(env("PORT") ?? 3001),
+
+  /** Leave blank only when running on your own machine. */
+  password: env("WINGMAN_PASSWORD"),
+
+  recallApiKey: env("RECALL_API_KEY"),
+  recallRegion: env("RECALL_REGION") ?? "us-west-2",
+  /** Overrides the region address entirely. Only needed for testing. */
+  recallApiBase: env("RECALL_API_BASE"),
+  /** The address Recall can reach this server on, like https://wingman.up.railway.app */
+  publicBaseUrl: env("PUBLIC_BASE_URL")?.replace(/\/+$/, ""),
+  /** Shared secret for the Recall dashboard webhook (bot status events). */
+  recallWebhookToken: env("RECALL_WEBHOOK_TOKEN"),
+  botName: env("WINGMAN_BOT_NAME") ?? "ABU Notetaker",
+  botChatMessage:
+    env("WINGMAN_BOT_CHAT_MESSAGE") ??
+    "Hi everyone, ABU Notetaker is transcribing this call so we can send an accurate recap afterward.",
+  /** End a live call after this many minutes with no transcript. */
+  idleMinutes: Number(env("WINGMAN_IDLE_MINUTES") ?? 15),
 };
 
 /** The placeholder a dashboard may copy in from .env.example. */

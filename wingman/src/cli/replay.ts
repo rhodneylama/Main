@@ -12,6 +12,7 @@
  *   --speed N           0 is as fast as possible (default), 1 is real time
  *   --interval N        seconds between passes (default WINGMAN_INTERVAL_SECONDS)
  *   --no-research       skip web lookups
+ *   --no-postcall       skip the summary and recap email draft
  *   --mock              no API calls, checks the plumbing only
  *
  * A markdown review is written to replays/ for each run.
@@ -62,6 +63,7 @@ async function main() {
       speed: { type: "string", default: "0" },
       interval: { type: "string" },
       "no-research": { type: "boolean", default: false },
+      "no-postcall": { type: "boolean", default: false },
       mock: { type: "boolean", default: false },
       all: { type: "boolean", default: false },
       quiet: { type: "boolean", default: false },
@@ -98,6 +100,7 @@ async function replayOne(
     speed?: string;
     interval?: string;
     "no-research"?: boolean;
+    "no-postcall"?: boolean;
     mock?: boolean;
     quiet?: boolean;
   },
@@ -112,6 +115,7 @@ async function replayOne(
     repNames: values.rep?.length ? values.rep : config.repNames,
     prospectCompany: values.company,
     prospectWebsite: values.website,
+    postCall: !values["no-postcall"],
   });
 
   console.log(c.bold(`\nReplaying ${path.basename(filePath)}`));
@@ -135,6 +139,17 @@ async function replayOne(
       case "research":
         console.log(`${formatClock(event.note.atMs).padStart(6)} ${c.cyan(`RESEARCH ${event.note.query}`)} ${event.note.summary.replace(/\n/g, " / ")}`);
         break;
+      case "postcall": {
+        const pc = event.postCall;
+        console.log(c.bold("\nSUMMARY"));
+        console.log(pc.summary);
+        console.log(c.bold("\nNEXT STEPS"));
+        for (const step of pc.nextSteps) console.log(`- ${step}`);
+        console.log(c.bold("\nRECAP EMAIL DRAFT"));
+        console.log(c.cyan(pc.recapEmail.subject));
+        console.log(pc.recapEmail.body);
+        break;
+      }
       case "error":
         errors.push(event.message);
         console.log(c.red(`  ERROR ${event.message}`));

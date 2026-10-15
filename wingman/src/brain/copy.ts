@@ -20,13 +20,16 @@ export interface CleanedCopy {
 export function cleanCopy(input: string): CleanedCopy {
   let text = input.trim();
 
+  // Only spaces and tabs are collapsed, so paragraphs in a summary or email survive.
   // Em and en dashes used as breaks become commas.
-  text = text.replace(/\s*[—–]\s*/g, ", ");
-  // A colon followed by a space is a written colon. Leave times like 5:30 alone.
-  text = text.replace(/:\s+/g, ", ");
+  text = text.replace(/[ \t]*[—–][ \t]*/g, ", ");
+  // A colon followed by whitespace is a written colon. Leave times like 5:30 alone.
+  // One that ends a line ("Next steps:") becomes a full stop.
+  text = text.replace(/:(?=[ \t]*(\n|$))/g, ".");
+  text = text.replace(/:(?=\s)/g, ",");
   text = text.replace(/!+/g, ".");
-  text = text.replace(/,\s*,/g, ",").replace(/\s+,/g, ",").replace(/\.\s*\./g, ".");
-  text = text.replace(/\s{2,}/g, " ").trim();
+  text = text.replace(/,[ \t]*,/g, ",").replace(/[ \t]+,/g, ",").replace(/\.[ \t]*\./g, ".");
+  text = text.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+\n/g, "\n").trim();
 
   const warnings = BANNED_WORDS.filter((w) => w.pattern.test(text)).map((w) => w.label);
   return { text, warnings };

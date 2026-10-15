@@ -156,10 +156,19 @@ export interface Analysis {
   lookups: Lookup[];
 }
 
+/** Written once the call ends. Shown for review, never sent anywhere. */
+export interface PostCall {
+  summary: string;
+  nextSteps: string[];
+  recapEmail: { subject: string; body: string };
+}
+
 export type WingmanEvent =
+  | { type: "call"; call: Call }
   | { type: "utterance"; utterance: Utterance }
   | { type: "nudge"; nudge: Nudge }
   | { type: "state"; state: Omit<CallState, "nudges" | "lookedUp"> }
   | { type: "research"; note: ResearchNote }
   | { type: "status"; status: CallStatus; message?: string }
+  | { type: "postcall"; postCall: PostCall }
   | { type: "error"; message: string };
