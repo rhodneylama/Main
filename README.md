@@ -198,3 +198,8 @@ gitignored. Back them up by copying the directory.
   `VoiceProvider` interface in `src/voice/types.ts`. To use ElevenLabs or
   Deepgram, implement that interface and return it from `getVoiceProvider()`.
 - This tool does not dial anyone. Every practice call is a simulation.
+
+## Wingman
+
+`wingman/` is a separate app: a live call assistant that listens to discovery
+calls and sends private nudges. See `wingman/README.md`.

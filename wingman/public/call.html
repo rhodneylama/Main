@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wingman Live</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    .top { display: flex; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    #status { font-size: 14px; color: var(--muted); }
+    #latest { font-size: clamp(26px, 5vw, 40px); font-weight: 700; line-height: 1.2; color: var(--accent); min-height: 2.4em; }
+    #latest.empty { color: var(--muted); font-weight: 400; font-size: 20px; }
+    #latest-kind { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 6px; }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+    @media (min-width: 900px) { .grid { grid-template-columns: 1.2fr 1fr; } }
+    .older li { font-size: 18px; }
+    .time { color: var(--muted); font-size: 13px; margin-right: 6px; font-variant-numeric: tabular-nums; }
+    .check li { display: flex; gap: 8px; }
+    .check .box { width: 1.3em; flex: none; color: var(--muted); }
+    .check li.done .box { color: var(--good); }
+    .check .label { color: var(--muted); min-width: 9em; flex: none; }
+    .check li.done .label { color: var(--text); }
+    .pain strong { color: var(--warn); }
+    .fit strong { color: var(--good); }
+    .research li { border-left: 3px solid var(--info); padding-left: 10px; }
+    .research .tag { color: var(--info); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
+    #transcript { font-size: 14px; color: var(--muted); max-height: 220px; overflow-y: auto; }
+    #transcript b { color: var(--text); font-weight: 600; }
+    .research li.muted { border-left: 0; padding-left: 0; }
+    #fit { padding-left: 1.4em; margin: 0; }
+    #fit li.muted { list-style: none; margin-left: -1.4em; }
+    .grid > div > .panel:last-child { margin-bottom: 0; }
+    button.muted-on { background: var(--warn); }
+  </style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <a href="/">Wingman</a>
+    <span id="status">Connecting</span>
+    <button id="mute" type="button">Mute</button>
+  </div>
+
+  <section class="panel">
+    <div id="latest-kind"></div>
+    <div id="latest" class="empty">Listening. Nudges show up here.</div>
+  </section>
+
+  <div class="grid">
+    <div>
+      <section class="panel">
+        <h2>Earlier nudges</h2>
+        <ul id="older" class="plain older"><li class="muted">None yet.</li></ul>
+      </section>
+      <section class="panel">
+        <h2>Pains heard</h2>
+        <ul id="pains" class="plain pain"><li class="muted">None yet.</li></ul>
+      </section>
+      <section class="panel">
+        <h2>Research</h2>
+        <ul id="research" class="plain research"><li class="muted">Nothing looked up yet.</li></ul>
+      </section>
+    </div>
+    <div>
+      <section class="panel">
+        <h2>Discovery</h2>
+        <ul id="form" class="plain check"></ul>
+      </section>
+      <section class="panel">
+        <h2>Suggested services</h2>
+        <ol id="fit" class="fit"><li class="muted">Waiting for enough discovery.</li></ol>
+      </section>
+      <section class="panel">
+        <h2>Transcript</h2>
+        <div id="transcript"></div>
+      </section>
+    </div>
+  </div>
+</main>
+<script>
+  const FIELDS = [
+    ["trade", "Trade"], ["yearsInBusiness", "Years in business"], ["trucks", "Trucks"],
+    ["jobsPerMonth", "Jobs a month"], ["averageTicket", "Average ticket"],
+    ["whoAnswersPhones", "Who answers phones"], ["officeStaff", "Office staff"],
+    ["needsHelpWith", "Needs help with"], ["leadSources", "Lead sources"],
+    ["coverageWanted", "Coverage wanted"], ["callMix", "Call mix"],
+  ];
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
+  const clock = (ms) => { const t = Math.floor(ms / 1000); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
+  const $ = (id) => document.getElementById(id);
+
+  const id = new URLSearchParams(location.search).get("id");
+  const nudges = [];
+  let muted = false;
+  try { muted = localStorage.getItem("wingman-muted") === "1"; } catch {}
+
+  function renderMute() {
+    $("mute").textContent = muted ? "Muted" : "Mute";
+    $("mute").classList.toggle("muted-on", muted);
+  }
+  $("mute").addEventListener("click", () => {
+    muted = !muted;
+    try { localStorage.setItem("wingman-muted", muted ? "1" : "0"); } catch {}
+    renderMute();
+    renderNudges();
+  });
+
+  function renderNudges() {
+    const latest = nudges[nudges.length - 1];
+    if (muted) {
+      $("latest-kind").textContent = "";
+      $("latest").className = "empty";
+      $("latest").textContent = "Nudges paused.";
+    } else if (latest) {
+      $("latest-kind").textContent = `${clock(latest.atMs)}  ${latest.kind}`;
+      $("latest").className = "";
+      $("latest").textContent = latest.text;
+    }
+    const older = (muted ? nudges : nudges.slice(0, -1)).slice().reverse();
+    $("older").innerHTML = older.length
+      ? older.map((n) => `<li><span class="time">${clock(n.atMs)}</span>${esc(n.text)}</li>`).join("")
+      : `<li class="muted">None yet.</li>`;
+  }
+
+  function renderState(state) {
+    $("form").innerHTML = FIELDS.map(([key, label]) => {
+      const v = state.form[key];
+      return `<li class="${v ? "done" : ""}"><span class="box">${v ? "&#10003;" : "&#9675;"}</span>
+        <span class="label">${label}</span><span>${esc(v ?? "")}</span></li>`;
+    }).join("");
+    $("pains").innerHTML = state.pains.length
+      ? state.pains.map((p) => `<li><strong>${esc(p.label)}</strong><br>"${esc(p.quote)}"<br><span class="muted">${esc(p.solution)}</span></li>`).join("")
+      : `<li class="muted">None yet.</li>`;
+    $("fit").innerHTML = state.fit.length
+      ? state.fit.map((f) => `<li><strong>${esc(f.service)}</strong> <span class="muted">${esc(f.reason)}</span></li>`).join("")
+      : `<li class="muted">Waiting for enough discovery.</li>`;
+  }
+
+  const research = [];
+  function renderResearch() {
+    $("research").innerHTML = research.length
+      ? research.slice().reverse().map((r) => `<li><span class="tag">Research, ${esc(r.query)}</span><br>${esc(r.summary).replace(/\n/g, "<br>")}</li>`).join("")
+      : `<li class="muted">Nothing looked up yet.</li>`;
+  }
+
+  function addLine(u) {
+    const div = document.createElement("div");
+    div.innerHTML = `<span class="time">${clock(u.atMs)}</span><b>${esc(u.speaker)}</b> ${esc(u.text)}`;
+    const box = $("transcript");
+    const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 20;
+    box.appendChild(div);
+    if (atBottom) box.scrollTop = box.scrollHeight;
+  }
+
+  renderMute();
+  renderState({ form: {}, pains: [], fit: [] });
+
+  if (!id) {
+    $("status").textContent = "No call id in the link.";
+  } else {
+    const source = new EventSource(`/api/calls/${encodeURIComponent(id)}/stream`);
+    source.onmessage = (msg) => {
+      const event = JSON.parse(msg.data);
+      switch (event.type) {
+        case "utterance": addLine(event.utterance); break;
+        case "nudge": nudges.push(event.nudge); renderNudges(); break;
+        case "state": renderState(event.state); break;
+        case "research": research.push(event.note); renderResearch(); break;
+        case "status":
+          $("status").textContent = event.status === "running" ? "Live" : event.status === "ended" ? "Call ended" : "Failed";
+          if (event.message) $("status").textContent += `. ${event.message}`;
+          break;
+        case "error": console.warn(event.message); break;
+      }
+    };
+    // A finished call's stream closes after its history, which is not an error to show.
+    source.onerror = () => { if ($("status").textContent === "Connecting") $("status").textContent = "Disconnected"; source.close(); };
+  }
+</script>
+</body>
+</html>

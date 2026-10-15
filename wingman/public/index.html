@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wingman</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+  <h1>Wingman</h1>
+
+  <section class="panel">
+    <h2>Replay a saved call</h2>
+    <form id="replay">
+      <label for="file">Transcript</label>
+      <select id="file" name="file" required></select>
+      <label for="rep">Your name as it appears in the transcript</label>
+      <input id="rep" name="rep" placeholder="Leave blank to use WINGMAN_REP_NAMES">
+      <label for="company">Prospect company (optional)</label>
+      <input id="company" name="company">
+      <label for="speed">Speed</label>
+      <select id="speed" name="speed">
+        <option value="1">Real time</option>
+        <option value="4" selected>4x</option>
+        <option value="10">10x</option>
+        <option value="0">As fast as Claude answers</option>
+      </select>
+      <label><input type="checkbox" name="mock" style="width:auto"> Mock mode, no API calls</label>
+      <p><button type="submit">Start replay</button></p>
+      <p id="replay-error" class="error"></p>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Join a live call</h2>
+    <p class="muted">Coming in step 2 with Recall.ai.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Recent calls</h2>
+    <ul id="calls" class="plain"></ul>
+  </section>
+</main>
+<script>
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
+
+  async function load() {
+    const samples = await fetch("/api/samples").then((r) => r.json());
+    const select = document.getElementById("file");
+    select.innerHTML = samples.files.length
+      ? samples.files.map((f) => `<option>${esc(f)}</option>`).join("")
+      : `<option value="">No transcripts in ${esc(samples.dir)}</option>`;
+
+    const { calls } = await fetch("/api/calls").then((r) => r.json());
+    document.getElementById("calls").innerHTML = calls.length
+      ? calls.map((c) => `<li><a href="/call.html?id=${esc(c.id)}">${esc(c.origin)}</a>
+          <span class="muted">${esc(c.source)}, ${esc(c.status)}, ${new Date(c.started_at).toLocaleString()}</span></li>`).join("")
+      : `<li class="muted">No calls yet.</li>`;
+  }
+
+  document.getElementById("replay").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    const body = Object.fromEntries(form.entries());
+    body.mock = form.has("mock");
+    const res = await fetch("/api/replays", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      document.getElementById("replay-error").textContent = data.error;
+      return;
+    }
+    location.href = `/call.html?id=${data.id}`;
+  });
+
+  load();
+</script>
+</body>
+</html>
