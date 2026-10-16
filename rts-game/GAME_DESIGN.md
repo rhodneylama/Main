@@ -917,7 +917,9 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (43 checks). |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
-tables), `ROADMAP.md` (planned stages), and this file.
+tables), `ROADMAP.md` (planned stages), `ECONOMY_TEST_REPORT.md` (the October
+economy retune: what was tested, results and recommendations), and this file.
+Balance-testing tools are in `tests/balance/` (see that report, section 13).
 
 ### Design principles already built in
 

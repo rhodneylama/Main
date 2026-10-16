@@ -158,6 +158,8 @@ point an AI assistant when you want to change something.
 | `js/sprites.js` | The unit design sheet: how every vehicle and building looks. |
 | `js/render.js` | Draws everything on screen, using `sprites.js` for vehicles and buildings. |
 | `tests/rules.js` | Automatic checks of the game rules. Run `node rts-game/tests/rules.js` (needs Node.js). |
+| `tests/balance/` | Tools that play many computer-vs-computer games and measure the economy. See `ECONOMY_TEST_REPORT.md`. |
+| `ECONOMY_TEST_REPORT.md` | The October economy test: geysers, Transports, results and recommendations. |
 | `js/main.js` | Mouse, keyboard, the on-screen panels, sound, and the main loop. |
 
 ### Changing the game with an AI assistant
