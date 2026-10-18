@@ -1070,10 +1070,14 @@ function combatThink(game, e, dt, canChase = false) {
   const w = e.def.weapon;
   e.retarget -= dt;
   if (e.target && (e.target.hp <= 0 || !isVisibleTo(game, e.team, e.target))) e.target = null;
-  if (e.target && edgeDist(e, e.target) > (canChase ? e.def.sight : w.range)) e.target = null;
+  // Vehicles look as far as they can see or shoot, whichever is further, so
+  // Artillery fires on anything its side can see (spotted by a Tank, a Scout,
+  // a Radar...) out to its full range.
+  const reach = canChase ? Math.max(e.def.sight, w.range) : w.range;
+  if (e.target && edgeDist(e, e.target) > reach) e.target = null;
   if (e.retarget <= 0) {
     e.retarget = 0.4 + game.rng() * 0.2;
-    const radius = canChase ? e.def.sight : w.range;
+    const radius = reach;
     const t = findTarget(game, e, radius);
     if (t && (!e.target || edgeDist(e, t) < edgeDist(e, e.target) - 60)) e.target = t;
   }

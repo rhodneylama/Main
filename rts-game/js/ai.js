@@ -139,6 +139,7 @@ function aiUpdate(game, team) {
 
   // --- Army production -----------------------------------------------------
   const army = units.filter(u => u.def.role === 'combat');
+  if (diff.tactics && diff.tactics.adapt) updateIntel(game, team, ai);
   // Lower difficulties grow their army slowly, so you have time to prepare.
   const armyCap = diff.armyPerMinute ? Math.min(diff.maxArmy, 3 + Math.floor(game.time / 60 * diff.armyPerMinute)) : diff.maxArmy;
   for (const f of buildings.filter(b => b.type === 'factory' && b.built >= 1)) {
@@ -146,7 +147,8 @@ function aiUpdate(game, team) {
     if (units.length >= CONFIG.UNIT_CAP - 2) continue;
     const scouts = count('scout'), tanks = count('tank'), arty = count('artillery');
     let pick = 'tank';
-    if (scouts < 2 || scouts * 4 < army.length) pick = 'scout';
+    if (diff.tactics && diff.tactics.adapt && ai.intel) pick = adaptiveMix(ai.intel, diff, scouts, tanks, arty, game.time);
+    else if (scouts < 2 || scouts * 4 < army.length) pick = 'scout';
     else if (arty * 4 < tanks && game.time > diff.artilleryAfter) pick = 'artillery';
     // Keep a reserve for the builder, and hold off while saving for a Base Silo.
     if (ai.saving || ai.savingUp || f.upgrading !== null) continue;
@@ -321,11 +323,87 @@ function pickTarget(game, team, from, defenceWeight, onlyType) {
   return best;
 }
 
+// --- Scouting report ---------------------------------------------------------
+// What the enemy has shown us: the most of each kind of vehicle seen at once
+// recently (fading over about a minute), and the buildings we know about.
+function updateIntel(game, team, ai) {
+  const now = game.time;
+  const I = ai.intel || (ai.intel = { scout: 0, tank: 0, artillery: 0, towers: 0, extractors: 0, at: 0 });
+  if (now - I.at < 4) return;
+  I.at = now;
+  const seen = { scout: 0, tank: 0, artillery: 0 };
+  let towers = 0, extractors = 0;
+  for (const e of game.entities) {
+    if (e.team === team || e.hp <= 0) continue;
+    if (e.kind === 'unit') { if (e.def.role === 'combat' && isVisibleTo(game, team, e)) seen[baseType(e)]++; }
+    else if (e.seen[team]) { if (e.type === 'tower') towers++; else if (e.type === 'extractor') extractors++; }
+  }
+  for (const k in seen) I[k] = Math.max(seen[k], I[k] * 0.95);
+  I.towers = towers; I.extractors = extractors;
+}
+
+// Which vehicle to build next, answering what the enemy fields: Artillery to
+// crack Gun Towers and massed Tanks, Scouts to run down enemy Artillery, and
+// Tanks against swarms of Scouts. Always at least two Scouts for raids.
+function adaptiveMix(I, diff, scouts, tanks, arty, time) {
+  if (scouts < 2) return 'scout';
+  const a = diff.tactics.adapt, eT = I.tank, eA = I.artillery, eS = I.scout, eAll = eT + eA + eS || 1;
+  const want = {
+    scout: 0.22 + a * (0.2 * eA / eAll - 0.1 * eS / eAll),
+    artillery: time > diff.artilleryAfter ? 0.17 + a * (0.12 * Math.min(1, I.towers / 3) + 0.1 * eT / eAll) : 0,
+  };
+  want.tank = 1 - want.scout - want.artillery;
+  const have = { scout: scouts, tank: tanks, artillery: arty }, total = scouts + tanks + arty + 1;
+  let pick = 'tank', gap = -Infinity;
+  for (const k of ['tank', 'scout', 'artillery']) {
+    const g = want[k] * total - have[k];
+    if (g > gap) { gap = g; pick = k; }
+  }
+  return pick;
+}
+
+// --- Combined arms -------------------------------------------------------------
+// In an assault each vehicle has a job: Tanks are the wall that takes the
+// hits, Artillery sets up behind them and shells what they reveal, and the fast
+// Scouts swing round to strike somewhere else at the same moment.
+const roleOf = u => { const b = baseType(u); return b === 'tank' ? 'wall' : b === 'artillery' ? 'guns' : 'fast'; };
+
+// A point `d` from `target`, back toward `from`, on open ground.
+function standOff(game, target, from, d) {
+  return flankPoint(game, target, from, 0, Math.min(0.9, d / (dist(target, from) || 1)), 0);
+}
+
+// A soft target for the flankers near `target`: an unarmed building we know
+// of, preferring ones far from Gun Towers; failing that, another outpost.
+function softTarget(game, team, target) {
+  let best = null, bs = Infinity;
+  const armed = game.entities.filter(e => e.team !== team && e.kind === 'building' && e.def.weapon && e.hp > 0 && e.seen[team]);
+  for (const b of game.entities) {
+    if (b.team === team || b.kind !== 'building' || b.def.weapon || b.hp <= 0 || !b.seen[team] || b.type === 'recycler') continue;
+    const d = dist(b, target);
+    if (d > 1300) continue;
+    const guarded = armed.some(t => dist(t, b) < (t.def.weapon.range + 120));
+    const score = d + (guarded ? 700 : 0);
+    if (score < bs) { bs = score; best = b; }
+  }
+  return best;
+}
+
 function runTactics(game, team, ai, diff, c) {
   const { hq, army, buildings, rally, cmd, enemy } = c, tac = diff.tactics, now = game.time;
   const byId = id => { const u = game.byId.get(id); return u && u.hp > 0 && u.team === team ? u : null; };
   const move = (list, p, fight = true) => list.length && cmd({ type: 'move', ids: list.map(u => u.id), x: p.x, y: p.y, attackMove: fight });
   const pad = buildings.find(b => b.type === 'repairpad' && b.built >= 1);
+  // Combined-arms assault on `target`: gather out of range (by way of `via`,
+  // a flank, if given), then go in together. Waves with fewer than two Tanks
+  // or Artillery simply attack-move as before.
+  const startAssault = (list, target, via) => {
+    if (!tac.combined || list.filter(u => roleOf(u) !== 'fast').length < 2) { move(list, via || target); return; }
+    const from = via || centroidOf(list);
+    const stage = standOff(game, target, from, 700);
+    ai.squads.push({ kind: 'assault', ids: list.map(u => u.id), targetId: target.id, via, stage, phase: via ? 'via' : 'stage', t: now, phaseAt: now });
+    move(list, via || stage);
+  };
 
   // Squads currently away on a job (raids, retreats); their vehicles are left
   // out of the normal wave logic below.
@@ -408,7 +486,7 @@ function runTactics(game, team, ai, diff, c) {
       ai.squads.push({ kind: 'ambush', ids: rest.map(u => u.id), t: now, ambush, first });
       ai.squads.push({ kind: 'bait', ids: fast.map(u => u.id), t: now, ambush, state: 'poke' });
       move(rest, ambush); move(fast, objective);
-    } else move(wave, first);
+    } else startAssault(wave, objective, first !== objective ? first : null);
     ai.nextWave = now + diff.waveEvery;
     if (tac.raidWithWave) ai.nextRaid = Math.min(ai.nextRaid || 0, now);
     pushEvent(game, enemy, 'Enemy attack force spotted, heading your way!', 'bad');
@@ -446,9 +524,14 @@ function runTactics(game, team, ai, diff, c) {
     if (s.kind === 'ambush') {
       const baiting = ai.squads.some(b => b.kind === 'bait' && !b.done);
       if (enemyPowerNear(game, team, s.ambush, 550, true) > 0) s.clearAt = now;
-      if ((!baiting && now - (s.clearAt || s.t) > 5) || age > 70) { s.done = true; move(m, s.first); }
+      if ((!baiting && now - (s.clearAt || s.t) > 5) || age > 70) {
+        s.done = true;
+        const goal = objective && objective.hp > 0 ? objective : null;
+        if (goal) startAssault(m, goal, s.first !== goal && dist(s.first, goal) > 900 ? s.first : null); else move(m, s.first);
+      }
       continue;
     }
+    if (s.kind === 'assault') { runAssault(game, team, ai, tac, s, m, { move, cmd, rally, enemy, now }); continue; }
     if (s.kind === 'raid') {
       const own = m.reduce((a, u) => a + unitPower(u), 0);
       if (enemyPowerNear(game, team, ctr, 600) > own * tac.raidRetreat || age > 150) { s.done = true; ai.squads.push({ kind: 'retreat', ids: s.ids.slice(), t: now }); move(m, rally, false); continue; }
@@ -473,7 +556,9 @@ function runTactics(game, team, ai, diff, c) {
   // --- Focus fire: each fighting group shoots its weakest visible enemy.
   if (tac.focus && now - (ai.focusAt || 0) > 1.5) {
     ai.focusAt = now;
-    for (const u of mainArmy) {
+    const assault = new Set(ai.squads.filter(q => q.kind === 'assault').flatMap(q => q.ids));
+    for (const u of army) {
+      if (!(assault.has(u.id) ? roleOf(u) !== 'guns' : !busy.has(u.id))) continue;
       if (!u.def.weapon || u.order.type === 'idle' && !u.target) continue;
       let pick = null, ps = Infinity;
       for (const e of game.entities) {
@@ -486,4 +571,85 @@ function runTactics(game, team, ai, diff, c) {
     }
   }
   ai.squads = ai.squads.filter(s => !s.done);
+}
+
+// One step of a combined-arms assault (see startAssault in runTactics).
+function runAssault(game, team, ai, tac, s, m, c) {
+  const { move, cmd, rally, enemy, now } = c;
+  const wall = m.filter(u => roleOf(u) === 'wall'), guns = m.filter(u => roleOf(u) === 'guns'), fast = m.filter(u => roleOf(u) === 'fast');
+  const core = wall.length + guns.length ? wall.concat(guns) : fast, ctr = centroidOf(core);
+  const finish = () => { s.done = true; };
+  if (now - s.t > 300) return finish();
+  // Losing badly: everyone falls back, without stopping to fight.
+  const own = m.reduce((a, u) => a + unitPower(u), 0), foe = enemyPowerNear(game, team, ctr, 600, true);
+  if (tac.retreatAt && foe > 0 && own < foe * tac.retreatAt) {
+    finish(); ai.squads.push({ kind: 'retreat', ids: s.ids.slice(), t: now }); move(m, rally, false); return;
+  }
+  let target = game.byId.get(s.targetId);
+  if (!target || target.hp <= 0) {
+    // Target down: move on to the nearest known enemy building, if it's close.
+    const next = pickTarget(game, team, ctr, 1);
+    if (!next || dist(next, ctr) > 1500) return finish();
+    s.targetId = next.id; target = next;
+    if (s.phase === 'fight') s.phase = 'go';
+  }
+  if (s.phase === 'via') {
+    if (dist(ctr, s.via) < 320 || now - s.phaseAt > 90) { s.phase = 'stage'; s.phaseAt = now; move(m, s.stage); }
+    return;
+  }
+  if (s.phase === 'stage') {
+    // Wait out of range until the slow vehicles have caught up (or we're found).
+    const arrived = core.filter(u => dist(u, s.stage) < 320).length >= core.length * 0.7;
+    const found = game.entities.some(e => e.team === enemy && e.kind === 'unit' && e.def.weapon && dist(e, ctr) < 450 && isVisibleTo(game, team, e));
+    if (arrived || found || now - s.phaseAt > 80) s.phase = 'go';
+    else return;
+  }
+  if (s.phase === 'go') {
+    s.phase = 'fight'; s.phaseAt = now;
+    const from = dist(s.stage, target) < 1200 ? s.stage : ctr;
+    s.gunSpot = standOff(game, target, from, 360);
+    move(wall, target);
+    move(guns, s.gunSpot);
+    // Flankers: dive on enemy Artillery if any is in sight, otherwise strike a
+    // soft target round the side at the same time as the wall goes in.
+    const n = Math.round(fast.length * (tac.flankers || 0));
+    const strikers = fast.slice(0, n), rest = fast.slice(n);
+    move(rest, target);
+    if (strikers.length) {
+      let arty = null, ad = Infinity;
+      for (const e of game.entities) {
+        if (e.team !== enemy || e.kind !== 'unit' || baseType(e) !== 'artillery' || e.hp <= 0 || !isVisibleTo(game, team, e)) continue;
+        const d = dist(e, target); if (d < 900 && d < ad) { ad = d; arty = e; }
+      }
+      const soft = arty ? null : softTarget(game, team, target);
+      if (arty) cmd({ type: 'attack', ids: strikers.map(u => u.id), targetId: arty.id });
+      else if (soft) {
+        const side = game.rng() < 0.5 ? 1 : -1;
+        const route = [flankPoint(game, ctr, soft, side, 0.55, 0.55), { x: soft.x, y: soft.y }];
+        ai.squads.push({ kind: 'raid', strike: true, ids: strikers.map(u => u.id), t: now, route, wpi: 0, targetId: soft.id });
+        move(strikers, route[0]);
+      } else move(strikers, target);
+      if (arty || soft) s.ids = s.ids.filter(id => !strikers.some(u => u.id === id));
+    }
+    return;
+  }
+  // Fighting. The Artillery shells Gun Towers and enemy Artillery first
+  // (whatever its side can see), the Tanks keep pushing the target.
+  for (const g of guns) {
+    const cur = g.order.type === 'attack' && game.byId.get(g.order.targetId);
+    if (cur && cur.hp > 0) continue;
+    let pick = null, ps = Infinity;
+    const w = g.def.weapon;
+    for (const e of game.entities) {
+      if (e.team === team || e.hp <= 0) continue;
+      const d = dist(e, g);
+      if (d > w.range + 60 || d < w.minRange + 20 || !isVisibleTo(game, team, e)) continue;
+      const sc = d - (e.kind === 'building' && e.def.weapon ? 400 : baseType(e) === 'artillery' ? 300 : e.kind === 'building' ? 100 : 0);
+      if (sc < ps) { ps = sc; pick = e; }
+    }
+    if (pick) cmd({ type: 'attack', ids: [g.id], targetId: pick.id });
+    else if (g.order.type === 'idle' && dist(g, s.gunSpot) > 200) move([g], s.gunSpot);
+  }
+  const idleWall = wall.filter(u => u.order.type === 'idle' && !u.target);
+  if (idleWall.length) move(idleWall, target);
 }

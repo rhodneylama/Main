@@ -224,6 +224,12 @@ const HOTKEYS = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I'];
 //     cautious       how much seen defences put a raid off a target
 //     repair         seconds before it builds a Repair Pad and sends badly
 //                    damaged vehicles there (0 = never; it cost wins in tests)
+//     combined       combined-arms assaults: gather out of range, then Tanks go
+//                    in first, Artillery shells from behind them, Scouts strike
+//     flankers       share of a wave's Scouts that swing round to hit a soft
+//                    target (or enemy Artillery) while the Tanks go in
+//     adapt          0 to 1: how strongly it changes what it builds to answer
+//                    what it has seen of the enemy (towers, tanks, artillery)
 const DIFFICULTY = {
   easy:   { label: 'Easy',   incomeMult: 0.5,  firstAttack: 600, waveEvery: 240, waveBase: 3, waveGrowth: 0.25,
             maxArmy: 8,  armyPerMinute: 0.7, maxExtractors: 2, maxBaseSilos: 1, maxScavengers: 3, thinkEvery: 2.5, artilleryAfter: 1200, secondFactory: false,
@@ -232,10 +238,12 @@ const DIFFICULTY = {
             maxArmy: 25, armyPerMinute: 3, maxExtractors: 4, maxBaseSilos: 2, maxScavengers: 6, thinkEvery: 1.0, artilleryAfter: 240, secondFactory: true,
             upgradeBaseAfter: 120, labAfter: 360, radarAfter: 480, towerUpgradeAfter: 900,
             tactics: { hold: 600, holdArmy: 2, counter: 0.6, allIn: true, flank: 0.7, feint: 0.4, retreatAt: 0.5, focus: true,
-                       raid: true, raidAfter: 420, raidEvery: 240, raidSize: 3, raidWithWave: true, raidRetreat: 1, cautious: 0.5, repair: 0 } },
+                       raid: true, raidAfter: 420, raidEvery: 240, raidSize: 3, raidWithWave: true, raidRetreat: 1, cautious: 0.5, repair: 0,
+                       combined: false, flankers: 0.5, adapt: 0 } },
   hard:   { label: 'Hard',   incomeMult: 1.35, firstAttack: 180, waveEvery: 100, waveBase: 6, waveGrowth: 1.5,
             maxArmy: 40, armyPerMinute: 0, maxExtractors: 5, maxBaseSilos: 3, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true,
             upgradeBaseAfter: 90, labAfter: 240, radarAfter: 360, towerUpgradeAfter: 600,
             tactics: { hold: 360, holdArmy: 1.2, counter: 0.6, allIn: true, flank: 0.7, feint: 0.4, retreatAt: 0.5, focus: true,
-                       raid: true, raidAfter: 240, raidEvery: 150, raidSize: 4, raidWithWave: true, raidRetreat: 1.2, cautious: 1, repair: 0 } },
+                       raid: true, raidAfter: 240, raidEvery: 150, raidSize: 4, raidWithWave: true, raidRetreat: 1.2, cautious: 1, repair: 0,
+                       combined: false, flankers: 1, adapt: 0 } },
 };

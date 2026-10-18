@@ -380,5 +380,29 @@ section('Artillery stabilisers');
   check('artillery never fires while moving', !firedMoving);
 }
 
+section('Artillery fires on what its side can see');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const T = S.CONFIG.TILE, open = (x, y) => !S.isBlockedTile(g, Math.floor(x / T), Math.floor(y / T));
+  let P = null;
+  for (let k = 0; k < 4000 && !P; k += 8) {
+    const x = rec.x + 150 + (k % 400), y = rec.y - 200 - Math.floor(k / 400) * 40;
+    if (open(x, y) && open(x + 380, y) && open(x + 330, y + 60)) P = { x, y };
+  }
+  const art = S.addUnit(g, 'artillery', 1, P.x, P.y);
+  // A harmless target past the artillery's own sight (220) but inside its range (440).
+  const foe = S.addUnit(g, 'tank', 2, P.x + 380, P.y);
+  foe.hp = foe.maxHp = 1e6; foe.def = Object.assign({}, foe.def, { weapon: undefined });
+  run(g, S, 3);
+  check('on its own, artillery does not fire at what it cannot see', art.lastShot === undefined);
+  // A friendly Scout (unarmed for the test) spots the target.
+  const spotter = S.addUnit(g, 'scout', 1, P.x + 330, P.y + 60);
+  spotter.def = Object.assign({}, spotter.def, { weapon: undefined });
+  run(g, S, 3);
+  check('artillery fires at a target a friendly vehicle spots, out to its full range', art.lastShot !== undefined);
+}
+
 console.log(`\n${passes} passed, ${fails} failed`);
 process.exit(fails ? 1 : 0);
