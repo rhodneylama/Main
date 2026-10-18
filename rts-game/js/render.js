@@ -392,7 +392,7 @@ function drawScrap(ctx, s) {
 
 // Which design from the unit sheet (js/sprites.js) each game type uses.
 // No prototype, so a type like "constructor" isn't mistaken for a built-in.
-const SPRITE_ID = Object.assign(Object.create(null), { mobileRecycler: 'recyclerV', repairpad: 'repair', basesilo: 'silo', outsilo: 'exsilo' });
+const SPRITE_ID = Object.assign(Object.create(null), { mobileRecycler: 'recyclerV', repairpad: 'repair', basesilo: 'silo', outsilo: 'exsilo', arttower: 'towerArt', heavytower: 'towerHeavy' });
 const spriteId = type => SPRITE_ID[type] || type;
 const teamName = t => (t === 1 ? 'blue' : 'red');
 // Seconds since a gun last fired, while its recoil and muzzle flash still show.
@@ -405,7 +405,7 @@ function flashOver(ctx, x, y, r) {
 }
 
 function drawBuilding(ctx, b, selected, ghost, time) {
-  const T = CONFIG.TILE, s = b.size * T, id = spriteId(b.type), team = teamName(b.team);
+  const T = CONFIG.TILE, s = b.size * T, id = spriteId(b.variant || b.type), team = teamName(b.team);
   ctx.save();
   if (ghost) ctx.globalAlpha = 0.5;
   if (b.built < 1) {
@@ -478,7 +478,7 @@ function drawHealthBar(ctx, e, selected) {
     ctx.fillStyle = '#e8cf82'; ctx.fillRect(e.x - w / 2, y + 6, w * e.stored / e.def.store, 3);
   }
   // Upgrade and research progress (amber), shown under the health bar.
-  const work = e.kind === 'building' && (e.upgrading !== null && e.upgrading !== undefined ? e.upgrading / e.def.upgrade.time
+  const work = e.kind === 'building' && (e.upgrading !== null && e.upgrading !== undefined ? e.upgrading / upgradeOf(e).time
     : e.researching ? e.researching.t / RESEARCH[e.researching.key].time : null);
   if (work !== null && work !== undefined && work !== false) {
     ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(e.x - w / 2 - 1, y + 5, w + 2, 5);

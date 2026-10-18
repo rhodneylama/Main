@@ -13,6 +13,9 @@
 const baseType = e => (e.def && e.def.base) || e.type;
 // A building's name, including its upgrade (e.g. 'Factory II').
 const nameOf = e => (e.level > 1 && e.def.upgrade) ? e.def.upgrade.name : e.def.name;
+// The upgrade a building is working on: its single upgrade (Recycler,
+// Factory), or the option it picked (Gun Tower).
+const upgradeOf = b => b.upgradeKey ? (b.def.upgrades || []).find(o => o.key === b.upgradeKey) : b.def.upgrade;
 // What a building can make right now (upgraded buildings make more).
 const producesOf = b => (b.level > 1 && b.def.upgrade && b.def.upgrade.produces) || b.def.produces || [];
 
@@ -361,10 +364,14 @@ function issueCommand(game, team, cmd) {
     }
     case 'upgrade': {
       const b = own(cmd.buildingId);
-      if (!b || b.kind !== 'building' || b.built < 1 || !b.def.upgrade || b.level > 1 || b.upgrading !== null) return;
-      const tm = game.teams[team], up = b.def.upgrade;
+      if (!b || b.kind !== 'building' || b.built < 1 || b.level > 1 || b.upgrading !== null) return;
+      // Gun Towers choose one of several upgrades; others have just one.
+      const up = b.def.upgrades ? b.def.upgrades.find(o => o.key === cmd.option) : b.def.upgrade;
+      if (!up) return;
+      const tm = game.teams[team];
       if (tm.scrap < up.cost) { pushEvent(game, team, 'Not enough scrap', 'warn'); return; }
       tm.scrap -= up.cost;
+      b.upgradeKey = b.def.upgrades ? up.key : null;
       b.upgrading = 0;
       pushEvent(game, team, `Upgrading to ${up.name}`, 'info', b.x, b.y);
       break;
@@ -544,11 +551,17 @@ function updateBuilding(game, b, dt) {
   if (b.cooldown > 0) b.cooldown -= dt;  // reload the gun (towers, Recycler)
   if (b.upgrading !== null) {
     // Upgrading: production waits until it's done.
-    const up = b.def.upgrade;
+    const up = upgradeOf(b);
     b.upgrading += dt;
     if (b.upgrading >= up.time) {
       b.upgrading = null; b.level = 2;
       b.hp += up.hp - b.maxHp; b.maxHp = up.hp;
+      if (b.upgradeKey) {
+        // A Gun Tower becomes a different kind of tower: new name and gun.
+        b.variant = up.key;
+        b.def = Object.assign({}, b.def, { name: up.name, weapon: up.weapon, desc: up.desc, upgrades: null });
+        b.cooldown = 0;
+      }
       pushEvent(game, b.team, `${up.name} ready`, 'good', b.x, b.y);
     }
   }

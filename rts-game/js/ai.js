@@ -124,6 +124,17 @@ function aiUpdate(game, team) {
     }
   }
 
+  // --- Gun Tower upgrades: one at a time. Towers at home become Heavy Gun
+  // Towers; towers out at the Extractors become Artillery Towers (more reach).
+  if (diff.towerUpgradeAfter && game.time > diff.towerUpgradeAfter && !ai.saving && !ai.savingUp &&
+      !buildings.some(b => b.type === 'tower' && b.upgrading !== null)) {
+    const t = buildings.find(b => b.type === 'tower' && b.built >= 1 && b.level === 1);
+    if (t) {
+      const opt = BUILDING_TYPES.tower.upgrades.find(o => o.key === (dist(t, hq) < 500 ? 'heavytower' : 'arttower'));
+      if (tm.scrap >= opt.cost) cmd({ type: 'upgrade', buildingId: t.id, option: opt.key });
+    }
+  }
+
   // --- Army production -----------------------------------------------------
   const army = units.filter(u => u.def.role === 'combat');
   // Lower difficulties grow their army slowly, so you have time to prepare.

@@ -712,7 +712,7 @@ function refreshPanel() {
     if (e.kind === 'unit' && e.order.type === 'scout') extra = e.order.packId ? 'Scouting with the pack' : 'Scouting alone';
     if (e.kind === 'unit' && e.order.type === 'patrol') extra = 'On patrol';
     if (e.kind === 'unit' && e.order.type === 'guard') { const t = game.byId.get(e.order.targetId); extra = t ? `Guarding ${t.kind === 'building' ? nameOf(t) : t.def.name}` : 'Guarding'; }
-    if (e.kind === 'building' && e.upgrading !== null) extra = `Upgrading to ${d.upgrade.name} — ${Math.floor(e.upgrading / d.upgrade.time * 100)}% (production paused)`;
+    if (e.kind === 'building' && e.upgrading !== null) { const up = upgradeOf(e); extra = `Upgrading to ${up.name} — ${Math.floor(e.upgrading / up.time * 100)}%${d.produces ? ' (production paused)' : ''}`; }
     if (e.kind === 'building' && e.researching) extra = `Researching ${RESEARCH[e.researching.key].name} — ${Math.floor(e.researching.t / RESEARCH[e.researching.key].time * 100)}%`;
     if (e.type === 'radar' && e.built >= 1) extra = `Next radar ping in ${Math.ceil(e.pingTimer)}s`;
     if (e.type === 'repairpad' && e.built >= 1) extra = 'Drive damaged vehicles onto the pad to repair them.';
@@ -751,6 +751,17 @@ function refreshPanel() {
       if (first.upgrading !== null) addBtn(`Upgrading ${Math.floor(first.upgrading / up.time * 100)}%`, null, keys.shift(), () => {}, { locked: true });
       else addBtn(`Upgrade to ${up.name}`, up.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'upgrade', buildingId: first.id }),
         { title: `${up.cost} scrap, ${up.time}s. Production pauses while upgrading.` });
+    }
+    // Gun Tower: pick one of its upgrades (Artillery Tower, Heavy Gun Tower).
+    if (first.built >= 1 && first.def.upgrades && first.level === 1) {
+      if (first.upgrading !== null) {
+        const up = upgradeOf(first);
+        addBtn(`${up.name} ${Math.floor(first.upgrading / up.time * 100)}%`, null, keys.shift(), () => {}, { locked: true });
+      } else for (const up of first.def.upgrades) {
+        addBtn(`Upgrade: ${up.name}`, up.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'upgrade', buildingId: first.id, option: up.key }),
+          { title: `${up.cost} scrap, ${up.time}s. ${up.desc}` });
+      }
+      if (first.upgrading === null) tip.textContent = 'Upgrade once: an Artillery Tower shells targets far away (your side must see them); a Heavy Gun Tower is tougher and fires faster.';
     }
     // Research (Research Lab)
     if (first.built >= 1 && first.def.researches) {

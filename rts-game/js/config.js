@@ -171,7 +171,17 @@ const BUILDING_TYPES = {
   tower: {
     name: 'Gun Tower', cost: 110, buildTime: 14, hp: 1000, size: 2, sight: 300,
     weapon: { range: 250, damage: 22, cooldown: 0.9, projectile: 'shell', vsBuilding: 1 },
-    desc: 'Defensive turret. Guards your base and outposts.',
+    desc: 'Defensive turret. Guards your base and outposts. Can be upgraded to an Artillery Tower or a Heavy Gun Tower.',
+    // A finished Gun Tower can be upgraded once, to one of these. Production
+    // isn't involved; the tower keeps firing its old gun while it upgrades.
+    upgrades: [
+      { key: 'arttower', name: 'Artillery Tower', cost: 180, time: 30, hp: 1200,
+        weapon: { range: 520, minRange: 120, damage: 70, cooldown: 4.5, projectile: 'artillery', splash: 60, vsBuilding: 1.6 },
+        desc: 'Long-range shells with splash damage (range 520). Cannot hit anything closer than 120, and only hits what your side can see.' },
+      { key: 'heavytower', name: 'Heavy Gun Tower', cost: 150, time: 25, hp: 1600,
+        weapon: { range: 280, damage: 30, cooldown: 0.6, projectile: 'shell', vsBuilding: 1 },
+        desc: 'A tougher bunker with a fast twin cannon and a little more reach (range 280).' },
+    ],
   },
 };
 
@@ -193,14 +203,15 @@ const HOTKEYS = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I'];
 //   upgradeBaseAfter seconds before it upgrades its Recycler (needed to claim geysers)
 //   labAfter         seconds before it builds a Research Lab (0 = never)
 //   radarAfter       seconds before it builds a Radar (0 = never)
+//   towerUpgradeAfter seconds before it upgrades Gun Towers (0 = never)
 const DIFFICULTY = {
   easy:   { label: 'Easy',   incomeMult: 0.5,  firstAttack: 600, waveEvery: 240, waveBase: 3, waveGrowth: 0.25,
             maxArmy: 8,  armyPerMinute: 0.7, maxExtractors: 2, maxBaseSilos: 1, maxScavengers: 3, thinkEvery: 2.5, artilleryAfter: 1200, secondFactory: false,
-            upgradeBaseAfter: 300, labAfter: 0, radarAfter: 0 },
+            upgradeBaseAfter: 300, labAfter: 0, radarAfter: 0, towerUpgradeAfter: 0 },
   normal: { label: 'Normal', incomeMult: 1.0,  firstAttack: 300, waveEvery: 150, waveBase: 5, waveGrowth: 0.8,
             maxArmy: 25, armyPerMinute: 3, maxExtractors: 4, maxBaseSilos: 2, maxScavengers: 6, thinkEvery: 1.0, artilleryAfter: 240, secondFactory: true,
-            upgradeBaseAfter: 120, labAfter: 360, radarAfter: 480 },
+            upgradeBaseAfter: 120, labAfter: 360, radarAfter: 480, towerUpgradeAfter: 900 },
   hard:   { label: 'Hard',   incomeMult: 1.35, firstAttack: 180, waveEvery: 100, waveBase: 6, waveGrowth: 1.5,
             maxArmy: 40, armyPerMinute: 0, maxExtractors: 5, maxBaseSilos: 3, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true,
-            upgradeBaseAfter: 90, labAfter: 240, radarAfter: 360 },
+            upgradeBaseAfter: 90, labAfter: 240, radarAfter: 360, towerUpgradeAfter: 600 },
 };

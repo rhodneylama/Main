@@ -322,6 +322,34 @@ section('Guard');
   check('a Tank can guard a building', g1.order.type === 'guard' && S.dist(g1, tower) < 140, `${Math.round(S.dist(g1, tower))} px`);
 }
 
+section('Gun Tower upgrades');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const t1 = placeDone(S, g, 1, 'tower', { x: rec.x + 220, y: rec.y - 160 });
+  const t2 = placeDone(S, g, 1, 'tower', { x: rec.x + 120, y: rec.y - 300 });
+  g.teams[1].scrap = 300;
+  S.issueCommand(g, 1, { type: 'upgrade', buildingId: t1.id, option: 'arttower' });
+  check('an upgrade costs scrap (Artillery Tower 180)', g.teams[1].scrap === 120);
+  S.issueCommand(g, 1, { type: 'upgrade', buildingId: t1.id, option: 'heavytower' });
+  check('a tower can only upgrade one way', g.teams[1].scrap === 120);
+  run(g, S, 31);
+  check('a Gun Tower becomes an Artillery Tower', t1.variant === 'arttower' && t1.def.weapon.range === 520 && t1.def.name === 'Artillery Tower' && t1.maxHp === 1200);
+  check('the base Gun Tower type is unchanged', S.BUILDING_TYPES.tower.weapon.range === 250 && t2.def.weapon.range === 250);
+  // An enemy far beyond a Gun Tower's range, spotted by a friendly Scout.
+  const ang = Math.atan2(-1, 1), d = 460;
+  const foe = S.addUnit(g, 'tank', 2, t1.x + Math.cos(ang) * d, t1.y + Math.sin(ang) * d);
+  foe.hp = foe.maxHp = 1e6; foe.def = Object.assign({}, foe.def, { weapon: undefined });
+  S.addUnit(g, 'scout', 1, foe.x - 120, foe.y + 60);
+  run(g, S, 8);
+  check('an Artillery Tower shells a spotted enemy at long range', foe.hp < 1e6, `${Math.round(1e6 - foe.hp)} damage at ${d} px`);
+  g.teams[1].scrap = 300;
+  S.issueCommand(g, 1, { type: 'upgrade', buildingId: t2.id, option: 'heavytower' });
+  run(g, S, 26);
+  check('a Gun Tower becomes a Heavy Gun Tower', t2.variant === 'heavytower' && t2.maxHp === 1600 && t2.def.weapon.cooldown === 0.6);
+}
+
 section('Artillery stabilisers');
 {
   const S = load();
