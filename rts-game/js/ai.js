@@ -595,7 +595,7 @@ function runAssault(game, team, ai, tac, s, m, c) {
     // Wait out of range until the slow vehicles have caught up (or we're found).
     const arrived = core.filter(u => dist(u, s.stage) < 320).length >= core.length * 0.7;
     const found = game.entities.some(e => e.team === enemy && e.kind === 'unit' && e.def.weapon && dist(e, ctr) < 450 && isVisibleTo(game, team, e));
-    if (arrived || found || now - s.phaseAt > 80) s.phase = 'go';
+    if (arrived || found || now - s.phaseAt > (tac.stageWait || 80)) s.phase = 'go';
     else return;
   }
   if (s.phase === 'go') {

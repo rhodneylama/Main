@@ -8,7 +8,8 @@
 const fs = require('fs'), vm = require('vm'), path = require('path');
 const dir = path.join(__dirname, '..', '..', 'js');
 const [seed, diff, limit] = [+process.argv[2], process.argv[3] || 'normal', +(process.argv[4] || 3600)];
-const code = ['config', 'map', 'sim', 'ai'].map(f => fs.readFileSync(path.join(dir, f + '.js'), 'utf8')).join('\n') + '\n' +
+// AIFILE=path tries a different js/ai.js without touching the game's copy.
+const code = ['config', 'map', 'sim', 'ai'].map(f => fs.readFileSync(f === 'ai' && process.env.AIFILE ? process.env.AIFILE : path.join(dir, f + '.js'), 'utf8')).join('\n') + '\n' +
   ['ai_previous.js', 'ai_v2.js'].map(f => fs.readFileSync(path.join(__dirname, f), 'utf8')).join('\n');
 const OPP = process.env.OPP === 'v2' ? 'aiUpdateV2' : 'aiUpdateOld';
 const ctx = { console, Math }; vm.createContext(ctx);
