@@ -229,7 +229,10 @@ player always has ×1.
 Buildings, upgrades and research are paid for in full when started. **Vehicles
 are paid for when their turn comes** in a building's queue: you can queue as
 many as you like (up to 99 per building); if there isn't enough scrap when a
-vehicle's turn comes, the queue waits ("waiting for scrap"). Removing a
+vehicle's turn comes, the queue waits (its button says "Needs scrap"). Each
+vehicle button shows the number queued (×N), a fill for the build progress of
+the one being made, and a red − that removes one; there is no separate queue
+line. Removing a
 waiting vehicle refunds nothing (it wasn't paid for); cancelling the one
 being built refunds it. Buildings can be demolished (see section 7).
 
@@ -1039,7 +1042,10 @@ off for the opponent.
   army.
 - **Phone layout:** the start geyser was hidden behind buttons, and a long
   build list pushed the quick buttons over the map in portrait.
-- **Buttons:** the build queue's cancel buttons broke at the unit limit.
+- **Buttons:** the build queue's cancel buttons broke at the unit limit. The
+  Constructor's queue count showed program text ("function Object()…"),
+  the same built-in-name clash as the sprite bug; counts now use a clean
+  lookup table.
 - **Side bias**, from several sources: update order, route tie-breaking,
   formation tie-breaking, a non-mirrored map clearing, and decision timing.
 - **Big map:** a cross-map route took 55 ms (route smoothing re-checked long

@@ -74,9 +74,17 @@
   .cost { font-size: 12px; color: #e8cf82; }
   .note { font-size: 11px; color: var(--dim); }
   .cost::after { content: " scrap"; color: var(--dim); }
-  .queue { width: 100%; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-  .chip { padding: 2px 7px; font-size: 12px; }
-  .badge { display: inline-block; min-width: 20px; padding: 0 5px; margin-left: 2px; border-radius: 9px; background: var(--accent); color: #102010; font-size: 12px; font-weight: 700; text-align: center; }
+  /* Production buttons: a fill shows the build progress of the vehicle being
+     made, and the − corner removes one from the queue. */
+  #commands > button > * { position: relative; }
+  #commands > button > .prog { position: absolute; left: 0; top: 0; bottom: 0; border-radius: inherit;
+    background: rgba(140, 255, 160, 0.28); border-right: 2px solid var(--accent); pointer-events: none; }
+  #commands > button > .hk { position: absolute; }
+  #commands > button > .row { align-self: stretch; display: flex; flex-wrap: nowrap; align-items: center; gap: 5px; white-space: nowrap; }
+  #commands > button .minus { margin-left: auto; width: 26px; height: 20px; display: flex; align-items: center; justify-content: center;
+    font-size: 17px; font-weight: 700; color: var(--text); background: rgba(255, 90, 74, 0.4); border-radius: 4px; }
+  #commands > button .minus:hover { background: rgba(255, 90, 74, 0.6); }
+  .badge { display: inline-block; min-width: 20px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: #102010; font-size: 12px; font-weight: 700; text-align: center; }
   .tip { width: 100%; }
   #minimap-wrap { position: fixed; right: 0; bottom: 0; width: calc(232px + var(--safe-r)); height: auto;
     padding: 8px calc(8px + var(--safe-r)) calc(8px + var(--safe-b)) 8px; background: var(--panel);
@@ -173,11 +181,13 @@
     #selinfo .small { display: none; }
     #selinfo .extra { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #commands { gap: 5px; }
-    #commands > button { flex: 0 1 calc(33.3% - 4px); min-width: 0; min-height: 42px; padding: 4px 7px; font-size: 13px; text-align: left; }
+    #commands > button { flex: 0 1 calc(33.3% - 4px); min-width: 0; min-height: 38px; padding: 3px 7px; font-size: 13px; text-align: left; }
     #commands > button .lbl { line-height: 1.15; }
+    #commands > button > .row { gap: 4px; }
+    #commands > button > .row .cost::after { content: none; }
+    #commands > button .minus { width: 24px; }
     #commands > button .hk { display: none; }
     #commands .tip { width: 100%; }
-    .chip { min-height: 32px; }
     .tip { font-size: 11px; }
     #minimap-wrap { top: calc(var(--top-h) + 6px); bottom: auto; right: calc(6px + var(--safe-r)); width: auto; height: auto; padding: 4px;
       border: 1px solid var(--edge); border-radius: 4px; }
@@ -345,8 +355,7 @@
       <tr><td><b>Demolish</b></td><td>Select a building and press Demolish, then Confirm. Half its cost is left on the ground as scrap for Scavengers.</td></tr>
       <tr><td><b>Upgrades</b></td><td>Select your Recycler or a Factory and press Upgrade. Recycler II builds Scavenger IIs (the only ones that can deploy on geysers) and Constructor IIs (the only ones that can repair). Factory II builds researched Mk II vehicles. A Gun Tower can upgrade once: an <b>Artillery Tower</b> (long range, splash, needs your side to see the target) or a <b>Heavy Gun Tower</b> (tougher, faster).</td></tr>
       <tr><td><b>Research</b></td><td>Build a Research Lab and research Advanced Scouts, Tanks or Artillery, one at a time. Mk II vehicles have more armour, damage and speed.</td></tr>
-      <tr><td><b>Building vehicles</b></td><td>Press a vehicle's button once per vehicle; it shows how many are queued. No limit: each is paid for when it starts. Tap − on the queue line to remove one.</td></tr>
-      <tr><td><b>Building vehicles</b></td><td>Press a vehicle's button once per vehicle; it shows how many are queued. No limit: each is paid for when it starts. Tap − on the queue line to remove one.</td></tr>
+      <tr><td><b>Building vehicles</b></td><td>Press a vehicle's button once per vehicle; it shows how many are queued. No limit: each is paid for when it starts. The button fills up as it builds; tap its red − to remove one.</td></tr>
       <tr><td><b>Go repair</b></td><td>Sends damaged vehicles to your nearest Repair Pad. Every kind of vehicle parked on the pad is repaired; workers wait there until they're fixed.</td></tr>
       <tr><td><b>Recycle</b></td><td>Only on a Repair Pad. Select a vehicle parked on the pad (or the pad itself), press Recycle, then Confirm recycle. You get back half its cost. The Recycler can't be recycled.</td></tr>
 </table>

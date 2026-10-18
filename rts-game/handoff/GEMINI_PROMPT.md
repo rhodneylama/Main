@@ -71,7 +71,7 @@ rebuild the game from the specification.
 | `09-phone-portrait-help.png` | The help screen |
 | `10-computer-vs-computer-10-minutes.png` | Watch mode, 10 minutes into an AI-vs-AI game |
 | `11-map-overview-seed-42.png` | The whole map (seed 42): terrain, the 12 geysers (yellow, with 10-tile rings), scrap fields, both bases |
-| `12-production-queue-desktop.png` | A Factory with a long queue: ×N counts on the buttons, per-type chips with − to cancel |
+| `12-production-queue-desktop.png` | A Factory with a long queue: each vehicle button shows ×N queued, a progress fill and a red − to remove one |
 | `13-groups-menu-desktop.png` | The Groups menu: unit groups 1 to 9 with Set buttons |
 
 ---

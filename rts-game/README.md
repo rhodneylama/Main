@@ -108,10 +108,11 @@ Constructor IIs. A Factory upgrades to **Factory II** (200 scrap, 30 s), which b
 vehicles. Production pauses while a building upgrades.
 
 **Building vehicles:** press a vehicle's button once for each one you want;
-the button shows how many are queued (Tank ×7). There's no limit. Each is paid
+the button shows how many are queued (×7), fills up as the current one is
+built, and says "Needs scrap" while it waits. There's no limit. Each is paid
 for when it starts building, so a long queue simply waits when you're short of
-scrap. The queue line shows one entry per vehicle type: tap its − to remove
-one. On a keyboard, Shift-click queues five.
+scrap. Tap the red − on the button to remove one. On a keyboard, Shift-click
+queues five.
 
 ### Scrap and storage
 

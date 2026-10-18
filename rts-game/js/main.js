@@ -287,7 +287,7 @@ function toggleGroupMenu() {
     const key = String(i), g = groupMembers(key);
     const row = document.createElement('div'); row.className = 'grow';
     const pick = document.createElement('button'); pick.className = 'gsel';
-    const kinds = {}; for (const u of g) kinds[u.def.name] = (kinds[u.def.name] || 0) + 1;
+    const kinds = Object.create(null); for (const u of g) kinds[u.def.name] = (kinds[u.def.name] || 0) + 1;
     pick.innerHTML = `<span class="gnum">${key}</span> ${g.length ? Object.entries(kinds).map(([n, c]) => `${c} ${n}`).join(', ') : '<span class="dim">empty</span>'}`;
     pick.disabled = !g.length;
     onPress(pick, () => { menu.classList.add('hidden'); recallGroup(key); });
@@ -682,7 +682,7 @@ function refreshPanel() {
     sel.map(e => [e.level, e.upgrading !== null && e.upgrading !== undefined ? Math.floor(e.upgrading) : -1, e.researching ? e.researching.key + Math.floor(e.researching.t) : 0, e.hp < e.maxHp]),
     Object.keys(game.teams[view.team].research).join(), game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1),
     game.entities.filter(b => b.team === view.team && b.researching).map(b => b.researching.key + Math.floor(b.researching.t / 3)).join(),
-    sel.map(e => [e.built >= 1, e.queue && e.queue.join(), e.queue && e.queue.length && Math.floor(e.prodTime), e.blocked, e.waiting]),
+    sel.map(e => [e.built >= 1, e.queue && e.queue.join(), e.blocked, e.waiting]),
     Object.values(UNIT_TYPES).concat(Object.values(BUILDING_TYPES)).map(d => game.teams[view.team].scrap >= d.cost)]) : '';
   const rebuild = key !== panelKey;
   panelKey = key;
@@ -719,23 +719,44 @@ function refreshPanel() {
     info.innerHTML = `<div class="selname" style="color:${TEAMS[e.team].color}">${e.kind === 'building' ? nameOf(e) : d.name}<span class="hp">Health ${Math.ceil(e.hp)} / ${e.maxHp}</span></div>
       <div class="dim extra">${extra}</div><div class="dim small">${d.desc}</div>`;
   } else {
-    const counts = {};
+    const counts = Object.create(null);
     for (const e of sel) counts[e.def.name] = (counts[e.def.name] || 0) + 1;
     info.innerHTML = `<div class="selname">${sel.length} vehicles</div>` +
       `<div class="extra">${Object.entries(counts).map(([n, c]) => `${c} × ${n}`).join(' · ')}</div>`;
+  }
+  // The build progress inside a production button moves every frame without
+  // rebuilding the panel.
+  if (own && !rebuild && sel[0].queue && sel[0].queue.length) {
+    const bar = cmds.querySelector('.prog');
+    if (bar) bar.style.width = `${Math.min(100, sel[0].prodTime / UNIT_TYPES[sel[0].queue[0]].buildTime * 100)}%`;
   }
   if (!own || !rebuild) return;
 
   const addBtn = (label, cost, hotkey, onClick, opts = {}) => {
     const b = document.createElement('button');
     b.dataset.hotkey = hotkey;
-    b.innerHTML = `<span class="hk">${hotkey || ''}</span><span class="lbl">${label}${opts.badge ? ` <span class="badge">×${opts.badge}</span>` : ''}</span>` +
-      (opts.note ? `<span class="note">${opts.note}</span>` : cost !== null ? `<span class="cost">${cost}</span>` : '');
+    // Production buttons get a second row: price (or a note), how many are
+    // queued, and a − that removes one.
+    const sub = (opts.note ? `<span class="note">${opts.note}</span>` : cost !== null ? `<span class="cost">${cost}</span>` : '') +
+      (opts.badge ? `<span class="badge">×${opts.badge}</span>` : '');
+    b.innerHTML = `<span class="hk">${hotkey || ''}</span><span class="lbl">${label}</span>` +
+      (opts.badge || opts.onCancel ? `<span class="row">${sub}</span>` : sub);
     if (opts.title) b.title = opts.title;
     if (opts.active) b.classList.add('active');
     if (opts.primary) b.classList.add('primary');
     if (opts.danger) b.classList.add('danger');
     if ((cost && game.teams[view.team].scrap < cost) || opts.locked) b.classList.add('poor');
+    if (opts.progress !== null && opts.progress !== undefined) {
+      const bar = document.createElement('span'); bar.className = 'prog';
+      bar.style.width = `${Math.min(100, opts.progress * 100)}%`;
+      b.prepend(bar); b.classList.add('making');
+    }
+    if (opts.onCancel) {
+      const x = document.createElement('span'); x.className = 'minus'; x.textContent = '−';
+      x.title = `Remove one ${label} from the queue`;
+      x.addEventListener('mousedown', e => { e.stopPropagation(); e.preventDefault(); if (e.button === 0) { opts.onCancel(); sound('click'); } });
+      b.querySelector('.row').appendChild(x);
+    }
     onPress(b, () => { onClick(); sound('click'); });
     cmds.appendChild(b);
   };
@@ -775,31 +796,23 @@ function refreshPanel() {
       }
     }
     if (first.built >= 1 && first.def.produces) {
-      // Each press queues one more (Shift-click queues five). The button shows
-      // how many of that vehicle are waiting; the queue has no fixed limit.
-      const counts = {};
+      // Each press queues one more (Shift-click queues five). The button itself
+      // shows how many are queued, the build progress of the one being made,
+      // and a − corner that removes one. (Object.create(null): a plain {} would
+      // already hold "constructor".)
+      const counts = Object.create(null);
       for (const t of first.queue) counts[t] = (counts[t] || 0) + 1;
+      const now = first.queue[0];
       producesOf(first).forEach(type => {
         const d = UNIT_TYPES[type];
         const needs = d.requires && !tm.research[d.requires];
+        const building = type === now;
+        const note = needs ? 'Research first' : building && first.waiting ? 'Needs scrap' : building && first.blocked ? 'Unit limit' : null;
         addBtn(d.name, d.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'produce', buildingId: first.id, unit: type, count: input.keys.has('Shift') ? 5 : 1 }),
-          { title: `${d.name} — ${d.cost} scrap each, ${d.buildTime}s. Paid when it starts building.\n${d.desc}`, locked: needs, note: needs ? 'Research first' : null, badge: counts[type] });
+          { title: `${d.name} — ${d.cost} scrap each, ${d.buildTime}s. Paid when it starts building.\n${d.desc}`, locked: needs, note, badge: counts[type],
+            progress: building && !first.waiting && !first.blocked ? first.prodTime / d.buildTime : null,
+            onCancel: counts[type] ? () => { issueCommand(game, view.team, { type: 'cancel', buildingId: first.id, unit: type }); refreshPanel(); } : null });
       });
-      if (first.queue.length) {
-        // One line per vehicle type, in the order they were queued.
-        const q = document.createElement('div'); q.className = 'queue';
-        const now = UNIT_TYPES[first.queue[0]];
-        const state = first.waiting ? `waiting for scrap (needs ${now.cost})` : first.blocked ? 'unit limit reached' : `${Math.floor(first.prodTime / now.buildTime * 100)}%`;
-        q.innerHTML = `<span class="small">Building ${now.name}: <span class="${first.waiting || first.blocked ? 'warn' : 'dim'}">${state}</span></span>`;
-        for (const type of Object.keys(counts)) {
-          const chip = document.createElement('button'); chip.className = 'chip';
-          chip.innerHTML = `${UNIT_TYPES[type].name} ×${counts[type]} <span class="dim">−</span>`;
-          chip.title = `Remove one ${UNIT_TYPES[type].name} from the queue`;
-          onPress(chip, () => { issueCommand(game, view.team, { type: 'cancel', buildingId: first.id, unit: type }); refreshPanel(); });
-          q.appendChild(chip);
-        }
-        cmds.appendChild(q);
-      }
       // Waypoint: where every new vehicle from this building drives to.
       addBtn(first.rally ? 'Move waypoint' : 'Set waypoint', null, keys.shift(), () => { view.aim = 'rally'; refreshPanel(); },
         { active: view.aim === 'rally', title: 'New vehicles drive straight to the waypoint' });
