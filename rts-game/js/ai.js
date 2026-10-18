@@ -147,7 +147,7 @@ function aiUpdate(game, team) {
     if (units.length >= CONFIG.UNIT_CAP - 2) continue;
     const scouts = count('scout'), tanks = count('tank'), arty = count('artillery');
     let pick = 'tank';
-    if (diff.tactics && diff.tactics.adapt && ai.intel) pick = adaptiveMix(ai.intel, diff, scouts, tanks, arty, game.time);
+    if (diff.tactics && diff.tactics.adapt && ai.intel) pick = adaptiveMix(ai.intel, diff, scouts, tanks, arty, army.length, game.time);
     else if (scouts < 2 || scouts * 4 < army.length) pick = 'scout';
     else if (arty * 4 < tanks && game.time > diff.artilleryAfter) pick = 'artillery';
     // Keep a reserve for the builder, and hold off while saving for a Base Silo.
@@ -342,24 +342,18 @@ function updateIntel(game, team, ai) {
   I.towers = towers; I.extractors = extractors;
 }
 
-// Which vehicle to build next, answering what the enemy fields: Artillery to
-// crack Gun Towers and massed Tanks, Scouts to run down enemy Artillery, and
-// Tanks against swarms of Scouts. Always at least two Scouts for raids.
-function adaptiveMix(I, diff, scouts, tanks, arty, time) {
-  if (scouts < 2) return 'scout';
-  const a = diff.tactics.adapt, eT = I.tank, eA = I.artillery, eS = I.scout, eAll = eT + eA + eS || 1;
-  const want = {
-    scout: 0.22 + a * (0.2 * eA / eAll - 0.1 * eS / eAll),
-    artillery: time > diff.artilleryAfter ? 0.17 + a * (0.12 * Math.min(1, I.towers / 3) + 0.1 * eT / eAll) : 0,
-  };
-  want.tank = 1 - want.scout - want.artillery;
-  const have = { scout: scouts, tank: tanks, artillery: arty }, total = scouts + tanks + arty + 1;
-  let pick = 'tank', gap = -Infinity;
-  for (const k of ['tank', 'scout', 'artillery']) {
-    const g = want[k] * total - have[k];
-    if (g > gap) { gap = g; pick = k; }
-  }
-  return pick;
+// Which vehicle to build next. The usual mix (a Scout for every three other
+// vehicles, an Artillery for every four Tanks) won the most in testing, so the
+// opponent only bends it to answer what it has seen: extra Artillery to crack
+// a defence of Gun Towers, extra Scouts to run down enemy Artillery.
+function adaptiveMix(I, diff, scouts, tanks, arty, army, time) {
+  const a = diff.tactics.adapt;
+  const scoutShare = 0.25 + a * (I.artillery >= 2 ? 0.1 : 0);
+  if (scouts < 2 || scouts < army * scoutShare) return 'scout';
+  if (time <= diff.artilleryAfter) return 'tank';
+  const siege = a * Math.min(3, Math.floor(I.towers / 2));   // extra guns against towers
+  if (arty * 4 < tanks || arty < siege) return 'artillery';
+  return 'tank';
 }
 
 // --- Combined arms -------------------------------------------------------------
