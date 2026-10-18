@@ -31,7 +31,7 @@ function startGame(difficulty, watch = false) {
   buildTerrain(game);
   minimapBase = null;
   view.selected = []; view.placing = null; view.revealAll = watch; view.pings = []; view.alerts = [];
-  input.groups = {};
+  input.groups = {}; view.groupOf = new Map();
   resize();
   // Small screens start zoomed out so more of the battlefield fits.
   view.cam.zoom = Math.max(0.55, Math.min(1, Math.min(view.screenW, view.screenH) / 700));
@@ -249,6 +249,63 @@ function aimAt(w, pad) {
   }
   sound('ack');
   view.aim = null; refreshPanel();
+}
+
+// Unit groups, as in Battlezone 2: save the selected vehicles as group 1–9
+// and pick them again with one press. Pressing a group twice quickly jumps
+// the camera to it. Destroyed vehicles drop out of their group.
+const GROUP_MENU_SIZE = 6;
+function groupMembers(key) {
+  return (input.groups[key] || []).map(id => game.byId.get(id)).filter(u => u && u.hp > 0 && u.team === view.team);
+}
+function setGroup(key) {
+  const units = mine(view.selected).filter(u => u.kind === 'unit');
+  if (!units.length) { logMessage('Select some vehicles first', 'warn'); sound('error'); return; }
+  // A vehicle belongs to one group at a time.
+  for (const k of Object.keys(input.groups)) input.groups[k] = input.groups[k].filter(id => !units.some(u => u.id === id));
+  input.groups[key] = units.map(u => u.id);
+  view.groupOf = new Map();
+  for (const [k, ids] of Object.entries(input.groups)) for (const id of ids) view.groupOf.set(id, k);
+  logMessage(`Group ${key} set: ${units.length} vehicle${units.length > 1 ? 's' : ''}`, 'info');
+  sound('ack');
+}
+function recallGroup(key) {
+  const g = groupMembers(key);
+  if (!g.length) { logMessage(`Group ${key} is empty`, 'info'); return; }
+  const now = performance.now();
+  if (input.lastGroup === key && now - input.lastGroupAt < 400) centerOn(g[0]);
+  input.lastGroup = key; input.lastGroupAt = now;
+  select(g);
+}
+function toggleGroupMenu() {
+  const menu = $('groupmenu');
+  if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
+  $('armymenu').classList.add('hidden');
+  const canSet = mine(view.selected).some(u => u.kind === 'unit');
+  menu.innerHTML = '';
+  for (let i = 1; i <= GROUP_MENU_SIZE; i++) {
+    const key = String(i), g = groupMembers(key);
+    const row = document.createElement('div'); row.className = 'grow';
+    const pick = document.createElement('button'); pick.className = 'gsel';
+    const kinds = {}; for (const u of g) kinds[u.def.name] = (kinds[u.def.name] || 0) + 1;
+    pick.innerHTML = `<span class="gnum">${key}</span> ${g.length ? Object.entries(kinds).map(([n, c]) => `${c} ${n}`).join(', ') : '<span class="dim">empty</span>'}`;
+    pick.disabled = !g.length;
+    onPress(pick, () => { menu.classList.add('hidden'); recallGroup(key); });
+    const set = document.createElement('button'); set.className = 'gset'; set.textContent = 'Set';
+    set.title = `Save the selected vehicles as group ${key}`;
+    set.disabled = !canSet;
+    onPress(set, () => { setGroup(key); menu.classList.add('hidden'); });
+    row.append(pick, set); menu.appendChild(row);
+  }
+  const note = document.createElement('div'); note.className = 'note';
+  note.textContent = canSet ? 'Set saves the selected vehicles into that group.' : 'Select vehicles, then press Set to save them as a group.';
+  if (!isTouch) note.textContent += ' Keys: Ctrl+1–9 to set, 1–9 to pick (twice to jump).';
+  menu.appendChild(note);
+  const r = $('q-groups').getBoundingClientRect();
+  menu.style.top = `${r.bottom + 6}px`;
+  menu.classList.remove('hidden');
+  // Under the button, but never off the right edge of the screen.
+  menu.style.left = `${Math.max(6, Math.min(r.left, window.innerWidth - menu.offsetWidth - 6))}px`;
 }
 
 // The Army button opens a menu: everyone, or just one kind of vehicle.
@@ -524,17 +581,9 @@ window.addEventListener('keydown', e => {
     else select([]);
     return;
   }
-  if (/^[0-9]$/.test(e.key)) {
-    if (e.ctrlKey || e.metaKey) { input.groups[e.key] = mine(view.selected).map(x => x.id); logMessage(`Group ${e.key} set`, 'info'); e.preventDefault(); }
-    else {
-      const g = (input.groups[e.key] || []).map(id => game.byId.get(id)).filter(Boolean);
-      if (g.length) {
-        const now = performance.now();
-        if (input.lastGroup === e.key && now - input.lastGroupAt < 350) centerOn(g[0]);
-        input.lastGroup = e.key; input.lastGroupAt = now;
-        select(g);
-      }
-    }
+  if (/^[1-9]$/.test(e.key)) {
+    if (e.ctrlKey || e.metaKey) { setGroup(e.key); e.preventDefault(); }
+    else recallGroup(e.key);
     return;
   }
   if (e.key === 'Enter' && view.placing) { confirmPlacement(); return; }
@@ -582,7 +631,7 @@ function select(list) {
   const units = list.filter(e => e.kind === 'unit');
   view.selected = units.length ? units : list.slice(0, 1);
   view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
-  $('armymenu').classList.add('hidden');
+  $('armymenu').classList.add('hidden'); $('groupmenu').classList.add('hidden');
   if (view.selected.length && view.selected[0].team === view.team) sound('select');
   refreshPanel();
 }
@@ -989,7 +1038,8 @@ function setMinimapCollapsed(on) {
 }
 try { setMinimapCollapsed(localStorage.getItem('scrapline.minimapCollapsed') === '1'); } catch (err) { setMinimapCollapsed(false); }
 onPress($('maptoggle'), () => setMinimapCollapsed(!minimapCollapsed));
-onPress($('q-army'), () => game && toggleArmyMenu());
+onPress($('q-army'), () => { if (!game) return; $('groupmenu').classList.add('hidden'); toggleArmyMenu(); });
+onPress($('q-groups'), () => game && toggleGroupMenu());
 for (const b of document.querySelectorAll('#armymenu button')) onPress(b, () => game && selectArmyType(b.dataset.army));
 onPress($('q-base'), () => game && centerOn(findHQ(view.team)));
 onPress($('q-idle'), () => game && idleWorker());

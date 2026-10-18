@@ -94,6 +94,15 @@
   #armymenu button { background: #1d2a1d; border-color: #5a7a56; min-height: 38px; }
   #armymenu button:disabled { opacity: .4; cursor: default; }
   #armymenu .n { color: var(--dim); margin-left: 4px; font-variant-numeric: tabular-nums; }
+  /* Groups menu: one row per group, select it or save the selection into it. */
+  #groupmenu { position: fixed; top: calc(var(--top-h) + 6px); z-index: 6; display: flex; flex-direction: column; gap: 5px;
+    background: var(--panel); border: 1px solid var(--edge); border-radius: 6px; padding: 6px; min-width: 220px; }
+  #groupmenu .grow { display: flex; gap: 5px; }
+  #groupmenu .gsel { flex: 1; text-align: left; min-height: 38px; background: #1d2a1d; border-color: #5a7a56; }
+  #groupmenu .gsel:disabled { opacity: .45; cursor: default; }
+  #groupmenu .gset { min-height: 38px; min-width: 56px; }
+  #groupmenu .gnum { display: inline-block; min-width: 18px; font-weight: 700; color: var(--accent); }
+  #groupmenu .note { font-size: 11px; color: var(--dim); padding: 2px 2px 0; }
 
   /* Messages */
   #log { position: fixed; top: calc(var(--top-h) + 10px); left: calc(14px + var(--safe-l)); max-width: 60vw; z-index: 4; pointer-events: none; display: flex; flex-direction: column; gap: 3px; }
@@ -182,6 +191,14 @@
   /* Phone held sideways: little height to spare, so the quick buttons stack
      down the left edge instead of covering the middle of the map. */
   @media (max-height: 520px) {
+    /* Keep the top bar to one row: no clock, Pause as a symbol. */
+    #clock { display: none; }
+    #pausebtn .ptext { display: none; }
+    #pausebtn .picon { display: inline-block; }
+    /* Groups menu in two columns so it fits the short screen. */
+    #groupmenu { display: grid; grid-template-columns: 1fr 1fr; min-width: 0; width: min(520px, calc(100vw - 20px)); }
+    #groupmenu .gsel, #groupmenu .gset { min-height: 32px; padding: 3px 8px; }
+    #groupmenu .note { grid-column: 1 / -1; }
     /* Sideways there's room for the quick buttons on the top bar's one row. */
     #quickbar { order: 0; flex-basis: auto; }
     #quickbar button { flex: none; min-height: 32px; padding: 4px 9px; font-size: 12px; }
@@ -225,8 +242,9 @@
   </div>
   <div id="quickbar">
     <button id="q-army" title="Select your combat vehicles: all, or one kind">Army ▾</button>
+    <button id="q-groups" title="Unit groups: save a selection, pick it again later (Ctrl+1–9 / 1–9)">Groups ▾</button>
     <button id="q-base" title="Jump to your Recycler (H)">Base</button>
-    <button id="q-idle" title="Find an idle worker (X)">Idle worker</button>
+    <button id="q-idle" title="Find an idle worker (X)">Idle<span class="wide"> worker</span></button>
     <button id="q-clear" title="Deselect (Esc)">Deselect</button>
   </div>
   <div class="spacer"></div>
@@ -250,6 +268,7 @@
   <div id="selinfo"></div>
   <div id="commands"></div>
 </div>
+<div id="groupmenu" class="hidden"></div>
 <div id="armymenu" class="hidden">
   <button data-army="all">All combat <span class="n">0</span></button>
   <button data-army="scout">Scouts <span class="n">0</span></button>

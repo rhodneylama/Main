@@ -262,6 +262,18 @@ function drawGame(ctx, game, view) {
     if (sel || e.hp < e.maxHp || (e.kind === 'building' && e.built < 1) || showStore || hurtShield || busy) drawHealthBar(ctx, e, sel);
   }
 
+  // Group numbers beside your vehicles that belong to a group.
+  if (view.groupOf && view.groupOf.size) {
+    ctx.font = 'bold 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const e of game.entities) {
+      const k = e.kind === 'unit' && e.team === team && view.groupOf.get(e.id);
+      if (!k || !onScreen(e.x, e.y)) continue;
+      const x = e.x + e.radius + 4, y = e.y - e.radius - 2;
+      ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(x - 6, y - 6, 12, 12);
+      ctx.fillStyle = '#8cffa0'; ctx.fillText(k, x, y + 0.5);
+    }
+  }
+
   // Command pings (where you just clicked)
   for (const p of view.pings) {
     const k = p.t / 0.5;
