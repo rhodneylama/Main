@@ -864,7 +864,7 @@ function followPath(game, u, dt, stopDist = 6) {
     if (d < u.bestD - 1) { u.bestD = d; u.noGain = 0; } else u.noGain += dt;
     if (u.noGain > 2 && d < 120) { u.path = []; return true; }
   }
-  const want = angleTo(u, wp);
+  const want = avoidSteer(game, u, angleTo(u, wp));
   u.movingTick = game.tick;
   u.angle = turnToward(u.angle, want, 5 * dt);
   const facing = Math.cos(wrapAngle(want - u.angle));
@@ -880,6 +880,30 @@ function followPath(game, u, dt, stopDist = 6) {
     u.stuck = 1.21 + (u.stuck - 1.2) * 0.5;
   }
   return false;
+}
+
+// Look a little way ahead for another vehicle in the way and steer round it.
+// Something dead ahead is passed on the right, so two vehicles meeting head-on
+// both turn the same way and slide past each other instead of shoving.
+function avoidSteer(game, u, want) {
+  const look = u.radius * 2 + u.def.speed * 0.7;
+  const fx = Math.cos(want), fy = Math.sin(want);
+  let ahead = Infinity, lat = 0, clear = 0;
+  for (const o of game.entities) {
+    if (o === u || o.kind !== 'unit' || o.hp <= 0) continue;
+    const rx = o.x - u.x, ry = o.y - u.y;
+    if (rx > look + 40 || rx < -look - 40 || ry > look + 40 || ry < -look - 40) continue;
+    const a = rx * fx + ry * fy;
+    if (a <= 0 || a > look || a >= ahead) continue;
+    const l = -rx * fy + ry * fx;               // how far to our right it is
+    const c = u.radius + o.radius + 4;
+    if (Math.abs(l) >= c) continue;
+    ahead = a; lat = l; clear = c;
+  }
+  if (ahead === Infinity) return want;
+  // The closer and more central the obstacle, the harder the turn.
+  const turn = 0.95 * (1 - Math.abs(lat) / clear) * (1 - 0.5 * ahead / look) + 0.25;
+  return want + (lat > 3 ? -turn : turn);
 }
 
 function moveWithCollision(game, u, dx, dy) {
@@ -898,13 +922,20 @@ function separateUnits(game) {
     for (let j = i + 1; j < units.length; j++) {
       const b = units[j];
       const dx = b.x - a.x, dy = b.y - a.y;
-      const min = a.radius + b.radius;
+      // Two Scavengers of the same side may squeeze closer, so they can
+      // slip past each other on busy runs between a field and the base.
+      const workers = a.team === b.team && a.def.role === 'harvester' && b.def.role === 'harvester';
+      const min = (a.radius + b.radius) * (workers ? 0.6 : 1);
       if (Math.abs(dx) > min || Math.abs(dy) > min) continue;
       const d = Math.hypot(dx, dy) || 0.01;
       if (d < min) {
-        const push = (min - d) * 0.3, px = dx / d * push, py = dy / d * push;
-        moveWithCollision(game, a, -px, -py);
-        moveWithCollision(game, b, px, py);
+        // A moving vehicle shoulders a parked one aside rather than both
+        // stopping: the parked one takes most of the push.
+        const am = a.movingTick === game.tick, bm = b.movingTick === game.tick;
+        const ka = am === bm ? 0.3 : am ? 0.1 : 0.5, kb = am === bm ? 0.3 : bm ? 0.1 : 0.5;
+        const over = min - d, ux = dx / d, uy = dy / d;
+        moveWithCollision(game, a, -ux * over * ka, -uy * over * ka);
+        moveWithCollision(game, b, ux * over * kb, uy * over * kb);
       }
     }
   }
