@@ -156,8 +156,9 @@ errors and show something new. Tell the owner what to try at each stage.
    describes, with the three difficulty levels of section 14 (including the
    economy report's changes: more Extractors, fewer Scavengers once geysers
    run). Normal and Hard use the **tactics** in section 13 (hold, counter,
-   flank, feint, retreat, focus fire, raids) with the per-difficulty settings
-   in section 14.
+   flank, combined arms, fire by role, feint, retreat and retreat trap,
+   raids, adaptive army mix) with the per-difficulty settings in section 14.
+   Artillery fires on anything its side can see out to its full range.
 10. **Screens and polish.** Pause screen (Resume, Help), help, end screen
     with stats, sound, messages, alerts, Watch AI vs AI mode (`?watch`), the
     `?seed=N` address option, phone layouts.

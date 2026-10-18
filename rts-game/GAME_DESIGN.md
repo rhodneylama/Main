@@ -1067,6 +1067,38 @@ repair trips 3. Holding back early and then striking together gave the
 biggest single gain (20 of 32 against a baseline of 15). Repair trips stay
 off for the opponent.
 
+### AI duel results: combined arms (19 October 2026)
+
+The combined-arms opponent (team 1) against the 18 October opponent
+(`ai_v2.js`, team 2) on Hard, same seeds. The baseline is the 18 October
+opponent on both sides.
+
+| Seeds | Combined-arms opponent wins | Baseline team 1 wins |
+| --- | --- | --- |
+| 1–64 | **33** (31 lost) | 29 |
+| 65–128 | **34** (30 lost) | 24 |
+| All 128 | **67** | 53 (+14) |
+| Normal, 1–32 | **18** (14 lost) | 15 |
+
+Against the first opponent (`ai_previous.js`) on Hard, seeds 1–64, it wins
+35 (the 18 October one won 38 there; the difference is within chance).
+
+What was tried on the way (Hard, 32 seeds unless noted, baseline 15):
+
+| Variant | Wins | Kept? |
+| --- | --- | --- |
+| First adaptive mix (shift toward Artillery and Scouts by what was seen) | 3 of 16 (baseline 7) | No: fielded far fewer vehicles |
+| Conservative adaptive mix | 7 of 16 (baseline 7) | Yes |
+| Combined-arms assault, gathering out of range first | 13 to 15 | No: the wait cost more than it gained |
+| Combined-arms assault, straight in | 16 | Yes |
+| Fire by role | 15 | Yes |
+| Damaged vehicles back out of fights; Artillery backs away | 11 | No |
+| Two more Scouts; one more geyser; attacking Extractors first | 14 to 15 | No |
+| Retreat at 35% or 70% strength; smaller counter-attacks; always flank; more raids | 14 to 15 | No |
+| Hold for 1.6 waves | 17, then 12 on seeds 33–64 | No |
+| **No opening feint** | **19, then 16 on seeds 33–64** (baseline 14) | **Yes, on Hard** |
+| Retreat trap | 34 of 64 (baseline 29) | Yes |
+
 ### Bugs these tests have caught (for reference)
 
 - **Combat:** gun towers never reloaded; building guns were outranged by
@@ -1324,3 +1356,11 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     smoother traffic. Normal and Hard opponents now hold, counter-attack,
     flank, feint, retreat, focus fire and raid Extractors (section 13), and
     upgrade their towers. Duel tool added under `tests/balance/`.
+20. **Combined arms** (19 October 2026): on Normal and Hard the opponent's
+    Tanks lead assaults while its Artillery shells Gun Towers from behind
+    them and its Scouts strike elsewhere at the same moment; every vehicle
+    picks targets for its job; its army mix answers what it has seen of
+    yours; a retreat can spring a trap. Artillery now fires on anything its
+    side can see out to its full range (for both sides), so Tanks, Scouts
+    and Radar spot for it. The opening feint is off on Hard. Tested over 128
+    Hard games against the 18 October opponent (section 20).
