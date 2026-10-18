@@ -45,11 +45,11 @@ Read them in this order:
 | --- | --- | --- | --- |
 | 1 | `PROMPT.md` | This prompt | Your instructions |
 | 2 | `docs/GAME_DESIGN.md` | **The full specification**: every rule, every number, the computer opponent's logic, controls, screen layout, art, testing, known problems and design decisions (about 1,200 lines) | **The source of truth.** Build exactly what it describes. Where anything else disagrees with it, it wins (except the economy numbers; see the next row). |
-| 3 | `docs/ECONOMY_TEST_REPORT.md` | The most recent balance round: why there are 12 geysers, the Extractor, Transport and opponent settings, with test results | Use the values listed as **"in the game now"** (option A). Its *recommendations* (option E) are **not** applied yet; build option A. |
+| 3 | `docs/ECONOMY_TEST_REPORT.md` | The most recent balance round: why there are 12 geysers, the Extractor and opponent settings, with test results (Transports and Extractor Silos have since been **removed**; ignore those parts) | Use the values listed as **"in the game now"** (option A). Its *recommendations* (option E) are **not** applied yet; build option A. |
 | 4 | `docs/README.md` | The player's guide: how to play, controls, unit and building tables | Use it for in-game text and help screens. It must match how your game behaves. |
 | 5 | `docs/UNIT_SPRITES.md` | The art brief for the unit design sheet | How to wire the art into your drawing code. |
 | 6 | `assets/sprites.js` | **The owner's own vehicle and building designs**, as finished vector-drawing code | **Use this file as it is.** Don't redraw or restyle the units. See section 6.4. |
-| 7 | `tests/rules.js` | An automatic test of the game rules (43 checks), run with Node.js | Your version must pass it. See section 7. |
+| 7 | `tests/rules.js` | An automatic test of the game rules (61 checks), run with Node.js | Your version must pass it. See section 7. |
 | 8 | `screenshots/` | 13 pictures of the current game on desktop and phone | What the finished game should look and feel like. Match the layout and feel; you don't have to match it pixel for pixel. |
 | 9 | `docs/ROADMAP.md` | Possible future stages | Background only. **Don't build** anything that is only on the roadmap. |
 
@@ -63,7 +63,7 @@ rebuild the game from the specification.
 | `01-title-screen-desktop.png` | Title screen: mission summary, difficulty, Start, Watch AI vs AI |
 | `02-game-start-desktop.png` | The first moments: mobile Recycler selected, geyser nearby |
 | `03-base-and-army-desktop.png` | A base (Recycler, Factory, Base Silo, Gun Tower, Repair Pad) and 5 selected Tanks |
-| `04-all-units-and-buildings.png` | Every vehicle (both teams, basic and Mk II) and every building, from `sprites.js` |
+| `04-all-units-and-buildings.png` | Every vehicle (both teams, basic and Mk II) and every building, including the Artillery Tower and Heavy Gun Tower, from `sprites.js` |
 | `05-factory-selected-desktop.png` | A building's command panel |
 | `06-phone-portrait-start.png`, `06-phone-landscape-start.png` | Phone layouts at the start |
 | `07-phone-portrait-constructor-selected.png`, `07-phone-landscape-constructor-selected.png` | Phone command panel: buttons wrap in rows, no sideways scrolling |
@@ -71,6 +71,8 @@ rebuild the game from the specification.
 | `09-phone-portrait-help.png` | The help screen |
 | `10-computer-vs-computer-10-minutes.png` | Watch mode, 10 minutes into an AI-vs-AI game |
 | `11-map-overview-seed-42.png` | The whole map (seed 42): terrain, the 12 geysers (yellow, with 10-tile rings), scrap fields, both bases |
+| `12-production-queue-desktop.png` | A Factory with a long queue: ×N counts on the buttons, per-type chips with − to cancel |
+| `13-groups-menu-desktop.png` | The Groups menu: unit groups 1 to 9 with Set buttons |
 
 ---
 
@@ -138,17 +140,24 @@ errors and show something new. Tell the owner what to try at each stage.
    territory, production queues, waypoints, demolish.
 5. **Combat.** Weapons, turrets, projectiles, artillery splash and its
    stabiliser legs, Gun Towers, damage, death, wrecks and salvage, fog of war.
-6. **Geysers and hauling.** Scavenger II deploying as an Extractor, Extractor
-   tanks, Transports with shields, Extractor Silos.
+6. **Geysers.** Scavenger II deploying as an Extractor; Extractors pay
+   straight into the total and only hold up to 120 while storage is full.
+   There are **no** Transports and **no** Extractor Silos.
 7. **Tech tree.** Recycler II and Factory II upgrades, the Research Lab and
    Mk II units, Constructor II repairs, Radar pings, the Repair Pad (repairs,
-   workers waiting, **Recycle** with a confirm step).
-8. **Orders.** Scout (solo/pack), Patrol, Defend, Attack-move, Stop, Deploy,
-   Go repair, Auto-haul, the Army ▾ menu, Idle worker, squads (Ctrl+1–9).
+   workers waiting, repaired units leaving to the pad's waypoint, **Recycle**
+   with a confirm step), Gun Tower upgrades (Artillery Tower, Heavy Gun
+   Tower).
+8. **Orders.** Scout (solo/pack), Patrol, Guard (a building or a unit),
+   Attack-move, Stop, Deploy, Go repair (Constructors too), the Army ▾ menu,
+   Idle worker, unit groups (Ctrl+1–9 and the Groups menu), production
+   counts up to 99 with per-type cancel, light traffic steering.
 9. **The computer opponent.** Exactly as `GAME_DESIGN.md` section 13
    describes, with the three difficulty levels of section 14 (including the
-   economy report's changes: more Extractors, Transports sized to distance,
-   saving for Extractor Silos, fewer Scavengers once geysers run).
+   economy report's changes: more Extractors, fewer Scavengers once geysers
+   run). Normal and Hard use the **tactics** in section 13 (hold, counter,
+   flank, feint, retreat, focus fire, raids) with the per-difficulty settings
+   in section 14.
 10. **Screens and polish.** Pause screen (Resume, Help), help, end screen
     with stats, sound, messages, alerts, Watch AI vs AI mode (`?watch`), the
     `?seed=N` address option, phone layouts.
@@ -199,10 +208,11 @@ browser. So in those four files:
 **Type keys** (exactly these):
 
 - Units: `mobileRecycler`, `scavenger`, `scavenger2`, `constructor`,
-  `constructor2`, `transport`, `scout`, `tank`, `artillery`, `scout2`,
+  `constructor2`, `scout`, `tank`, `artillery`, `scout2`,
   `tank2`, `artillery2`.
-- Buildings: `recycler`, `factory`, `extractor`, `basesilo`, `outsilo`
-  (Extractor Silo), `lab`, `radar`, `repairpad`, `tower`.
+- Buildings: `recycler`, `factory`, `extractor`, `basesilo`, `lab`,
+  `radar`, `repairpad`, `tower` (upgraded towers keep type `tower` and get
+  `variant: 'arttower'` or `'heavytower'`).
 - Research: `scout2`, `tank2`, `artillery2`.
 
 **Functions:**
@@ -234,8 +244,7 @@ and `explored`), `effects` (visual effects, each with `kind`, `x`, `y`),
 
 **Every unit** has `id`, `kind: 'unit'`, `type`, `team`, `x`, `y`, `hp`,
 `maxHp`, `def` (its `UNIT_TYPES` entry), `order` (with `order.type`: `'idle'`,
-`'move'`, `'deploy'`, `'harvest'`, `'haul'`, …), `shield` (Transports),
-`autoHaul` (Transports), and for artillery `legE` (0 to 1, how far its legs
+`'move'`, `'deploy'`, `'harvest'`, `'guard'`, …), and for artillery `legE` (0 to 1, how far its legs
 are lowered) and `lastShot` (the game time of its last shot; undefined until
 it fires). **Read weapons and other unit stats from `unit.def`**, not from
 `UNIT_TYPES[unit.type]`: the test swaps in a modified `def` on one unit.
@@ -246,7 +255,7 @@ it fires). **Read weapons and other unit stats from `unit.def`**, not from
 (an Extractor's tank).
 
 **`def` fields used:** `role` (`'hq'`, `'harvester'`, `'builder'`,
-`'hauler'`, `'combat'`), `cost`, `shield`, `carryMax`, `store`, `income`.
+`'combat'`), `cost`, `carryMax`, `store`, `income`.
 
 **Command types used by the test:**
 
@@ -258,10 +267,15 @@ it fires). **Read weapons and other unit stats from `unit.def`**, not from
 { type: 'move',     ids: [...], x, y }
 { type: 'gorepair', ids: [...] }
 { type: 'recycle',  ids: [...] }
+{ type: 'produce',  buildingId, unit: 'tank', count }  // queue; paid when each one starts
+{ type: 'cancel',   buildingId, unit: 'tank' }         // remove the last queued Tank
+{ type: 'rally',    buildingId, x, y }                 // also works on a Repair Pad
+{ type: 'guard',    ids: [...], targetId }             // a building or a unit
+{ type: 'upgrade',  buildingId, option: 'arttower' }   // Gun Tower: 'arttower' or 'heavytower'
 ```
 
 (Your game needs many more: attack, harvest, build, repair, produce, cancel,
-rally, scout, patrol, guard, haul, stop. The spec lists them in section 19.)
+rally, scout, patrol, guard, stop. The spec lists them in section 19.)
 
 **Two small details the test checks:**
 
@@ -280,7 +294,7 @@ rules files. Map game types to sprite ids:
 - `mobileRecycler` → `recyclerV`
 - `repairpad` → `repair`
 - `basesilo` → `silo`
-- `outsilo` → `exsilo`
+- `tower` with `variant: 'arttower'` → `towerArt`; `'heavytower'` → `towerHeavy`
 - Mk II and tier-II types use their base type's sprite with `mk: true`
   (`tank2` → `tank`).
 - Everything else uses its own name.
@@ -299,20 +313,21 @@ From the project folder, with Node.js installed:
 node tests/rules.js
 ```
 
-It prints `PASS` or `FAIL` for 43 checks and a final count. It covers:
+It prints `PASS` or `FAIL` for 61 checks and a final count. It covers:
 
 - **Map:** size, corners, symmetry, rock edge, 12 geysers at least 20 tiles
   apart (6 per half), mirroring, 20 to 24 fields, everything reachable.
 - **Route-finding:** a cross-map route exists and takes under 15 ms.
 - **Economy:** deploying, storage and its cap, Base Silo, the Recycler's
-  trickle, Extractor output and tank, Transport load.
+  trickle, Extractor output straight into the total and its 120 buffer,
+  no Transports or Extractor Silos, the production queue.
 - **Tech:** Scavenger II deploying, Recycler II, research.
 - **Combat and buildings:** tower fire, demolish refund, the Repair Pad
-  (every vehicle repaired, workers waiting, shields), recycling and all its
-  limits.
+  (every vehicle repaired, workers waiting, leaving to its waypoint),
+  recycling and all its limits, Guard, Gun Tower upgrades.
 - **Artillery** stabiliser timing.
 
-**Aim for 43 of 43.** If a check fails because you chose a different name or
+**Aim for 61 of 61.** If a check fails because you chose a different name or
 shape, prefer changing your code to match section 6.3. Only adapt the test as
 a last resort, keep every check's meaning, and tell the owner exactly what
 you changed and why.
@@ -357,12 +372,12 @@ they're easy to miss.
    (the first version's Gun Towers never fired twice). Measure range from a
    building's **edge**, so its gun isn't outranged by tanks.
 7. **The opponent must save up.** Otherwise it spends everything on its
-   army and never upgrades, researches or builds Extractor Silos. It pauses
+   army and never upgrades or researches. It pauses
    army production while saving (spec section 13).
 8. **The Repair Pad must not heal the dead.** Skip anything with `hp <= 0`,
    or a vehicle destroyed or recycled on the pad gets healed back to life in
    the same tick.
-9. **Workers on the pad.** Idle Scavengers and Transports go back to work by
+9. **Workers on the pad.** Idle Scavengers go back to work by
    themselves, so they drove off half-repaired. They must wait on the pad
    until fully repaired.
 10. **The `constructor` lookup bug** (section 6.4).
@@ -379,7 +394,7 @@ they're easy to miss.
 
 ## 9. How to check your work before handing it over
 
-1. `node tests/rules.js`: 43 of 43.
+1. `node tests/rules.js`: 61 of 61.
 2. Open `index.html` from a file (double-click) in a desktop browser. No
    errors in the browser console (F12). Play a full game on Easy.
 3. Use the browser's phone emulator (iPhone, portrait and landscape). Tap
@@ -390,8 +405,8 @@ they're easy to miss.
    within 20 to 45 minutes on Normal (some may stall; see the economy
    report).
 5. **"Do nothing" check:** deploy your Recycler, then do nothing. You should
-   lose in roughly 21 / 11 / 6 minutes on Easy / Normal / Hard, with the
-   first attack at about 10:00 / 5:00 / 3:00.
+   lose in roughly 21 / 9 / 6½ minutes on Easy / Normal / Hard (the first
+   attack on Hard lands at about 3:00).
 6. Compare with the screenshots.
 
 ---

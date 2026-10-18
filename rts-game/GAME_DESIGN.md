@@ -1011,6 +1011,23 @@ rebuilt.
 | **Browser tests** | Automated Chromium, desktop and simulated iPhone (portrait and landscape), with real taps, drags and pinches. | Every button and gesture works, no script errors, and layout doesn't hide important things. Includes upgrade and research buttons, Go repair, the Army menu and the minimap toggle. |
 | **Performance** | Measure simulation time per game-second in a long AI-vs-AI game; on the big map also frame times while sweeping the camera across the whole map, on a desktop and on a phone-sized screen with the processor slowed 4×. | About 35 ms of work per second of play in big battles on a desktop. Big map, 10 minutes into an AI game: rules about 4 ms per second of play (12 ms on the slowed phone); a frame with the ground already painted about 0.2 ms to draw (1 ms on the slowed phone); 95% of frames under 13 ms while sweeping at extreme speed (52 ms on the slowed phone); the minimap about 0.1 ms. |
 
+### AI duel results (18 October 2026)
+
+The new opponent (team 1) against the previous one (team 2), same seeds, up
+to 60 minutes a game. The baseline is the previous opponent on both sides,
+which shows how often team 1 wins on those seeds by luck of the map.
+
+| Difficulty | Games | New opponent wins | Baseline team 1 wins | Gain |
+| --- | --- | --- | --- | --- |
+| Hard | 64 (seeds 1–64) | **38** (26 lost) | 29 (31 lost, 4 unfinished) | +9 |
+| Normal | 32 (seeds 1–32) | **20** (11 lost, 1 unfinished) | 12 (17 lost, 3 unfinished) | +8 |
+
+Tactics tried one at a time on Hard (seeds 1–16, baseline 5 wins): flank 8,
+focus fire 8, retreat 7, all-in 7, feint 6, raids 5, counter-attack 5,
+repair trips 3. Holding back early and then striking together gave the
+biggest single gain (20 of 32 against a baseline of 15). Repair trips stay
+off for the opponent.
+
 ### Bugs these tests have caught (for reference)
 
 - **Combat:** gun towers never reloaded; building guns were outranged by
