@@ -954,7 +954,7 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `js/sprites.js` | The unit design sheet: vector drawings of every vehicle and building, their animations, damage smoke, explosions, wrecks and craters |
 | `js/render.js` | Drawing the map, fog, minimap, bars and effects; calls `sprites.js` for units and buildings. The ground is painted in chunks as they scroll into view (see below). |
 | `js/main.js` | Mouse, touch and keyboard input; panels and buttons; minimap toggle; sound; the game loop |
-| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (43 checks). |
+| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (61 checks). |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
 tables), `ROADMAP.md` (planned stages), `ECONOMY_TEST_REPORT.md` (the October
@@ -1000,7 +1000,8 @@ rebuilt.
 
 | Test type | Method | What it checks |
 | --- | --- | --- |
-| **Rules tests** (`tests/rules.js`, 43 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 12 geysers, 20-tile spacing, 6 per half, mirrored geysers and scrap, 20 to 24 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; Extractor output (42 a minute) and tank (120); Transport load (30); basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; **every vehicle kind repaired on the pad**; Transport shields; **workers wait on the pad**; **Recycle** (refund, removed, no wreck, only on the pad, not the Recycler, not the enemy's pad, overflow left as scrap); artillery stabilisers. |
+| **Rules tests** (`tests/rules.js`, 61 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 12 geysers, 20-tile spacing, 6 per half, mirrored geysers and scrap, 20 to 24 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade). |
+| **AI duels** (`tests/balance/duels.sh`) | The current opponent plays the previous version of itself (`tests/balance/ai_previous.js`) on many seeds, 4 games at a time, up to 60 minutes each. With `BOTHOLD=1` both sides use the previous version, giving the baseline for the same seeds. | Whether a change to the opponent actually makes it stronger. Each tactic was tried alone, then in combinations; see the results below. |
 | **AI-vs-AI batches** | Run 30 to 120 full games between two computer players on different seeds. | Games end, typical length, and **fairness** by team and by corner. |
 | **AI tech progression** | Log when the AI reaches each milestone at each difficulty. | The AI actually upgrades, researches and fields Mk II units. |
 | **"Do nothing" survival** | The player deploys and then does nothing, at each difficulty. | Difficulty pacing: when the first attack lands and how long a passive player lasts. |
@@ -1028,6 +1029,15 @@ rebuilt.
   sight-lines); now about 5 ms.
 - **Repair Pad:** a vehicle destroyed (or recycled) while parked on the pad
   could be healed back to life in the same tick. Fixed.
+- **AI duels:** the first version of the cunning opponent lost badly to the
+  old one (1 win to 13 on Hard). Causes: it would not start a new wave while
+  one squad was out; stragglers were sent home with plain moves and looped
+  between home and the front; early retreats threw away fights; raids
+  stripped the base. Rebuilt on top of the old wave logic, one tactic at a
+  time, keeping only what won in paired duels.
+- **Traffic:** Scavengers queued behind each other at fields; light
+  steering around units ahead and softer pushing between workers gave about
+  9% more income with 6 Scavengers.
 
 ---
 
@@ -1243,3 +1253,15 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
 17. **Repair Pad:** repairs every vehicle, workers wait on it until fixed;
     **Recycle** on the pad for half the cost, with a confirm step. Rules
     tests added to the repository (`tests/rules.js`).
+18. **Economy retune** (16 October 2026): 12 geysers (6 per half);
+    Extractors 0.7 a second with a 120 tank; the opponent builds more
+    Extractors (see `ECONOMY_TEST_REPORT.md`).
+19. **Orders, queue, towers and a cunning opponent** (18 October 2026):
+    Transports and Extractor Silos removed (Extractors pay straight into the
+    total; Base Silos raise the cap); Repair Pad waypoint, repaired units
+    leave the pad; Go repair for Constructors; Guard (a building or a unit);
+    unit groups 1 to 9; production counts up to 99 per building with
+    per-type cancel; Gun Tower upgrades (Artillery Tower, Heavy Gun Tower);
+    smoother traffic. Normal and Hard opponents now hold, counter-attack,
+    flank, feint, retreat, focus fire and raid Extractors (section 13), and
+    upgrade their towers. Duel tool added under `tests/balance/`.

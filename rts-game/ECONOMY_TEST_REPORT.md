@@ -5,6 +5,11 @@
 **Status:** the requested changes are **in the game**. The final
 recommendation (section 9) is **not applied yet**.
 
+> **Update, 18 October 2026:** Transports and Extractor Silos have since been
+> **removed** from the game. Extractors now pay straight into your total
+> (about 42 scrap a minute each) and only hold up to 120 while your storage
+> is full. The Transport numbers below are kept as a record only.
+
 This report covers one round of balance work:
 
 1. Halve the number of geysers.
