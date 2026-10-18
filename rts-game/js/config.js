@@ -15,6 +15,7 @@ const CONFIG = {
 
   START_SCRAP: 300,    // scrap each side starts with (the Recycler's storage is full)
   UNIT_CAP: 50,        // most units a side can have at once
+  QUEUE_MAX: 99,       // most vehicles queued at one building (each is paid for when its turn comes)
 
   WRECK_SCRAP_FRACTION: 0.3, // share of a destroyed unit's cost left as salvage
   // Artillery must stop and put down four stabiliser legs before it can fire,

@@ -275,18 +275,27 @@ function issueCommand(game, team, cmd) {
       if (!b || b.kind !== 'building' || b.built < 1 || !def || !producesOf(b).includes(cmd.unit)) return;
       const tm = game.teams[team];
       if (def.requires && !tm.research[def.requires]) { pushEvent(game, team, `Research ${RESEARCH[def.requires].name} at a Research Lab first`, 'warn'); return; }
-      if (b.queue.length >= 5) { pushEvent(game, team, 'Build queue is full', 'warn'); return; }
-      if (tm.scrap < def.cost) { pushEvent(game, team, 'Not enough scrap', 'warn'); return; }
-      tm.scrap -= def.cost;
-      b.queue.push(cmd.unit);
+      // Queues can be as long as you like. Each vehicle is paid for when its
+      // turn comes (see updateBuilding), so a long queue just waits for scrap.
+      if (b.queue.length >= CONFIG.QUEUE_MAX) { pushEvent(game, team, 'Build queue is full', 'warn'); return; }
+      const n = Math.max(1, Math.min(cmd.count || 1, CONFIG.QUEUE_MAX - b.queue.length));
+      for (let i = 0; i < n; i++) b.queue.push(cmd.unit);
       break;
     }
     case 'cancel': {
+      // Removes one vehicle from the queue: the last one of `unit` if given
+      // (so the one already being built goes last), otherwise the one at
+      // `index`. Only the one being built has been paid for, and only it is
+      // refunded.
       const b = own(cmd.buildingId);
-      if (!b || b.kind !== 'building' || cmd.index >= b.queue.length) return;
-      const [type] = b.queue.splice(cmd.index, 1);
-      bankScrap(game, team, UNIT_TYPES[type].cost);
-      if (cmd.index === 0) b.prodTime = 0;
+      if (!b || b.kind !== 'building' || !b.queue.length) return;
+      const index = cmd.unit ? b.queue.lastIndexOf(cmd.unit) : cmd.index;
+      if (index < 0 || index >= b.queue.length) return;
+      const [type] = b.queue.splice(index, 1);
+      if (index === 0) {
+        if (b.paid) bankScrap(game, team, UNIT_TYPES[type].cost);
+        b.paid = false; b.prodTime = 0;
+      }
       break;
     }
     case 'scout': {
@@ -560,12 +569,19 @@ function updateBuilding(game, b, dt) {
   if (b.queue.length && b.upgrading === null) {
     const def = UNIT_TYPES[b.queue[0]];
     const count = game.entities.filter(e => e.kind === 'unit' && e.team === b.team).length;
-    if (count >= CONFIG.UNIT_CAP) { b.blocked = true; }
+    const tm = game.teams[b.team];
+    // Pay for the next vehicle when its turn comes; wait until there's enough.
+    if (!b.paid) {
+      if (tm.scrap >= def.cost) { tm.scrap -= def.cost; b.paid = true; b.waiting = false; }
+      else b.waiting = true;
+    }
+    if (!b.paid) { /* waiting for scrap */ }
+    else if (count >= CONFIG.UNIT_CAP) { b.blocked = true; }
     else {
       b.blocked = false;
       b.prodTime += dt;
       if (b.prodTime >= def.buildTime) {
-        b.prodTime = 0;
+        b.prodTime = 0; b.paid = false;
         const type = b.queue.shift();
         spawnFromBuilding(game, b, type);
       }

@@ -174,6 +174,35 @@ section('Workers and tech');
   check('research completes', !!g.teams[1].research.tank2);
 }
 
+section('Production queue');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  placeDone(S, g, 1, 'basesilo', rec);
+  const fac = placeDone(S, g, 1, 'factory', { x: rec.x + 200, y: rec.y - 150 });
+  for (const u of g.entities) if (u.team === 1 && u.def.role === 'harvester') u.hp = 0;
+  run(g, S, 0.1);
+  g.teams[1].scrap = 250;
+  S.issueCommand(g, 1, { type: 'produce', buildingId: fac.id, unit: 'tank', count: 12 });
+  S.issueCommand(g, 1, { type: 'produce', buildingId: fac.id, unit: 'scout' });
+  check('more than 5 vehicles can be queued', fac.queue.length === 13, `${fac.queue.length} queued`);
+  S.stepGame(g);
+  check('only the vehicle being built is paid for', Math.round(g.teams[1].scrap) === 150, `${Math.round(g.teams[1].scrap)} left`);
+  const tanks0 = mine(g, 1, 'tank').length;
+  run(g, S, 31);
+  check('the queue keeps building while scrap lasts', mine(g, 1, 'tank').length === tanks0 + 2, `${mine(g, 1, 'tank').length - tanks0} built`);
+  g.teams[1].scrap = 0; run(g, S, 20);
+  check('with no scrap, the queue waits', fac.waiting && mine(g, 1, 'tank').length === tanks0 + 2);
+  g.teams[1].scrap = 100; S.stepGame(g);
+  const paidBefore = g.teams[1].scrap;
+  S.issueCommand(g, 1, { type: 'cancel', buildingId: fac.id, unit: 'scout' });
+  check('removing a waiting vehicle refunds nothing (it was never paid for)', g.teams[1].scrap === paidBefore && !fac.queue.includes('scout'));
+  while (fac.queue.length > 1) S.issueCommand(g, 1, { type: 'cancel', buildingId: fac.id, unit: 'tank' });
+  S.issueCommand(g, 1, { type: 'cancel', buildingId: fac.id, unit: 'tank' });
+  check('cancelling the vehicle being built refunds its cost', g.teams[1].scrap === paidBefore + 100 && fac.queue.length === 0, `${g.teams[1].scrap}`);
+}
+
 section('Combat, demolish and the Repair Pad');
 {
   const S = load();

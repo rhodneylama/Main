@@ -630,7 +630,7 @@ function refreshPanel() {
     sel.map(e => [e.level, e.upgrading !== null && e.upgrading !== undefined ? Math.floor(e.upgrading) : -1, e.researching ? e.researching.key + Math.floor(e.researching.t) : 0, e.hp < e.maxHp]),
     Object.keys(game.teams[view.team].research).join(), game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1),
     game.entities.filter(b => b.team === view.team && b.researching).map(b => b.researching.key + Math.floor(b.researching.t / 3)).join(),
-    sel.map(e => [e.built >= 1, e.queue && e.queue.join(), e.queue && e.queue.length && Math.floor(e.prodTime), e.blocked]),
+    sel.map(e => [e.built >= 1, e.queue && e.queue.join(), e.queue && e.queue.length && Math.floor(e.prodTime), e.blocked, e.waiting]),
     Object.values(UNIT_TYPES).concat(Object.values(BUILDING_TYPES)).map(d => game.teams[view.team].scrap >= d.cost)]) : '';
   const rebuild = key !== panelKey;
   panelKey = key;
@@ -677,7 +677,7 @@ function refreshPanel() {
   const addBtn = (label, cost, hotkey, onClick, opts = {}) => {
     const b = document.createElement('button');
     b.dataset.hotkey = hotkey;
-    b.innerHTML = `<span class="hk">${hotkey || ''}</span><span class="lbl">${label}</span>` +
+    b.innerHTML = `<span class="hk">${hotkey || ''}</span><span class="lbl">${label}${opts.badge ? ` <span class="badge">×${opts.badge}</span>` : ''}</span>` +
       (opts.note ? `<span class="note">${opts.note}</span>` : cost !== null ? `<span class="cost">${cost}</span>` : '');
     if (opts.title) b.title = opts.title;
     if (opts.active) b.classList.add('active');
@@ -712,24 +712,28 @@ function refreshPanel() {
       }
     }
     if (first.built >= 1 && first.def.produces) {
+      // Each press queues one more (Shift-click queues five). The button shows
+      // how many of that vehicle are waiting; the queue has no fixed limit.
+      const counts = {};
+      for (const t of first.queue) counts[t] = (counts[t] || 0) + 1;
       producesOf(first).forEach(type => {
         const d = UNIT_TYPES[type];
         const needs = d.requires && !tm.research[d.requires];
-        addBtn(d.name, d.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'produce', buildingId: first.id, unit: type }),
-          { title: `${d.name} — ${d.cost} scrap, ${d.buildTime}s\n${d.desc}`, locked: needs, note: needs ? 'Research first' : null });
+        addBtn(d.name, d.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'produce', buildingId: first.id, unit: type, count: input.keys.has('Shift') ? 5 : 1 }),
+          { title: `${d.name} — ${d.cost} scrap each, ${d.buildTime}s. Paid when it starts building.\n${d.desc}`, locked: needs, note: needs ? 'Research first' : null, badge: counts[type] });
       });
       if (first.queue.length) {
+        // One line per vehicle type, in the order they were queued.
         const q = document.createElement('div'); q.className = 'queue';
-        q.innerHTML = `<span class="dim small">Queue (${isTouch ? 'tap' : 'click'} to cancel):</span>`;
-        first.queue.forEach((type, i) => {
+        const now = UNIT_TYPES[first.queue[0]];
+        const state = first.waiting ? `waiting for scrap (needs ${now.cost})` : first.blocked ? 'unit limit reached' : `${Math.floor(first.prodTime / now.buildTime * 100)}%`;
+        q.innerHTML = `<span class="small">Building ${now.name}: <span class="${first.waiting || first.blocked ? 'warn' : 'dim'}">${state}</span></span>`;
+        for (const type of Object.keys(counts)) {
           const chip = document.createElement('button'); chip.className = 'chip';
-          chip.textContent = UNIT_TYPES[type].name + (i === 0 ? ` ${Math.floor(first.prodTime / UNIT_TYPES[type].buildTime * 100)}%` : '');
-          onPress(chip, () => { issueCommand(game, view.team, { type: 'cancel', buildingId: first.id, index: i }); refreshPanel(); });
+          chip.innerHTML = `${UNIT_TYPES[type].name} ×${counts[type]} <span class="dim">−</span>`;
+          chip.title = `Remove one ${UNIT_TYPES[type].name} from the queue`;
+          onPress(chip, () => { issueCommand(game, view.team, { type: 'cancel', buildingId: first.id, unit: type }); refreshPanel(); });
           q.appendChild(chip);
-        });
-        if (first.blocked) {
-          const warn = document.createElement('span'); warn.className = 'warn small'; warn.textContent = 'Unit limit reached';
-          q.appendChild(warn);
         }
         cmds.appendChild(q);
       }
