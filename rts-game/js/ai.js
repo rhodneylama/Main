@@ -23,6 +23,7 @@ function aiUpdate(game, team) {
   const buildings = mine.filter(e => e.kind === 'building');
   const tm = game.teams[team];
   const enemy = 3 - team;
+  const tac = diff.tactics || {};
   const hq = buildings.find(b => b.type === 'recycler');
   if (!hq) {
     // Still on wheels: deploy the Recycler on the nearest free geyser.
@@ -112,7 +113,12 @@ function aiUpdate(game, team) {
 
   // --- Research and Factory upgrades ------------------------------------------
   for (const lab of buildings.filter(b => b.type === 'lab' && b.built >= 1 && !b.researching)) {
-    const next = ['tank2', 'scout2', 'artillery2', 'hornet2', 'sentry2'].find(k => !tm.research[k] &&
+    // Only research upgrades for vehicles it actually builds (saving up for
+    // research pauses army production, so a wasted topic costs a lot).
+    const topics = ['tank2', 'scout2', 'artillery2'];
+    if (tac.hornetsAfter) topics.push('hornet2');
+    if (tac.sentries || tac.sentryMix) topics.push('sentry2');
+    const next = topics.find(k => !tm.research[k] &&
       !buildings.some(b => b.researching && b.researching.key === k));
     // Save up for it: army production pauses until it can be afforded.
     if (next && tm.scrap >= RESEARCH[next].cost) cmd({ type: 'research', buildingId: lab.id, key: next });
@@ -141,7 +147,6 @@ function aiUpdate(game, team) {
   const army = units.filter(u => u.def.role === 'combat');
   if (diff.tactics && diff.tactics.adapt) updateIntel(game, team, ai);
   // Outlying Extractors that should get a Sentry, and idle Sentries sent to guard them.
-  const tac = diff.tactics || {};
   const guarded = new Set(army.filter(u => baseType(u) === 'sentry' && u.order.type === 'guard').map(u => u.order.targetId));
   const sentryPosts = tac.sentries ? extractors.filter(x => dist(x, hq) > 600).slice(0, tac.sentries) : [];
   for (const u of army.filter(u => baseType(u) === 'sentry' && u.order.type === 'idle' && !u.target)) {
@@ -158,6 +163,8 @@ function aiUpdate(game, team) {
     let pick = 'tank';
     // A Sentry to guard each outlying Extractor (Normal and Hard).
     if (sentryPosts.length > sentries && game.time > tac.sentriesAfter) pick = 'sentry';
+    // Or Sentries in the army itself, one for every `sentryMix` Tanks.
+    else if (tac.sentryMix && game.time > tac.sentriesAfter && sentries * tac.sentryMix < tanks) pick = 'sentry';
     else if (diff.tactics && diff.tactics.adapt && ai.intel) pick = adaptiveMix(ai.intel, diff, scouts, tanks, arty, hornets, army.length, game.time);
     else if (scouts < 2 || scouts * 4 < army.length) pick = 'scout';
     else if (arty * 4 < tanks && game.time > diff.artilleryAfter) pick = 'artillery';
