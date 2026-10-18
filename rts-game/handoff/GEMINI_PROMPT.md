@@ -33,7 +33,10 @@ fights one computer opponent (Red) on a large, mirror-symmetric map. You start
 with a Recycler on wheels: drive it onto a scrap geyser and deploy it as your
 headquarters. Collect scrap, build a base, research Mk II vehicles, claim
 geysers, and **win by destroying the enemy Recycler**. It must be fully
-playable on a **phone** as well as a desktop.
+playable on a **phone** as well as a desktop. There are **two factions**,
+Scrapline and the Kethra Concord, chosen on the start screen; they play by
+exactly the same rules and differ only in their art and names
+(`GAME_DESIGN.md` section 6, "Factions").
 
 ---
 
@@ -48,7 +51,7 @@ Read them in this order:
 | 3 | `docs/ECONOMY_TEST_REPORT.md` | The most recent balance round: why there are 12 geysers, the Extractor and opponent settings, with test results (Transports and Extractor Silos have since been **removed**; ignore those parts) | Use the values listed as **"in the game now"** (option A). Its *recommendations* (option E) are **not** applied yet; build option A. |
 | 4 | `docs/README.md` | The player's guide: how to play, controls, unit and building tables | Use it for in-game text and help screens. It must match how your game behaves. |
 | 5 | `docs/UNIT_SPRITES.md` | The art brief for the unit design sheet | How to wire the art into your drawing code. |
-| 6 | `assets/sprites.js` | **The owner's own vehicle and building designs**, as finished vector-drawing code | **Use this file as it is.** Don't redraw or restyle the units. See section 6.4. |
+| 6 | `assets/sprites.js`, `assets/sprites_kethra.js` | **The owner's own vehicle and building designs** for Scrapline and the Kethra Concord, as finished vector-drawing code (`docs/KETHRA_SPRITES.md` describes the second) | **Use these files as they are.** Don't redraw or restyle the units. See section 6.4. |
 | 7 | `tests/rules.js` | An automatic test of the game rules (74 checks), run with Node.js | Your version must pass it. See section 7. |
 | 8 | `screenshots/` | 13 pictures of the current game on desktop and phone | What the finished game should look and feel like. Match the layout and feel; you don't have to match it pixel for pixel. |
 | 9 | `docs/ROADMAP.md` | Possible future stages | Background only. **Don't build** anything that is only on the roadmap. |
@@ -60,6 +63,7 @@ rebuild the game from the specification.
 
 | File | Shows |
 | --- | --- |
+| `00-start-screen-desktop.png` | The current start screen: faction cards, difficulty, Start / How to play / Watch (01 is the older title screen) |
 | `01-title-screen-desktop.png` | Title screen: mission summary, difficulty, Start, Watch AI vs AI |
 | `02-game-start-desktop.png` | The first moments: mobile Recycler selected, geyser nearby |
 | `03-base-and-army-desktop.png` | A base (Recycler, Factory, Base Silo, Gun Tower, Repair Pad) and 5 selected Tanks |
@@ -177,7 +181,8 @@ js/config.js        ALL balance numbers: units, buildings, research, difficulty
 js/map.js           map generation and route-finding
 js/sim.js           the rules: commands, movement, combat, economy, vision, victory
 js/ai.js            the computer opponent
-js/sprites.js       the owner's art (copy assets/sprites.js here, unchanged)
+js/sprites.js       the owner's Scrapline art (copy assets/sprites.js here, unchanged)
+js/sprites_kethra.js the owner's Kethra art (copy assets/sprites_kethra.js here, unchanged)
 js/render.js        drawing: terrain, fog, units/buildings via sprites.js, effects, minimap
 js/main.js          input (mouse, keyboard, touch), panels and buttons, sound, the loop
 tests/rules.js      the rules test (copy from the attachment)
@@ -185,7 +190,7 @@ README.md           player's guide (adapt docs/README.md to your game)
 ```
 
 Load order in `index.html`: `config.js`, `map.js`, `sim.js`, `ai.js`,
-`sprites.js`, `render.js`, `main.js`.
+`sprites.js`, `sprites_kethra.js`, `render.js`, `main.js`.
 
 ### 6.2 The four rules files must run without a browser
 
@@ -209,8 +214,8 @@ browser. So in those four files:
 **Type keys** (exactly these):
 
 - Units: `mobileRecycler`, `scavenger`, `scavenger2`, `constructor`,
-  `constructor2`, `scout`, `tank`, `artillery`, `scout2`,
-  `tank2`, `artillery2`.
+  `constructor2`, `scout`, `hornet`, `tank`, `sentry`, `artillery`, `scout2`,
+  `hornet2`, `tank2`, `sentry2`, `artillery2`.
 - Buildings: `recycler`, `factory`, `extractor`, `basesilo`, `lab`,
   `radar`, `repairpad`, `tower` (upgraded towers keep type `tower` and get
   `variant: 'arttower'` or `'heavytower'`).
@@ -299,6 +304,14 @@ rules files. Map game types to sprite ids:
 - Mk II and tier-II types use their base type's sprite with `mk: true`
   (`tank2` → `tank`).
 - Everything else uses its own name.
+
+For a **Kethra** side, draw with `window.KethraSprites` instead, using its ids
+(`tank` → `bulwark`, `scout` → `shard`, `artillery` → `spire`, `hornet` →
+`talon`, `sentry` → `pylon`, `constructor` → `loom`, `scavenger` → `skimmer`,
+`mobileRecycler` → `monad`, `recycler` → `nexus`, `factory` → `assembler`,
+`repairpad` → `lattice`, `extractor` → `siphon`, `basesilo` → `vault`, every
+tower → `prism`, `lab` → `archive`, `radar` → `array`) and pass `thrust: true`
+while a vehicle moves.
 
 **Lookup warning:** if you map types to sprite ids with a plain object, the
 type `constructor` will hit JavaScript's built-in `Object.prototype.constructor`

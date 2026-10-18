@@ -12,9 +12,9 @@ This folder has everything Gemini needs to rebuild your game from scratch.
 | `docs/README.md` | Your player's guide: how to play and the controls. |
 | `docs/UNIT_SPRITES.md` | How your unit and building designs plug into the game. |
 | `docs/ROADMAP.md` | Ideas for later (Gemini is told not to build these). |
-| `assets/sprites.js` | Your vehicle and building designs. Gemini is told to use them unchanged. |
+| `assets/sprites.js`, `assets/sprites_kethra.js` | Your vehicle and building designs for both factions. Gemini is told to use them unchanged. |
 | `tests/rules.js` | An automatic check of the game rules (74 checks). |
-| `screenshots/` | 15 pictures of the current game, on desktop and phone. |
+| `screenshots/` | 16 pictures of the current game, on desktop and phone. |
 
 The game's actual program code is **not** included, on purpose: the point is
 to see whether Gemini can rebuild the game from the description alone.

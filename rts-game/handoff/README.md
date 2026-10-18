@@ -2,7 +2,7 @@
 
 `scrapline-gemini-handoff.zip` holds everything needed to have another AI
 (Gemini) rebuild Scrapline Command from its specification: the prompt, the
-design documents, the unit art (`sprites.js`), the rules test and 15
+design documents, the unit art (`sprites.js`), the rules test and 16
 screenshots of the current game. Start with `HOW_TO_USE.md`.
 
 `GEMINI_PROMPT.md` and `HOW_TO_USE.md` are the same files as in the zip,
