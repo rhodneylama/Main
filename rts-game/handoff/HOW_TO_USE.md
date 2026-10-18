@@ -13,7 +13,7 @@ This folder has everything Gemini needs to rebuild your game from scratch.
 | `docs/UNIT_SPRITES.md` | How your unit and building designs plug into the game. |
 | `docs/ROADMAP.md` | Ideas for later (Gemini is told not to build these). |
 | `assets/sprites.js` | Your vehicle and building designs. Gemini is told to use them unchanged. |
-| `tests/rules.js` | An automatic check of the game rules (63 checks). |
+| `tests/rules.js` | An automatic check of the game rules (74 checks). |
 | `screenshots/` | 15 pictures of the current game, on desktop and phone. |
 
 The game's actual program code is **not** included, on purpose: the point is
@@ -43,7 +43,7 @@ to see whether Gemini can rebuild the game from the description alone.
 - **The rules check** needs Node.js (a free download from nodejs.org). Then,
   in a terminal, inside Gemini's project folder, type:
   `node tests/rules.js`
-  The last line says how many of the 63 checks passed. If some fail, paste
+  The last line says how many of the 74 checks passed. If some fail, paste
   the output back to Gemini and ask it to fix them.
 - **The "do nothing" test:** start a game, deploy your Recycler, then just
   watch. You should lose after roughly 21 minutes on Easy, 9 on Normal or 6½

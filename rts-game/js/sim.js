@@ -12,7 +12,11 @@
 // The basic kind of a unit: a Tank Mk II is still a 'tank', a Scavenger II a 'scavenger'.
 const baseType = e => (e.def && e.def.base) || e.type;
 // A building's name, including its upgrade (e.g. 'Factory II').
-const nameOf = e => (e.level > 1 && e.def.upgrade) ? e.def.upgrade.name : e.def.name;
+// A side's name: its faction, plus its colour when both sides chose the same one.
+const sideName = (game, t) => FACTIONS[game.teams[t].faction].name +
+  (game.teams[1].faction === game.teams[2].faction ? ` (${t === 1 ? 'Blue' : 'Red'})` : '');
+// Names are shown in the owner's faction's words ("Tank" is a Bulwark to the Kethra).
+const nameOf = e => factionName(e.faction, (e.level > 1 && e.def.upgrade) ? e.def.upgrade.name : e.def.name);
 // The upgrade a building is working on: its single upgrade (Recycler,
 // Factory), or the option it picked (Gun Tower).
 const upgradeOf = b => b.upgradeKey ? (b.def.upgrades || []).find(o => o.key === b.upgradeKey) : b.def.upgrade;
@@ -27,7 +31,8 @@ const turnToward = (cur, target, maxStep) => {
   return Math.abs(d) <= maxStep ? target : cur + Math.sign(d) * maxStep;
 };
 
-function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams = [2] } = {}) {
+// factions: { 1: 'scrapline' | 'kethra', 2: ... } (both Scrapline if left out).
+function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams = [2], factions = {} } = {}) {
   const map = generateMap(seed);
   const game = {
     map, seed, difficulty, aiTeams,
@@ -48,7 +53,7 @@ function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams
   game.corner = { 1: swap ? 2 : 1, 2: swap ? 1 : 2 };
   for (const t of [1, 2]) {
     game.teams[t] = {
-      id: t, scrap: CONFIG.START_SCRAP,
+      id: t, scrap: CONFIG.START_SCRAP, faction: FACTIONS[factions[t]] ? factions[t] : 'scrapline',
       vis: new Uint8Array(map.W * map.H), explored: new Uint8Array(map.W * map.H),
       incomeMult: aiTeams.includes(t) ? DIFFICULTY[difficulty].incomeMult : 1,
       stats: { built: 0, lost: 0, killed: 0, scrapGathered: 0 },
@@ -82,7 +87,7 @@ function faceCentre(game, x, y) {
 function addUnit(game, type, team, x, y) {
   const def = UNIT_TYPES[type];
   const u = {
-    id: game.nextId++, kind: 'unit', type, def, team, x, y,
+    id: game.nextId++, kind: 'unit', type, def, team, x, y, faction: game.teams[team].faction,
     hp: def.hp, maxHp: def.hp, radius: def.radius,
     angle: faceCentre(game, x, y), turret: 0,
     order: { type: 'idle', gx: x, gy: y }, path: [], target: null,
@@ -97,7 +102,7 @@ function addUnit(game, type, team, x, y) {
 function addBuilding(game, type, team, tx, ty, complete) {
   const def = BUILDING_TYPES[type], T = CONFIG.TILE;
   const b = {
-    id: game.nextId++, kind: 'building', type, def, team, tx, ty, size: def.size,
+    id: game.nextId++, kind: 'building', type, def, team, tx, ty, size: def.size, faction: game.teams[team].faction,
     x: (tx + def.size / 2) * T, y: (ty + def.size / 2) * T, radius: def.size * T / 2,
     hp: complete ? def.hp : def.hp * 0.1, maxHp: def.hp,
     built: complete ? 1 : 0, queue: [], prodTime: 0, stored: 0, level: 1,
@@ -116,7 +121,9 @@ function setOccupied(game, b, delta) {
     for (let x = b.tx; x < b.tx + b.size; x++) game.occupied[y * game.map.W + x] += delta;
 }
 
+// Messages are written with Scrapline names and put into the team's own words.
 function pushEvent(game, team, text, kind = 'info', x, y) {
+  if (game.teams[team]) text = factionText(game.teams[team].faction, text);
   game.events.push({ team, text, kind, x, y, time: game.time });
 }
 
@@ -920,7 +927,7 @@ function updateDeploy(game, u, dt) {
 // Move along the current path. Returns true once the end is reached.
 function followPath(game, u, dt, stopDist = 6) {
   if (!u.path.length) return true;
-  // Deployed artillery must fold its legs away before it can drive.
+  // Deployed Artillery and Sentries must fold their legs away before they can drive.
   if (u.legE > 0) {
     u.legE = Math.max(0, u.legE - dt / CONFIG.ARTILLERY_RETRACT);
     u.movingTick = game.tick;
@@ -1115,8 +1122,8 @@ function aimAndFire(game, e, t, dt) {
   const want = angleTo(e, t);
   e.turret = turnToward(e.turret, want, 4 * dt);
   if (d > w.range || (w.minRange && d < w.minRange)) return;
-  if (e.kind === 'unit' && w.projectile === 'artillery') {
-    // Artillery fires only when stopped with its stabiliser legs down.
+  if (e.kind === 'unit' && e.def.deployToFire) {
+    // Artillery and Sentries fire only when stopped with their legs down.
     if (e.movingTick === game.tick) return;
     if ((e.legE || 0) < 1) {
       e.legE = Math.min(1, (e.legE || 0) + dt / CONFIG.ARTILLERY_DEPLOY);
@@ -1135,7 +1142,7 @@ function aimAndFire(game, e, t, dt) {
     p.speed = 260; p.total = Math.hypot(p.tx - mx, p.ty - my);
   } else {
     p.targetId = t.id; p.tx = t.x; p.ty = t.y;
-    p.speed = w.projectile === 'bullet' ? 900 : 620;
+    p.speed = w.projectile === 'bullet' ? 900 : w.projectile === 'rocket' ? 520 : 620;
   }
   game.projectiles.push(p);
   game.effects.push({ kind: 'flash', x: mx, y: my, a: e.turret, t: 0, life: 0.08, big: w.projectile !== 'bullet' });
@@ -1162,7 +1169,7 @@ function updateProjectiles(game, dt) {
       } else {
         const t = game.byId.get(p.targetId);
         if (t && t.hp > 0) damage(game, t, p.damage, p);
-        game.effects.push({ kind: 'spark', x: p.tx, y: p.ty, t: 0, life: 0.25, big: p.kind === 'shell' });
+        game.effects.push({ kind: 'spark', x: p.tx, y: p.ty, t: 0, life: 0.25, big: p.kind !== 'bullet' });
       }
     } else {
       p.x += (p.tx - p.x) / d * step; p.y += (p.ty - p.y) / d * step;
@@ -1192,7 +1199,7 @@ function warnUnderAttack(game, e) {
   const tm = game.teams[e.team];
   if (game.time - (tm.lastAlarm || -99) < 12) return;
   tm.lastAlarm = game.time;
-  pushEvent(game, e.team, `${e.kind === 'building' ? nameOf(e) : e.def.name} under attack!`, 'bad', e.x, e.y);
+  pushEvent(game, e.team, `${nameOf(e)} under attack!`, 'bad', e.x, e.y);
 }
 
 function removeDead(game) {
@@ -1207,14 +1214,14 @@ function removeDead(game) {
     if (e.kind === 'building') {
       setOccupied(game, e, -1);
       // Explosion, then a crater where the building stood.
-      game.effects.push({ kind: 'explode', type: e.type, team: e.team, x: e.x, y: e.y, t: 0, life: 1.2, size: e.radius * 1.6 });
-      game.effects.push({ kind: 'crater', type: e.type, x: e.x, y: e.y, t: 0, life: 90 });
+      game.effects.push({ kind: 'explode', type: e.type, team: e.team, faction: e.faction, x: e.x, y: e.y, t: 0, life: 1.2, size: e.radius * 1.6 });
+      game.effects.push({ kind: 'crater', type: e.type, faction: e.faction, x: e.x, y: e.y, t: 0, life: 90 });
       pushEvent(game, e.team, `${nameOf(e)} destroyed`, 'bad', e.x, e.y);
       pushEvent(game, 3 - e.team, `Enemy ${nameOf(e)} destroyed`, 'good', e.x, e.y);
     } else {
       // Explosion, then a burnt-out wreck in the vehicle's own shape.
-      game.effects.push({ kind: 'explode', type: baseType(e), team: e.team, x: e.x, y: e.y, t: 0, life: 1.2, size: e.radius * 2.2 });
-      game.effects.push({ kind: 'wreck', type: baseType(e), team: e.team, mk: !!e.def.base, x: e.x, y: e.y, a: e.angle, t: 0, life: 20, r: e.radius });
+      game.effects.push({ kind: 'explode', type: baseType(e), team: e.team, faction: e.faction, x: e.x, y: e.y, t: 0, life: 1.2, size: e.radius * 2.2 });
+      game.effects.push({ kind: 'wreck', type: baseType(e), team: e.team, faction: e.faction, mk: !!e.def.base, x: e.x, y: e.y, a: e.angle, t: 0, life: 20, r: e.radius });
       const salvage = Math.round(e.def.cost * CONFIG.WRECK_SCRAP_FRACTION);
       if (salvage > 0) game.scrap.push({ id: 100000 + e.id, x: e.x, y: e.y, amount: salvage, max: salvage, wreck: true });
       game.teams[e.team].stats.lost++;
@@ -1387,7 +1394,7 @@ function checkVictory(game) {
   for (const t of [1, 2]) {
     // The one rule of victory: destroy the enemy Recycler.
     if (!game.entities.some(e => e.team === t && (e.type === 'recycler' || e.type === 'mobileRecycler'))) {
-      game.winner = 3 - t; game.endReason = `${TEAMS[t].name} lost their Recycler.`; return;
+      game.winner = 3 - t; game.endReason = `${sideName(game, t)} lost their ${factionName(game.teams[t].faction, 'Recycler')}.`; return;
     }
   }
 }

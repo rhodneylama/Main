@@ -27,7 +27,14 @@ let paused = false, speed = 1, accumulator = 0, lastFrame = 0, spectating = fals
 function startGame(difficulty, watch = false) {
   spectating = watch;
   const seed = Number(new URLSearchParams(location.search).get('seed')) || Math.floor(Math.random() * 99999);
-  game = createGame({ seed, difficulty, aiTeams: watch ? [1, 2] : [2] });
+  // You play the faction you picked; the enemy fields the other one.
+  const other = chosenFaction === 'kethra' ? 'scrapline' : 'kethra';
+  game = createGame({ seed, difficulty, aiTeams: watch ? [1, 2] : [2], factions: { 1: chosenFaction, 2: other } });
+  // The Army menu in your faction's words (Shards, Bulwarks...).
+  for (const l of document.querySelectorAll('#armymenu .lbl')) {
+    const type = l.parentElement.dataset.army;
+    l.textContent = chosenFaction === 'scrapline' ? l.dataset.plural : factionName(chosenFaction, UNIT_TYPES[type].name) + 's';
+  }
   buildTerrain(game);
   minimapBase = null;
   view.selected = []; view.placing = null; view.revealAll = watch; view.pings = []; view.alerts = [];
@@ -47,13 +54,13 @@ function startGame(difficulty, watch = false) {
 
 function showEnd() {
   const won = game.winner === view.team;
-  $('end-title').textContent = spectating ? `${TEAMS[game.winner].name} wins` : won ? 'Victory' : 'Defeat';
+  $('end-title').textContent = spectating ? `${sideName(game, game.winner)} wins` : won ? 'Victory' : 'Defeat';
   $('end-title').className = won || spectating ? 'win' : 'lose';
   $('end-reason').textContent = game.endReason;
   const s1 = game.teams[1].stats, s2 = game.teams[2].stats;
   const mins = Math.floor(game.time / 60), secs = Math.floor(game.time % 60);
   $('end-stats').innerHTML = `
-    <tr><th></th><th style="color:${TEAMS[1].color}">${TEAMS[1].name}</th><th style="color:${TEAMS[2].color}">${TEAMS[2].name}</th></tr>
+    <tr><th></th><th style="color:${TEAMS[1].color}">${sideName(game, 1)}</th><th style="color:${TEAMS[2].color}">${sideName(game, 2)}</th></tr>
     <tr><td>Vehicles built</td><td>${s1.built}</td><td>${s2.built}</td></tr>
     <tr><td>Enemies destroyed</td><td>${s1.killed}</td><td>${s2.killed}</td></tr>
     <tr><td>Vehicles lost</td><td>${s1.lost}</td><td>${s2.lost}</td></tr>
@@ -234,7 +241,7 @@ function aimAt(w, pad) {
     const b = entityAt(w.x, w.y, pad, e => !guards.includes(e));
     if (!b || b.team !== view.team) { logMessage(`${isTouch ? 'Tap' : 'Click'} one of your buildings or vehicles to guard it`, 'warn'); sound('error'); return; }
     issueCommand(game, view.team, { type: 'guard', ids: guards.map(u => u.id), targetId: b.id });
-    logMessage(`Guarding ${b.kind === 'building' ? nameOf(b) : b.def.name}`, 'info');
+    logMessage(`Guarding ${nameOf(b)}`, 'info');
     ping(b, '#8cc8ff');
   } else if (view.aim === 'rally') {
     const b = mine(view.selected).find(e => e.kind === 'building');
@@ -287,7 +294,7 @@ function toggleGroupMenu() {
     const key = String(i), g = groupMembers(key);
     const row = document.createElement('div'); row.className = 'grow';
     const pick = document.createElement('button'); pick.className = 'gsel';
-    const kinds = Object.create(null); for (const u of g) kinds[u.def.name] = (kinds[u.def.name] || 0) + 1;
+    const kinds = Object.create(null); for (const u of g) kinds[nameOf(u)] = (kinds[nameOf(u)] || 0) + 1;
     pick.innerHTML = `<span class="gnum">${key}</span> ${g.length ? Object.entries(kinds).map(([n, c]) => `${c} ${n}`).join(', ') : '<span class="dim">empty</span>'}`;
     pick.disabled = !g.length;
     onPress(pick, () => { menu.classList.add('hidden'); recallGroup(key); });
@@ -657,7 +664,7 @@ function recycleCandidates(sel) {
 function addRecycleButtons(addBtn, list, tip, keys) {
   const value = list.reduce((a, u) => a + recycleValue(u), 0);
   const ids = list.map(u => u.id).join(',');
-  const what = list.length === 1 ? (list[0].def.name) : `${list.length} vehicles`;
+  const what = list.length === 1 ? nameOf(list[0]) : `${list.length} vehicles`;
   if (view.confirmRecycle === ids) {
     addBtn('Confirm recycle', null, '', () => {
       issueCommand(game, view.team, { type: 'recycle', ids: list.map(u => u.id) });
@@ -711,16 +718,17 @@ function refreshPanel() {
     if (e.type === 'mobileRecycler') extra = e.order.type === 'deploy' ? 'Driving to the geyser to deploy' : 'Not deployed yet. Drive it onto a scrap geyser.';
     if (e.kind === 'unit' && e.order.type === 'scout') extra = e.order.packId ? 'Scouting with the pack' : 'Scouting alone';
     if (e.kind === 'unit' && e.order.type === 'patrol') extra = 'On patrol';
-    if (e.kind === 'unit' && e.order.type === 'guard') { const t = game.byId.get(e.order.targetId); extra = t ? `Guarding ${t.kind === 'building' ? nameOf(t) : t.def.name}` : 'Guarding'; }
+    if (e.kind === 'unit' && e.order.type === 'guard') { const t = game.byId.get(e.order.targetId); extra = t ? `Guarding ${nameOf(t)}` : 'Guarding'; }
     if (e.kind === 'building' && e.upgrading !== null) { const up = upgradeOf(e); extra = `Upgrading to ${up.name} — ${Math.floor(e.upgrading / up.time * 100)}%${d.produces ? ' (production paused)' : ''}`; }
     if (e.kind === 'building' && e.researching) extra = `Researching ${RESEARCH[e.researching.key].name} — ${Math.floor(e.researching.t / RESEARCH[e.researching.key].time * 100)}%`;
     if (e.type === 'radar' && e.built >= 1) extra = `Next radar ping in ${Math.ceil(e.pingTimer)}s`;
     if (e.type === 'repairpad' && e.built >= 1) extra = 'Drive damaged vehicles onto the pad to repair them.';
-    info.innerHTML = `<div class="selname" style="color:${TEAMS[e.team].color}">${e.kind === 'building' ? nameOf(e) : d.name}<span class="hp">Health ${Math.ceil(e.hp)} / ${e.maxHp}</span></div>
-      <div class="dim extra">${extra}</div><div class="dim small">${d.desc}</div>`;
+    // In the words of whoever owns it (a Kethra Bulwark, not a Tank).
+    info.innerHTML = `<div class="selname" style="color:${TEAMS[e.team].color}">${nameOf(e)}<span class="hp">Health ${Math.ceil(e.hp)} / ${e.maxHp}</span></div>
+      <div class="dim extra">${factionText(e.faction, extra)}</div><div class="dim small">${factionText(e.faction, d.desc)}</div>`;
   } else {
     const counts = Object.create(null);
-    for (const e of sel) counts[e.def.name] = (counts[e.def.name] || 0) + 1;
+    for (const e of sel) counts[nameOf(e)] = (counts[nameOf(e)] || 0) + 1;
     info.innerHTML = `<div class="selname">${sel.length} vehicles</div>` +
       `<div class="extra">${Object.entries(counts).map(([n, c]) => `${c} × ${n}`).join(' · ')}</div>`;
   }
@@ -732,7 +740,10 @@ function refreshPanel() {
   }
   if (!own || !rebuild) return;
 
+  // Your own buttons, in your faction's words.
+  const own_ = s => s && factionText(game.teams[view.team].faction, s);
   const addBtn = (label, cost, hotkey, onClick, opts = {}) => {
+    label = own_(label); opts.title = own_(opts.title); opts.note = own_(opts.note);
     const b = document.createElement('button');
     b.dataset.hotkey = hotkey;
     // Production buttons get a second row: price (or a note), how many are
@@ -803,7 +814,8 @@ function refreshPanel() {
       const counts = Object.create(null);
       for (const t of first.queue) counts[t] = (counts[t] || 0) + 1;
       const now = first.queue[0];
-      producesOf(first).forEach(type => {
+      // Mk II vehicles only appear once researched (the Lab says what it unlocks).
+      producesOf(first).filter(type => !UNIT_TYPES[type].requires || tm.research[UNIT_TYPES[type].requires]).forEach(type => {
         const d = UNIT_TYPES[type];
         const needs = d.requires && !tm.research[d.requires];
         const building = type === now;
@@ -843,6 +855,7 @@ function refreshPanel() {
       }
     }
     if (view.aim === 'rally') addBtn('Cancel', null, 'Esc', cancelModes);
+    tip.textContent = own_(tip.textContent);
     if (tip.textContent) cmds.appendChild(tip);
     return;
   }
@@ -867,6 +880,7 @@ function refreshPanel() {
     tip.textContent = !view.placing ? `Pick a building, then ${isTouch ? 'tap' : 'click'} where it should go.`
       : isTouch ? 'Tap inside the green zone to position it, then press Build here.'
       : 'Click inside the green zone to build. Shift-click to place several. Right-click cancels.';
+    tip.textContent = own_(tip.textContent);
     cmds.appendChild(tip);
     return;
   }
@@ -898,6 +912,7 @@ function refreshPanel() {
     tip.textContent = view.aim === 'guard' ? `${isTouch ? 'Tap' : 'Click'} one of your buildings or vehicles. Armed vehicles in the selection will guard it.`
       : mobileHq.length ? `${isTouch ? 'Tap' : 'Click'} a glowing scrap geyser. Your Recycler drives there and deploys as your base.`
       : `${isTouch ? 'Tap' : 'Click'} a glowing scrap geyser. The Scavenger drives there and becomes an Extractor.`;
+    tip.textContent = own_(tip.textContent);
     cmds.appendChild(tip);
   }
   if (sel.some(e => e.kind === 'unit' && e.def.weapon)) {
@@ -935,6 +950,7 @@ function updateHud() {
 }
 
 function logMessage(text, kind = 'info') {
+  if (game && game.teams[view.team]) text = factionText(game.teams[view.team].faction, text);
   const log = $('log');
   const last = log.lastElementChild;
   if (last && last.dataset.text === text && performance.now() - Number(last.dataset.at) < 3000) return;
@@ -1008,6 +1024,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - (lastFrame || now)) / 1000);
   lastFrame = now;
+  if (!$('menu').classList.contains('hidden')) drawFactionPreviews(now / 1000);
   if (!game) return;
   updateCamera(dt);
   if (!paused && !game.winner) {
@@ -1035,16 +1052,44 @@ function frame(now) {
 // Menu buttons
 // -----------------------------------------------------------------------------
 
-let chosenDifficulty = 'normal';
+let chosenDifficulty = 'normal', chosenFaction = 'scrapline';
+try { if (FACTIONS[localStorage.getItem('scrapline.faction')]) chosenFaction = localStorage.getItem('scrapline.faction'); } catch (err) { /* optional */ }
+document.querySelectorAll('[data-faction]').forEach(b => {
+  b.classList.toggle('active', b.dataset.faction === chosenFaction);
+  b.addEventListener('click', () => {
+    chosenFaction = b.dataset.faction;
+    document.querySelectorAll('[data-faction]').forEach(x => x.classList.toggle('active', x === b));
+    try { localStorage.setItem('scrapline.faction', chosenFaction); } catch (err) { /* optional */ }
+  });
+});
+// Each faction card shows a line-up of that faction's vehicles, gently animated.
+function drawFactionPreviews(time) {
+  for (const b of document.querySelectorAll('[data-faction]')) {
+    const c = b.querySelector('canvas'), ctx = c.getContext('2d'), f = b.dataset.faction;
+    ctx.clearRect(0, 0, c.width, c.height);
+    const art = artFor(f), line = ['scout', 'hornet', 'tank', 'sentry', 'artillery'];
+    line.forEach((type, i) => {
+      const x = 32 + i * 59, y = 58 + (i % 2 ? 10 : -10);
+      art.drawSprite(ctx, artId(f, type), { x, y, heading: -Math.PI / 2, turret: 0.4 * Math.sin(time * 0.8 + i), team: 'blue',
+        t: time, thrust: true, legE: type === 'sentry' || type === 'artillery' ? 1 : 0, scale: 1.25 });
+    });
+  }
+}
 document.querySelectorAll('[data-difficulty]').forEach(b => b.addEventListener('click', () => {
   chosenDifficulty = b.dataset.difficulty;
   document.querySelectorAll('[data-difficulty]').forEach(x => x.classList.toggle('active', x === b));
 }));
 $('start').onclick = () => startGame(chosenDifficulty);
+$('howto').onclick = () => openHelp();
 $('watch').onclick = () => startGame(chosenDifficulty, true);
 $('again').onclick = () => { $('end').classList.add('hidden'); $('menu').classList.remove('hidden'); };
 // Help lives on the pause screen, so opening it always pauses the battle.
-function openHelp() { if (game && !paused) togglePause(); $('help').classList.remove('hidden'); }
+function openHelp() {
+  const fromMenu = !$('menu').classList.contains('hidden');
+  if (game && !paused && !fromMenu) togglePause();
+  $('helpclose').textContent = fromMenu ? 'Back' : 'Back to battle';
+  $('help').classList.remove('hidden');
+}
 $('helpbtn').onclick = openHelp;
 $('helpclose').onclick = () => $('help').classList.add('hidden');
 $('pausebtn').onclick = togglePause;

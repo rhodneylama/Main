@@ -19,7 +19,7 @@ function load() {
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
     'createGame, generateMap, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
-    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue });', ctx);
+    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS });', ctx);
   return ctx;
 }
 
@@ -402,6 +402,56 @@ section('Artillery fires on what its side can see');
   spotter.def = Object.assign({}, spotter.def, { weapon: undefined });
   run(g, S, 3);
   check('artillery fires at a target a friendly vehicle spots, out to its full range', art.lastShot !== undefined);
+}
+
+section('Hornet and Sentry');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const T = S.CONFIG.TILE, open = (x, y) => !S.isBlockedTile(g, Math.floor(x / T), Math.floor(y / T));
+  const f = placeDone(S, g, 1, 'factory', { x: rec.x + 200, y: rec.y });
+  check('a Factory builds Hornets and Sentries', ['hornet', 'sentry'].every(t => f.def.produces.includes(t)));
+  const H = S.UNIT_TYPES.hornet, Tk = S.UNIT_TYPES.tank;
+  check('the Hornet is quicker and cheaper than a Tank, with less armour', H.speed > Tk.speed && H.cost < Tk.cost && H.hp < Tk.hp);
+  let P = null;
+  for (let k = 0; k < 4000 && !P; k += 8) {
+    const x = rec.x + 150 + (k % 400), y = rec.y - 200 - Math.floor(k / 400) * 40;
+    if (open(x, y) && open(x + 180, y)) P = { x, y };
+  }
+  // A Sentry with a harmless target in range: legs first, then a rapid stream.
+  const sen = S.addUnit(g, 'sentry', 1, P.x, P.y);
+  const foe = S.addUnit(g, 'tank', 2, P.x + 180, P.y);
+  foe.hp = foe.maxHp = 1e6; foe.def = Object.assign({}, foe.def, { weapon: undefined });
+  let first = null, shots = 0, last;
+  for (let i = 0; i < 90; i++) { S.stepGame(g); if (sen.lastShot !== last) { last = sen.lastShot; if (last !== undefined) { shots++; if (first === null) first = (i + 1) / 30; } } }
+  check('a Sentry lowers its legs before it fires (about 0.6 s)', first !== null && first >= 0.55, first && `${first.toFixed(2)} s`);
+  check('then fires a rapid stream (several shots a second)', shots >= 8, `${shots} shots in 3 s`);
+  const hor = S.addUnit(g, 'hornet', 1, P.x, P.y + 40);
+  let rocket = false;
+  for (let i = 0; i < 60; i++) { S.stepGame(g); if (g.projectiles.some(p => p.owner === hor.id && p.kind === 'rocket')) rocket = true; }
+  check('a Hornet fires rockets', rocket);
+}
+
+section('Factions');
+{
+  const S = load();
+  const g = S.createGame({ seed: 42, difficulty: 'normal', aiTeams: [], factions: { 1: 'kethra', 2: 'scrapline' } });
+  check('each side gets the faction it chose', g.teams[1].faction === 'kethra' && g.teams[2].faction === 'scrapline');
+  const k = mine(g, 1, 'mobileRecycler')[0], sc = mine(g, 2, 'mobileRecycler')[0];
+  check('vehicles carry their side\'s faction', k.faction === 'kethra' && sc.faction === 'scrapline');
+  const t1 = S.addUnit(g, 'tank2', 1, k.x, k.y), t2 = S.addUnit(g, 'tank', 2, sc.x, sc.y);
+  check('names are in each faction\'s words (Bulwark Mk II, Tank)', S.nameOf(t1) === 'Bulwark Mk II' && S.nameOf(t2) === 'Tank', `${S.nameOf(t1)}, ${S.nameOf(t2)}`);
+  const gy = g.geysers.slice().sort((a, b) => S.dist(a, k) - S.dist(b, k))[0];
+  S.issueCommand(g, 1, { type: 'deploy', ids: [k.id], geyserId: gy.id });
+  run(g, S, 25);
+  const nexus = mine(g, 1, 'recycler')[0];
+  const said = g.events.filter(e => e.team === 1 && e.text).map(e => e.text);
+  check('the Kethra Recycler is a Nexus, and its messages say so', S.nameOf(nexus) === 'Nexus' && said.some(t => /Nexus deploying/.test(t)) && !said.some(t => /Recycler/.test(t)), said.slice(0, 2).join(' / '));
+  const same = Object.keys(S.UNIT_TYPES).every(t => S.UNIT_TYPES[t].hp > 0);
+  check('both factions use the same unit numbers (only names differ)', same && t1.def === S.UNIT_TYPES.tank2);
+  const g2 = S.createGame({ seed: 5, difficulty: 'normal', aiTeams: [] });
+  check('a side with no faction chosen is Scrapline', g2.teams[1].faction === 'scrapline' && g2.teams[2].faction === 'scrapline');
 }
 
 console.log(`\n${passes} passed, ${fails} failed`);

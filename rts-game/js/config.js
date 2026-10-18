@@ -30,6 +30,47 @@ const TEAMS = {
   2: { name: 'Red Legion',   color: '#ff5a4a', dark: '#7a2018', light: '#ffb0a6' },
 };
 
+// The two playable factions. They play by exactly the same rules (every unit
+// and building has the same numbers); only the look and the names differ.
+// `names` maps the Scrapline name of anything to the faction's own name.
+const FACTIONS = {
+  scrapline: {
+    name: 'Scrapline', tagline: 'Salvage crews in tracked steel',
+    desc: 'Tracked steel war machines built from scrap. Tanks lead, artillery digs in behind them.',
+    names: {},
+  },
+  kethra: {
+    name: 'Kethra Concord', tagline: 'Hovering alien constructs',
+    desc: 'Hovering obsidian machines on gravity rings, with floating ceramic blades. Same strengths, alien look.',
+    names: {
+      'Recycler (mobile)': 'Monad', 'Recycler': 'Nexus', 'Recycler II': 'Nexus II',
+      'Scavenger': 'Skimmer', 'Scavenger II': 'Skimmer II', 'Constructor': 'Loom', 'Constructor II': 'Loom II',
+      'Scout': 'Shard', 'Scout Mk II': 'Shard Mk II', 'Tank': 'Bulwark', 'Tank Mk II': 'Bulwark Mk II',
+      'Artillery': 'Spire', 'Artillery Mk II': 'Spire Mk II', 'Hornet': 'Talon', 'Hornet Mk II': 'Talon Mk II',
+      'Sentry': 'Pylon', 'Sentry Mk II': 'Pylon Mk II',
+      'Factory': 'Assembler', 'Factory II': 'Assembler II', 'Extractor': 'Siphon', 'Base Silo': 'Vault Orb',
+      'Gun Tower': 'Prism Tower', 'Artillery Tower': 'Prism Lancer', 'Heavy Gun Tower': 'Heavy Prism',
+      'Research Lab': 'Archive', 'Radar': 'Sensor Array', 'Repair Pad': 'Mending Lattice',
+      'Advanced Scouts': 'Advanced Shards', 'Advanced Tanks': 'Advanced Bulwarks', 'Advanced Artillery': 'Advanced Spires',
+      'Advanced Hornets': 'Advanced Talons', 'Advanced Sentries': 'Advanced Pylons',
+    },
+  },
+};
+// A name as a faction calls it.
+const factionName = (faction, name) => (FACTIONS[faction] && FACTIONS[faction].names[name]) || name;
+// A whole message in a faction's own words: every Scrapline name in it is
+// swapped for the faction's (longest names first, so "Tank Mk II" wins over "Tank").
+const factionText = (() => {
+  const cache = Object.create(null);
+  return (faction, text) => {
+    const f = FACTIONS[faction];
+    if (!f || !Object.keys(f.names).length) return text;
+    const re = cache[faction] || (cache[faction] = new RegExp('\\b(' + Object.keys(f.names).sort((a, b) => b.length - a.length)
+      .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')(s?)(?![\\w])', 'g'));
+    return text.replace(re, (m, n, pl) => f.names[n] + pl);
+  };
+})();
+
 // role: 'harvester' collects scrap, 'builder' constructs buildings,
 //       'combat' fights. Weapons: range and sight are in pixels.
 // Speeds (pixels per second): Scavengers and Constructors 43, Tanks 40,
@@ -84,7 +125,23 @@ const UNIT_TYPES = {
     hp: 200, speed: 32, radius: 15, sight: 220,
     weapon: { range: 440, minRange: 110, damage: 60, cooldown: 3.5, projectile: 'artillery',
               splash: 55, vsBuilding: 1.6 },
+    deployToFire: true,
     desc: 'Huge range, splash damage, very slow. Needs scouts to see targets. Can dig in to defend a building.',
+  },
+  // Light rocket tank: quicker and cheaper than a Tank, less armour, a little more reach.
+  hornet: {
+    name: 'Hornet', role: 'combat', cost: 80, buildTime: 7,
+    hp: 260, speed: 52, radius: 13, sight: 260,
+    weapon: { range: 230, damage: 20, cooldown: 0.8, projectile: 'rocket', vsBuilding: 1.2 },
+    desc: 'Light rocket tank. Quicker and cheaper than a Tank, with less armour; its rockets reach a little further than a Tank gun.',
+  },
+  // Mobile turret: like Artillery it must stop and lower its legs to fire,
+  // then it puts out a rapid stream of light rounds at short range.
+  sentry: {
+    name: 'Sentry', role: 'combat', cost: 90, buildTime: 8,
+    hp: 320, speed: 36, radius: 12, sight: 260, deployToFire: true,
+    weapon: { range: 210, damage: 7, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
+    desc: 'Mobile turret. Stops and lowers its legs to fire (about half a second), then fires a rapid stream at short range. Good for holding a spot.',
   },
   // Mk II versions: researched at a Research Lab, built by a Factory II.
   // Roughly +40% armour, +30% damage, +20% speed, for +50% cost.
@@ -105,7 +162,20 @@ const UNIT_TYPES = {
     hp: 280, speed: 38, radius: 15, sight: 220,
     weapon: { range: 440, minRange: 110, damage: 78, cooldown: 3.5, projectile: 'artillery',
               splash: 55, vsBuilding: 1.6 },
+    deployToFire: true,
     desc: 'Upgraded artillery: tougher, harder-hitting, a little quicker.',
+  },
+  hornet2: {
+    name: 'Hornet Mk II', base: 'hornet', requires: 'hornet2', role: 'combat', cost: 120, buildTime: 9,
+    hp: 364, speed: 62, radius: 13, sight: 260,
+    weapon: { range: 230, damage: 26, cooldown: 0.8, projectile: 'rocket', vsBuilding: 1.2 },
+    desc: 'Upgraded Hornet: a third rocket, tougher and faster.',
+  },
+  sentry2: {
+    name: 'Sentry Mk II', base: 'sentry', requires: 'sentry2', role: 'combat', cost: 135, buildTime: 11,
+    hp: 448, speed: 43, radius: 12, sight: 260, deployToFire: true,
+    weapon: { range: 210, damage: 9, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
+    desc: 'Upgraded Sentry: tougher and harder-hitting.',
   },
 };
 
@@ -115,6 +185,8 @@ const RESEARCH = {
   scout2:     { name: 'Advanced Scouts',    cost: 150, time: 45 },
   tank2:      { name: 'Advanced Tanks',     cost: 200, time: 60 },
   artillery2: { name: 'Advanced Artillery', cost: 250, time: 75 },
+  hornet2:    { name: 'Advanced Hornets',   cost: 175, time: 50 },
+  sentry2:    { name: 'Advanced Sentries',  cost: 175, time: 50 },
 };
 
 // size is in map squares. produces = units this building can make.
@@ -133,9 +205,9 @@ const BUILDING_TYPES = {
   },
   factory: {
     name: 'Factory', cost: 150, buildTime: 18, hp: 1400, size: 3, sight: 220,
-    produces: ['scout', 'tank', 'artillery'], buildRadius: 10,
+    produces: ['scout', 'hornet', 'tank', 'sentry', 'artillery'], buildRadius: 10,
     upgrade: { name: 'Factory II', cost: 200, time: 30, hp: 1800,
-               produces: ['scout', 'tank', 'artillery', 'scout2', 'tank2', 'artillery2'] },
+               produces: ['scout', 'hornet', 'tank', 'sentry', 'artillery', 'scout2', 'hornet2', 'tank2', 'sentry2', 'artillery2'] },
     desc: 'Builds combat vehicles. Upgrade to Factory II to build researched Mk II vehicles.',
   },
   // Not built by a Constructor: a Scavenger deploys onto a scrap geyser and
@@ -153,7 +225,7 @@ const BUILDING_TYPES = {
   },
   lab: {
     name: 'Research Lab', cost: 200, buildTime: 20, hp: 900, size: 2, sight: 200, buildRadius: 6,
-    researches: ['scout2', 'tank2', 'artillery2'],
+    researches: ['scout2', 'tank2', 'artillery2', 'hornet2', 'sentry2'],
     desc: 'Researches Mk II vehicles, one at a time. A Factory II can then build them.',
   },
   // Every `every` seconds it pings, revealing a wide circle for `lasts` seconds.
@@ -235,6 +307,9 @@ const HOTKEYS = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I'];
 //                    what it has seen of the enemy (towers, artillery)
 //     trap           when a group falls back, vehicles at home lie in wait on
 //                    its way home for whatever chases it
+//     hornetsAfter   seconds before Hornets take half of the fast share of the army
+//     sentries       how many outlying Extractors (over 600 px from home) get a
+//                    Sentry to guard them; sentriesAfter (seconds)
 const DIFFICULTY = {
   easy:   { label: 'Easy',   incomeMult: 0.5,  firstAttack: 600, waveEvery: 240, waveBase: 3, waveGrowth: 0.25,
             maxArmy: 8,  armyPerMinute: 0.7, maxExtractors: 2, maxBaseSilos: 1, maxScavengers: 3, thinkEvery: 2.5, artilleryAfter: 1200, secondFactory: false,
@@ -244,11 +319,13 @@ const DIFFICULTY = {
             upgradeBaseAfter: 120, labAfter: 360, radarAfter: 480, towerUpgradeAfter: 900,
             tactics: { hold: 600, holdArmy: 2, counter: 0.6, allIn: true, flank: 0.7, feint: 0.4, retreatAt: 0.5, focus: true,
                        raid: true, raidAfter: 420, raidEvery: 240, raidSize: 3, raidWithWave: true, raidRetreat: 1, cautious: 0.5, repair: 0,
-                       combined: true, flankers: 0.5, adapt: 0.5, trap: true } },
+                       combined: true, flankers: 0.5, adapt: 0.5, trap: true,
+                       hornetsAfter: 420, sentries: 2, sentriesAfter: 600 } },
   hard:   { label: 'Hard',   incomeMult: 1.35, firstAttack: 180, waveEvery: 100, waveBase: 6, waveGrowth: 1.5,
             maxArmy: 40, armyPerMinute: 0, maxExtractors: 5, maxBaseSilos: 3, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true,
             upgradeBaseAfter: 90, labAfter: 240, radarAfter: 360, towerUpgradeAfter: 600,
             tactics: { hold: 360, holdArmy: 1.2, counter: 0.6, allIn: true, flank: 0.7, feint: 0, retreatAt: 0.5, focus: true,
                        raid: true, raidAfter: 240, raidEvery: 150, raidSize: 4, raidWithWave: true, raidRetreat: 1.2, cautious: 1, repair: 0,
-                       combined: true, flankers: 1, adapt: 1, trap: true } },
+                       combined: true, flankers: 1, adapt: 1, trap: true,
+                       hornetsAfter: 300, sentries: 3, sentriesAfter: 420 } },
 };

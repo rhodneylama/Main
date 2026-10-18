@@ -58,6 +58,11 @@ Plays on desktop (mouse and keyboard) and on phones and tablets (touch).
 onto geysers, Constructors), Battlefield 2 (a battlefield of vehicles with
 distinct roles), and 4X / RTS games (gather, build, expand, research, conquer).
 
+**Factions:** two, chosen on the start screen. **Scrapline** (tracked steel
+war machines) and the **Kethra Concord** (hovering alien constructs). They
+fight by exactly the same rules and numbers; only the art and the names
+differ (section 6, "Factions"). The computer opponent fields the other one.
+
 **The loop:**
 
 1. Drive your mobile Recycler onto a scrap geyser and deploy it. It becomes
@@ -264,12 +269,16 @@ to build it.
 | Scout | Combat | 50 | 5 s | 140 | 98 | 330 | 11 | Factory | — |
 | Tank | Combat | 100 | 9 s | 400 | 40 | 260 | 15 | Factory | — |
 | Artillery | Combat | 140 | 12 s | 200 | 32 | 220 | 15 | Factory | — |
+| Hornet (light rocket tank) | Combat | 80 | 7 s | 260 | 52 | 260 | 13 | Factory | — |
+| Sentry (mobile turret) | Combat | 90 | 8 s | 320 | 36 | 260 | 12 | Factory | — |
 | Scout Mk II | Combat | 75 | 7 s | 196 | 118 | 330 | 11 | Factory II | Advanced Scouts |
 | Tank Mk II | Combat | 150 | 12 s | 560 | 48 | 260 | 15 | Factory II | Advanced Tanks |
 | Artillery Mk II | Combat | 210 | 16 s | 280 | 38 | 220 | 15 | Factory II | Advanced Artillery |
+| Hornet Mk II | Combat | 120 | 9 s | 364 | 62 | 260 | 13 | Factory II | Advanced Hornets |
+| Sentry Mk II | Combat | 135 | 11 s | 448 | 43 | 260 | 12 | Factory II | Advanced Sentries |
 
-**Speeds:** Scavengers and Constructors 43, Tank 40, Artillery 32 (kept the
-slowest), Scout 98. (Transports, removed in October, were 39.)
+**Speeds:** Scavengers and Constructors 43, Tank 40, Sentry 36, Artillery 32
+(kept the slowest), Hornet 52 (1.3× a Tank), Scout 98. (Transports, removed in October, were 39.)
 
 **Mk II rule of thumb:** about +40% HP, +30% damage, +20% speed, for +50%
 cost. A Mk II counts as the same kind of vehicle as its basic version for
@@ -285,6 +294,10 @@ orders and the Army menu.
 | Tank Mk II | 200 | — | 44 | 1.2 | Shell | — | ×1.0 |
 | Artillery | 440 | 110 | 60 | 3.5 | Arcing shell (260 px/s, aimed at a spot) | 55 px radius | ×1.6 |
 | Artillery Mk II | 440 | 110 | 78 | 3.5 | Arcing shell | 55 px radius | ×1.6 |
+| Hornet | 230 | — | 20 | 0.8 | Rocket (520 px/s, homing) | — | ×1.2 |
+| Hornet Mk II | 230 | — | 26 | 0.8 | Rocket | — | ×1.2 |
+| Sentry | 210 | — | 7 | 0.2 | Bullet | — | ×0.6 |
+| Sentry Mk II | 210 | — | 9 | 0.2 | Bullet | — | ×0.6 |
 | Recycler (deployed) | 210 | — | 24 | 0.8 | Bullet | — | ×1.0 |
 | Gun Tower | 250 | — | 22 | 0.9 | Shell | — | ×1.0 |
 
@@ -301,9 +314,36 @@ Scavengers, Constructors and the mobile Recycler are unarmed.
 | Constructor II | Builds, and **repairs** damaged buildings at 25 HP per second. |
 | Scout (and Mk II) | **Scout** (alone) or **Scout as pack** / **Scout solo** (groups). |
 | Tank (and Mk II) | **Patrol:** loops around all your buildings. |
+| Sentry (and Mk II) | **Must stop to fire**, like Artillery: lowers four legs (0.6 s) before its first shot and raises them (0.6 s) before it can drive. Then fires five rounds a second. |
 | Any armed vehicle | **Guard:** then pick one of your buildings or vehicles. Guarding a building: take a post beside it and fire at anything in range. Guarding a vehicle: keep a spot beside it, follow it, fight anything in range, go after whoever attacks it (never more than 320 px away), stand down if it is destroyed. |
 | Any damaged vehicle | **Go repair:** drives to the nearest Repair Pad (the button appears once you have one). |
 | Any vehicle parked on your Repair Pad (not the Recycler) | **Recycle:** takes it apart for half its cost. Needs a second press, **Confirm recycle**. |
+
+### Factions
+
+Each side plays one faction, chosen on the start screen (the computer takes
+the other; in Watch mode Blue is the chosen faction). Every unit and building
+has the same numbers for both; the game stores a `faction` on each side and
+on everything it owns, draws it with that faction's designs
+(`js/sprites.js` for Scrapline, `js/sprites_kethra.js` for the Kethra
+Concord) and shows its names in that faction's words, in buttons, the
+selection panel and messages (`FACTIONS` in `js/config.js`).
+
+| Scrapline | Kethra Concord | | Scrapline | Kethra Concord |
+| --- | --- | --- | --- | --- |
+| Recycler (mobile) | Monad | | Recycler / Recycler II | Nexus / Nexus II |
+| Scavenger (II) | Skimmer (II) | | Factory / Factory II | Assembler / Assembler II |
+| Constructor (II) | Loom (II) | | Extractor | Siphon |
+| Scout | Shard | | Base Silo | Vault Orb |
+| Hornet | Talon | | Gun Tower | Prism Tower |
+| Tank | Bulwark | | Artillery Tower / Heavy Gun Tower | Prism Lancer / Heavy Prism |
+| Sentry | Pylon | | Research Lab | Archive |
+| Artillery | Spire | | Radar | Sensor Array |
+| (Mk II: "… Mk II") | | | Repair Pad | Mending Lattice |
+
+Kethra vehicles hover: a dashed gravity ring glows under each one, brighter
+with an exhaust flare while it moves. The Kethra have one tower design;
+upgraded Prism Towers carry gold markings.
 
 ---
 
@@ -400,6 +440,8 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
 | Advanced Scouts | 150 | 45 s | Scout Mk II |
 | Advanced Tanks | 200 | 60 s | Tank Mk II |
 | Advanced Artillery | 250 | 75 s | Artillery Mk II |
+| Advanced Hornets | 175 | 50 s | Hornet Mk II |
+| Advanced Sentries | 175 | 50 s | Sentry Mk II |
 
 - A lab researches one topic at a time.
 - The same topic can't be researched twice, or in two labs at once.
@@ -407,6 +449,7 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
   destroyed.
 - The lab shows each topic's state: cost, "Researching 40%", or
   "Researched ✓".
+- A Factory II only shows a Mk II vehicle's button once it is researched.
 
 ---
 
@@ -646,6 +689,17 @@ each decision it runs through these steps in order:
      on Hard; half that effect on Normal). A bigger shift toward Artillery
      and Scouts was tried and lost badly: Tanks give the most fighting
      strength for the scrap.
+   - **Hornets:** after `hornetsAfter` (Normal 7:00, Hard 5:00) the fast
+     share of the army is split evenly between Scouts and Hornets (at least
+     2 Scouts are kept for raids; Hornets are too slow for raids and fight
+     as flankers in assaults).
+   - **Sentries:** after `sentriesAfter` (Normal 10:00, Hard 7:00) it builds
+     one Sentry for each of its outlying Extractors (more than 600 px from
+     home), up to `sentries` (Normal 2, Hard 3), and sends each idle Sentry
+     to **guard** an unguarded one. Guarding Sentries stay put: they don't
+     join waves or base defence.
+   - It researches Advanced Hornets and Advanced Sentries after the other
+     three topics.
    - the **Mk II** version whenever that Factory is a Factory II and the
      research is done.
 
@@ -679,12 +733,12 @@ each decision it runs through these steps in order:
     - **Flanking:** 70% of waves swing round a flank (a point 55% of the way
       there, pushed sideways by 35% of the distance) on the side where it
       has seen fewer defences, instead of going straight in.
-    - **Combined arms:** a wave with at least two Tanks or Artillery attacks
-      as an assault. The **Tanks** attack-move straight at the target and
-      take the hits. The **Artillery** goes to a firing spot 360 px short of
+    - **Combined arms:** a wave with at least two Tanks, Sentries or
+      Artillery attacks as an assault. The **Tanks** (and Sentries) attack-move
+      straight at the target and take the hits. The **Artillery** goes to a firing spot 360 px short of
       the target, behind the Tanks, and shells Gun Towers first, then enemy
       Artillery, then anything else its side can see (the Tanks spot for
-      it). The **Scouts** (all of them on Hard, half on Normal) swing round
+      it). The **Scouts** and **Hornets** (all of them on Hard, half on Normal) swing round
       the side at the same moment: they dive on enemy Artillery if any is
       in sight, otherwise strike a soft target (an Extractor or other
       unarmed building away from Gun Towers, or another outpost) like a
@@ -842,8 +896,12 @@ The game speed button cycles through ×1, ×2 and ×4.
 - **On the map:** health bars appear on damaged or selected things. Under a
   building's health bar, a blue bar shows unit production, an amber bar shows
   upgrade or research progress, and a gold bar shows a tank's fill.
-- **Screens:** title (difficulty choice, Watch AI vs AI), help, pause, end
-  (Victory / Defeat with stats).
+- **Screens:** start screen (faction cards with an animated line-up of each
+  faction's vehicles, difficulty, **Start battle**, **How to play**, **Watch
+  AI vs AI**; the chosen faction is remembered on that device), How to play
+  (mission, factions and their names, vehicles, controls, tips; reachable
+  from the start screen or the pause screen), pause, end (Victory / Defeat
+  with stats; sides are named by faction).
 
 ---
 
@@ -993,7 +1051,7 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `js/sprites.js` | The unit design sheet: vector drawings of every vehicle and building, their animations, damage smoke, explosions, wrecks and craters |
 | `js/render.js` | Drawing the map, fog, minimap, bars and effects; calls `sprites.js` for units and buildings. The ground is painted in chunks as they scroll into view (see below). |
 | `js/main.js` | Mouse, touch and keyboard input; panels and buttons; minimap toggle; sound; the game loop |
-| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (63 checks). |
+| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (74 checks). |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
 tables), `ROADMAP.md` (planned stages), `ECONOMY_TEST_REPORT.md` (the October
@@ -1039,7 +1097,7 @@ rebuilt.
 
 | Test type | Method | What it checks |
 | --- | --- | --- |
-| **Rules tests** (`tests/rules.js`, 63 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 12 geysers, 20-tile spacing, 6 per half, mirrored geysers and scrap, 20 to 24 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target). |
+| **Rules tests** (`tests/rules.js`, 74 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 12 geysers, 20-tile spacing, 6 per half, mirrored geysers and scrap, 20 to 24 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; Hornet quicker, cheaper, lighter than a Tank and fires rockets; Sentry lowers its legs before firing, then fires a rapid stream); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default). |
 | **AI duels** (`tests/balance/duels.sh`) | The current opponent plays an earlier version of itself (`tests/balance/ai_previous.js`, the first one; `ai_v2.js` with `OPP=v2`, the 18 October one) on many seeds, 4 games at a time, up to 60 minutes each. With `BOTHOLD=1` both sides use the previous version, giving the baseline for the same seeds. | Whether a change to the opponent actually makes it stronger. Each tactic was tried alone, then in combinations; see the results below. |
 | **AI-vs-AI batches** | Run 30 to 120 full games between two computer players on different seeds. | Games end, typical length, and **fairness** by team and by corner. |
 | **AI tech progression** | Log when the AI reaches each milestone at each difficulty. | The AI actually upgrades, researches and fields Mk II units. |
@@ -1118,6 +1176,9 @@ What was tried on the way (Hard, 32 seeds unless noted, baseline 15):
   formation tie-breaking, a non-mirrored map clearing, and decision timing.
 - **Big map:** a cross-map route took 55 ms (route smoothing re-checked long
   sight-lines); now about 5 ms.
+- **Kethra names:** an early version of the name lookup showed the
+  Constructor's queue count as program text; all lookups keyed by names now
+  use clean tables.
 - **Repair Pad:** a vehicle destroyed (or recycled) while parked on the pad
   could be healed back to life in the same tick. Fixed.
 - **AI duels:** the first version of the cunning opponent lost badly to the
@@ -1364,3 +1425,10 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     side can see out to its full range (for both sides), so Tanks, Scouts
     and Radar spot for it. The opening feint is off on Hard. Tested over 128
     Hard games against the 18 October opponent (section 20).
+21. **Factions and new vehicles** (19 October 2026): a second playable
+    faction, the **Kethra Concord** (hovering alien designs from
+    `js/sprites_kethra.js`, same rules as Scrapline, its own names); the
+    **Hornet** light rocket tank and the **Sentry** mobile turret for both
+    factions, with Mk II versions and research; a new start screen (choose
+    faction and difficulty; How to play on its own screen); the opponent
+    builds Hornets as flankers and posts Sentries at its outlying Extractors.

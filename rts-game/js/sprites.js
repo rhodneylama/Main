@@ -64,6 +64,19 @@ const VEH = [
        ['p','M12 -14L20 -8V8L12 14Z','l'],['s','M14.5 -6V6M17 -4V4','d',.8],['r',-20.5,-8,3,16,'d',1],
        ['c',-4,0,9,'m'],['o',-4,0,6,'d',1],['c',-4,0,2.5,'l']] }
 ];
+// Hornet (light rocket tank) and Sentry (mobile turret), from design sheet 2.
+VEH.push(
+  { id:'hornet', code:'V-08', name:'Hornet', sub:'Rocket tank · light', D:26, R:13, reach:17, layers:'Hull · Team · Rocket pod',
+    role:'Light rocket tank. Narrower tracks and a short hull make it quicker and more agile than the Tank. The swivelling pod holds four rockets in two twin tubes, with nose cones showing when loaded.',
+    s:[['r',-12,-13,24,5,'tr',1.5],['r',-12,8,24,5,'tr',1.5],tk(-10,10,-13,5,2.6),tk(-10,10,8,5,2.6),['p','M-10 -8H7L11 -5V5L7 8H-10L-11 6V-6Z','h'],['p','M7 -8L11 -5V5L7 8Z','l'],['r',-10.5,-5,2.6,10,'t'],['s','M-6 -7.5H5M-6 7.5H5','m',.6]],
+    tur:{ m:[-1,0], s:[['p','M-6 -5.5H3L5 -3.5V3.5L3 5.5H-6Z','h'],['r',2,-4.8,13,3.6,'m',.8],['r',2,1.2,13,3.6,'m',.8],['p','M15 -4.8L17.4 -3L15 -1.2Z','gold'],['p','M15 1.2L17.4 3L15 4.8Z','gold'],['r',-4.5,-1,6,2,'t']] },
+    mkName:'Mk II', mk:[['s','M-10 -7.5H-7M-10 7.5H-7','gold',1]], tmk:[['r',4,-1,10.5,2,'m',.5],['p','M14.5 -1L16.8 0L14.5 1Z','gold']] },
+  { id:'sentry', code:'V-09', name:'Sentry', sub:'Mobile turret', D:24, R:12, reach:19, legs:true, rapid:true, layers:'Hull · Team · Twin guns',
+    role:'Mobile quick-defence turret. It drives like a light carriage but must stop to fire: four stabiliser legs drop, then twin light guns put out a rapid stream. Stow the legs to move again.',
+    s:[['r',-10,-12,20,4.5,'tr',1.2],['r',-10,7.5,20,4.5,'tr',1.2],tk(-8,8,-12,4.5,2.4),tk(-8,8,7.5,4.5,2.4),['r',-9,-8,18,16,'h',2],['r',-9,-5,3,10,'t'],['p','M9 -6L11.5 -3V3L9 6Z','l'],['s','M-5 -7H7M-5 7H7','m',.6]],
+    tur:{ m:[0,0], s:[['p','M-5 -6H3L6 -3V3L3 6H-5Z','h'],['r',4,-3.8,14,2,'d'],['r',4,1.8,14,2,'d'],['r',17,-4,3,2.4,'k'],['r',17,1.6,3,2.4,'k'],['c',-1,0,2,'t']] },
+    mkName:'Mk II', mk:[['r',-9,-8,2,2,'gold'],['r',7,-8,2,2,'gold'],['r',-9,6,2,2,'gold'],['r',7,6,2,2,'gold']], tmk:[['s','M-3.5 -4.5H1M-3.5 4.5H1','gold',.8]] }
+);
 const BLD = [
   { id:'recycler', code:'B-01', name:'Recycler', sub:'HQ · 3×3', S:96, R:48, layers:'Base · Team · Core (spin)', mkName:'Recycler II',
     role:'Octagonal core on four pylons, intake bay facing forward, a slow-turning processing drum in the centre. Destroy it and the game ends, so it is the heaviest shape on the map.',
@@ -224,7 +237,10 @@ function bake(id, team, mk, res) {
   return { canvas: c, half, res };
 }
 
-const api = { DEFS: BY, VEHICLES: VEH.map(d => d.id), BUILDINGS: BLD.map(d => d.id), TEAM, drawSprite, drawDamage, drawExplosion, drawCrater, bake, ARTILLERY };
+/* Sentry: same stop-deploy-fire-stow rule, rapid fire. Pass fire = rapidFire(secondsSinceFirstShot) each frame while firing. */
+const SENTRY = { deploy: 0.6, retract: 0.6, shotInterval: 0.2 };
+function rapidFire(sec) { return (sec % 0.2)*1.4; }
+const api = { DEFS: BY, VEHICLES: VEH.map(d => d.id), BUILDINGS: BLD.map(d => d.id), TEAM, drawSprite, drawDamage, drawExplosion, drawCrater, bake, ARTILLERY, SENTRY, rapidFire };
 root.UnitSprites = api;
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

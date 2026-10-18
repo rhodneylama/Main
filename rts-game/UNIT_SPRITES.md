@@ -33,6 +33,8 @@ Load it in `index.html` **before** `render.js`:
 | `constructor` | Constructor / Constructor II | Ø26 |
 | `scavenger` | Scavenger / Scavenger II | Ø26 |
 | `transport` | Transport | Ø28 |
+| `hornet` | Rocket Tank (light) / Mk II | Ø26, pod reaches 17 |
+| `sentry` | Mobile Turret / Mk II | Ø24, guns reach 19 |
 | `recyclerV` | Recycler (mobile) | Ø44 |
 | `recycler` | Recycler / Recycler II (deployed) | 3×3 = 96 |
 | `factory` | Factory / Factory II | 3×3 = 96 |
@@ -115,3 +117,11 @@ Timings are exported as `UnitSprites.ARTILLERY` (`deploy: 0.6`, `retract: 0.6`).
 ## Open question for the designer
 
 GAME_DESIGN.md says the deployed Recycler has a defence gun (210 range, 24 dmg). The art now has **no turret** on the Recycler, by request. Either remove the Recycler's gun from `config.js`, or fire it from the centre drum without a visible barrel. Confirm which before implementing.
+
+### New: Hornet (light rocket tank) and Sentry (mobile turret)
+
+- **Hornet** (`hornet`): faster and more agile than the Tank (suggest about 1.3× Tank speed, tighter turn rate). Swivelling rocket pod is a separate turret layer (pass `turret` like the Tank). Mk II loads a third rocket. Use `fire` for recoil and flash.
+- **Sentry** (`sentry`): same stationary-to-fire rule as Artillery, but rapid fire. State machine: Moving → **Deploying** (`legE` 0→1 over `UnitSprites.SENTRY.deploy` = 0.6 s) → **Firing** (twin light guns, one shot every `SENTRY.shotInterval` = 0.2 s; pass `fire = UnitSprites.rapidFire(secondsSinceFirstShot)` each frame) → **Stowing** (`legE` 1→0 over 0.6 s; movement blocked until 0). Suggest low damage per shot, high rate of fire, short range.
+- Both have Mk II variants (`mk: true`).
+
+In the game: the Hornet and Sentry are `hornet` / `sentry` (Mk II: `hornet2` / `sentry2`), built at a Factory. The Kethra Concord draws them as `talon` and `pylon` (see `KETHRA_SPRITES.md`).

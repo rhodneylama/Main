@@ -197,11 +197,12 @@ function drawGame(ctx, game, view) {
   for (const fx of game.effects) if ((fx.kind === 'wreck' || fx.kind === 'crater') && onScreen(fx.x, fx.y)) {
     ctx.save();
     ctx.globalAlpha = Math.min(1, (fx.life - fx.t) / 3);
-    if (fx.kind === 'crater') UnitSprites.drawCrater(ctx, spriteId(fx.type), fx.x, fx.y);
+    const art = artFor(fx.faction), id = artId(fx.faction, fx.type);
+    if (fx.kind === 'crater') art.drawCrater(ctx, id, fx.x, fx.y);
     else if (fx.t > 0.36) {
       // Appears once the explosion has cleared, then smoulders for a while.
-      UnitSprites.drawSprite(ctx, spriteId(fx.type), { x: fx.x, y: fx.y, heading: fx.a, team: teamName(fx.team), mk: fx.mk, wreck: true });
-      if (fx.t < 8) UnitSprites.drawDamage(ctx, spriteId(fx.type), fx.x, fx.y, game.time);
+      art.drawSprite(ctx, id, { x: fx.x, y: fx.y, heading: fx.a, team: teamName(fx.team), mk: fx.mk, wreck: true });
+      if (fx.t < 8) art.drawDamage(ctx, id, fx.x, fx.y, game.time);
     }
     ctx.restore();
   }
@@ -394,6 +395,16 @@ function drawScrap(ctx, s) {
 // No prototype, so a type like "constructor" isn't mistaken for a built-in.
 const SPRITE_ID = Object.assign(Object.create(null), { mobileRecycler: 'recyclerV', repairpad: 'repair', basesilo: 'silo', outsilo: 'exsilo', arttower: 'towerArt', heavytower: 'towerHeavy' });
 const spriteId = type => SPRITE_ID[type] || type;
+// The Kethra Concord's designs (js/sprites_kethra.js). Its towers have one
+// design; upgraded ones are drawn with its gold markings.
+const KETHRA_ID = Object.assign(Object.create(null), {
+  mobileRecycler: 'monad', recycler: 'nexus', scavenger: 'skimmer', constructor: 'loom', scout: 'shard', tank: 'bulwark',
+  artillery: 'spire', hornet: 'talon', sentry: 'pylon', factory: 'assembler', repairpad: 'lattice', extractor: 'siphon',
+  basesilo: 'vault', tower: 'prism', arttower: 'prism', heavytower: 'prism', lab: 'archive', radar: 'array',
+});
+// Which set of designs, and which design in it, draws a thing of a given faction.
+const artFor = faction => (faction === 'kethra' && window.KethraSprites ? KethraSprites : UnitSprites);
+const artId = (faction, type) => (faction === 'kethra' && window.KethraSprites ? KETHRA_ID[type] || type : spriteId(type));
 const teamName = t => (t === 1 ? 'blue' : 'red');
 // Seconds since a gun last fired, while its recoil and muzzle flash still show.
 const sinceShot = (e, now) => (e.lastShot !== undefined && now - e.lastShot < 0.5 ? now - e.lastShot : null);
@@ -405,13 +416,13 @@ function flashOver(ctx, x, y, r) {
 }
 
 function drawBuilding(ctx, b, selected, ghost, time) {
-  const T = CONFIG.TILE, s = b.size * T, id = spriteId(b.variant || b.type), team = teamName(b.team);
+  const T = CONFIG.TILE, s = b.size * T, art = artFor(b.faction), id = artId(b.faction, b.variant || b.type), team = teamName(b.team);
   ctx.save();
   if (ghost) ctx.globalAlpha = 0.5;
   if (b.built < 1) {
     // Construction site: the design fades in as it is built, inside a dashed outline.
     ctx.globalAlpha *= 0.2 + 0.55 * b.built;
-    UnitSprites.drawSprite(ctx, id, { x: b.x, y: b.y, team, turret: b.turret });
+    art.drawSprite(ctx, id, { x: b.x, y: b.y, team, turret: b.turret });
     ctx.globalAlpha = ghost ? 0.5 : 1;
     ctx.strokeStyle = TEAMS[b.team].color; ctx.lineWidth = 2; ctx.setLineDash([6, 5]);
     ctx.strokeRect(b.x - s / 2 + 2, b.y - s / 2 + 2, s - 4, s - 4); ctx.setLineDash([]);
@@ -421,8 +432,8 @@ function drawBuilding(ctx, b, selected, ghost, time) {
   }
   // The lab's dome only pulses while it is researching.
   const t = b.type === 'lab' && !b.researching ? 0 : time;
-  UnitSprites.drawSprite(ctx, id, { x: b.x, y: b.y, team, mk: b.level > 1, t, turret: b.turret, fire: sinceShot(b, time) });
-  if (b.hp < b.maxHp * 0.5) UnitSprites.drawDamage(ctx, id, b.x, b.y, time);
+  art.drawSprite(ctx, id, { x: b.x, y: b.y, team, mk: b.level > 1 || (art !== UnitSprites && !!b.variant), t, turret: b.turret, fire: sinceShot(b, time) });
+  if (b.hp < b.maxHp * 0.5) art.drawDamage(ctx, id, b.x, b.y, time);
   if (b.hitFlash > 0) flashOver(ctx, b.x, b.y, s * 0.45);
   ctx.restore();
   if (selected) drawSelection(ctx, b);
@@ -443,15 +454,16 @@ function drawSelection(ctx, e) {
 }
 
 function drawUnit(ctx, u, selected, time) {
-  const r = u.radius, id = spriteId(baseType(u));
+  const r = u.radius, art = artFor(u.faction), id = artId(u.faction, baseType(u));
   if (selected) drawSelection(ctx, u);
   ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(u.x + 3, u.y + 5, r, r * 0.8, 0, 0, Math.PI * 2); ctx.fill();
-  UnitSprites.drawSprite(ctx, id, {
+  art.drawSprite(ctx, id, {
     x: u.x, y: u.y, heading: u.angle, turret: wrapAngle(u.turret - u.angle), team: teamName(u.team),
     mk: !!u.def.base, t: time, legE: u.legE || 0, fire: sinceShot(u, time),
+    thrust: u.movingTick >= game.tick - 1,   // Kethra exhaust glow while moving
     shield: !!u.def.shield && u.shield > 1, shieldHit: u.shieldFlash > 0,
   });
-  if (u.hp < u.maxHp * 0.5) UnitSprites.drawDamage(ctx, id, u.x, u.y, time);
+  if (u.hp < u.maxHp * 0.5) art.drawDamage(ctx, id, u.x, u.y, time);
   if (u.hitFlash > 0) flashOver(ctx, u.x, u.y, r);
   if (u.repairing > 0) {
     ctx.strokeStyle = `rgba(110,224,110,${0.5 + 0.4 * Math.sin(time * 10)})`; ctx.lineWidth = 2;
@@ -497,6 +509,13 @@ function drawProjectile(ctx, p) {
     ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - Math.cos(a) * 10, p.y - Math.sin(a) * 10); ctx.stroke();
   } else if (p.kind === 'shell') {
     ctx.fillStyle = '#ffcf6a'; ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill();
+  } else if (p.kind === 'rocket') {
+    // A small rocket with a smoky trail back toward where it was fired.
+    const a = Math.atan2(p.ty - p.y, p.tx - p.x), c = Math.cos(a), s = Math.sin(a);
+    ctx.strokeStyle = 'rgba(200,200,200,0.45)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - c * 16, p.y - s * 16); ctx.stroke();
+    ctx.strokeStyle = '#ffd27a'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(p.x + c * 4, p.y + s * 4); ctx.lineTo(p.x - c * 3, p.y - s * 3); ctx.stroke();
   } else {
     // Artillery shells arc through the air: bigger at the top of the arc.
     const done = 1 - Math.hypot(p.tx - p.x, p.ty - p.y) / (p.total || 1);
@@ -529,7 +548,7 @@ function drawEffect(ctx, fx) {
     case 'explode':
       // Death explosion from the unit sheet, sized to what blew up.
       if (!fx.scorched) { fx.scorched = true; scorch(fx.x, fx.y, fx.size * 0.9); }
-      UnitSprites.drawExplosion(ctx, spriteId(fx.type), fx.x, fx.y, k, teamName(fx.team));
+      artFor(fx.faction).drawExplosion(ctx, artId(fx.faction, fx.type), fx.x, fx.y, k, teamName(fx.team));
       break;
     case 'recycle': {
       // The vehicle is taken apart: a ring closes in and scrap glints rise.

@@ -86,6 +86,25 @@ The game works on touch screens. Turning your phone sideways gives the best view
 | Find an idle worker | `X` |
 | Pause · mute · help | `P` · `M` · `F1` |
 
+## Factions
+
+On the start screen you pick your faction, then the difficulty. The enemy
+fields the other faction.
+
+- **Scrapline:** tracked steel war machines built from scrap.
+- **Kethra Concord:** hovering alien constructs on glowing gravity rings.
+
+Both fight by exactly the same rules; only the look and the names differ.
+This guide uses Scrapline names. The Kethra call them: Recycler = **Nexus**
+(on wheels: **Monad**), Scavenger = **Skimmer**, Constructor = **Loom**,
+Scout = **Shard**, Hornet = **Talon**, Tank = **Bulwark**, Sentry = **Pylon**,
+Artillery = **Spire**, Factory = **Assembler**, Extractor = **Siphon**,
+Base Silo = **Vault Orb**, Gun Tower = **Prism Tower**, Research Lab =
+**Archive**, Radar = **Sensor Array**, Repair Pad = **Mending Lattice**.
+
+**How to play** on the start screen (or Help on the pause screen) has the
+mission, the controls and tips.
+
 ## Your forces
 
 | Unit | Cost | Role | Special order |
@@ -96,18 +115,20 @@ The game works on touch screens. Turning your phone sideways gives the best view
 | Constructor | 80 | Builds buildings. Cannot repair. | |
 | Constructor II | 110 | Built by a Recycler II. Builds and repairs buildings. | |
 | Scout | 50 | Fast, sees far. Spots targets for artillery. | **Scout**: explores the map. With several selected, **Scout as pack** keeps them together; **Scout solo** spreads them out. **Guard** (all armed vehicles): press it, then tap one of your buildings or vehicles to protect it. |
+| Hornet | 80 | Light rocket tank: quicker and cheaper than a Tank, less armour, rockets reach a little further. | |
 | Tank | 100 | Tough all-rounder. | **Patrol**: loops around your buildings and fights anything it meets. |
+| Sentry | 90 | Mobile turret. Must stop and lower its legs (about half a second) to fire, then puts out a rapid stream at short range. Good for holding a spot. | **Guard** a building or an Extractor to hold it. |
 | Artillery | 140 | Very long range and splash damage, but very slow, and it can only hit what your side can see: keep a Tank or Scout ahead of it to spot, and it fires on its own out to full range. It must stop and lower its legs (about half a second) before it can fire. | **Guard** a building to dig in beside it and shell anything in range. |
-| Scout / Tank / Artillery Mk II | 75 / 150 / 210 | Researched at a Research Lab, built at a Factory II. About +40% armour, +30% damage, +20% speed. Marked with gold chevrons. | As the basic version. |
+| Scout / Hornet / Tank / Sentry / Artillery Mk II | 75 / 120 / 150 / 135 / 210 | Researched at a Research Lab, built at a Factory II. About +40% armour, +30% damage, +20% speed. Marked with gold chevrons. | As the basic version. |
 
 | Building | Cost | Role |
 | --- | --- | --- |
 | Recycler | — | Your HQ, made by deploying the mobile Recycler on a geyser. Makes Scavengers and Constructors. Holds 300 scrap, has a defence gun, and pumps its geyser very slowly (about 2 a minute). Can't be demolished. |
-| Factory | 150 | Makes Scouts, Tanks and Artillery. |
+| Factory | 150 | Makes Scouts, Hornets, Tanks, Sentries and Artillery. |
 | Extractor | a Scavenger | Made by deploying a Scavenger onto a scrap geyser. Pumps about 42 scrap a minute straight into your total. When your storage is full, up to 120 waits in the Extractor until there's room. Expands the area you can build in. |
 | Base Silo | 250 | Adds 300 to your scrap storage. Must be next to your Recycler. |
 | Gun Tower | 110 | Defensive turret. Upgrade once to an **Artillery Tower** (180: long-range shells with splash, range 520, needs your side to see the target) or a **Heavy Gun Tower** (150: tougher, faster twin cannon, range 280). |
-| Research Lab | 200 | Researches Advanced Scouts (150), Tanks (200) and Artillery (250), one at a time. |
+| Research Lab | 200 | Researches Advanced Scouts (150), Tanks (200), Artillery (250), Hornets (175) and Sentries (175), one at a time. |
 | Radar | 150 | Every 30 seconds, a ping reveals a wide circle (750 px, 2.5× normal sight) for 4 seconds. |
 | Repair Pad | 150 | A flat 3×3 pad. Every vehicle parked on it is repaired at 30 health a second (shields too); workers wait there until fixed. **Go repair** sends damaged vehicles there; once fixed they drive to the pad's **waypoint** (or step off beside it). Vehicles parked on it can be **recycled** for half their cost: press Recycle, then Confirm recycle. |
 
@@ -168,7 +189,8 @@ point an AI assistant when you want to change something.
 | `js/map.js` | Builds the random, mirrored battlefield and finds routes around obstacles. |
 | `js/sim.js` | The rules: movement, combat, gathering, building, territory, winning. |
 | `js/ai.js` | The computer opponent's decision-making. |
-| `js/sprites.js` | The unit design sheet: how every vehicle and building looks. |
+| `js/sprites.js` | The Scrapline design sheet: how every Scrapline vehicle and building looks. |
+| `js/sprites_kethra.js` | The Kethra Concord design sheet (see `KETHRA_SPRITES.md`). |
 | `js/render.js` | Draws everything on screen, using `sprites.js` for vehicles and buildings. |
 | `tests/rules.js` | Automatic checks of the game rules. Run `node rts-game/tests/rules.js` (needs Node.js). |
 | `tests/balance/` | Tools that play many computer-vs-computer games and measure the economy. See `ECONOMY_TEST_REPORT.md`. |

@@ -112,7 +112,7 @@ function aiUpdate(game, team) {
 
   // --- Research and Factory upgrades ------------------------------------------
   for (const lab of buildings.filter(b => b.type === 'lab' && b.built >= 1 && !b.researching)) {
-    const next = ['tank2', 'scout2', 'artillery2'].find(k => !tm.research[k] &&
+    const next = ['tank2', 'scout2', 'artillery2', 'hornet2', 'sentry2'].find(k => !tm.research[k] &&
       !buildings.some(b => b.researching && b.researching.key === k));
     // Save up for it: army production pauses until it can be afforded.
     if (next && tm.scrap >= RESEARCH[next].cost) cmd({ type: 'research', buildingId: lab.id, key: next });
@@ -140,14 +140,25 @@ function aiUpdate(game, team) {
   // --- Army production -----------------------------------------------------
   const army = units.filter(u => u.def.role === 'combat');
   if (diff.tactics && diff.tactics.adapt) updateIntel(game, team, ai);
+  // Outlying Extractors that should get a Sentry, and idle Sentries sent to guard them.
+  const tac = diff.tactics || {};
+  const guarded = new Set(army.filter(u => baseType(u) === 'sentry' && u.order.type === 'guard').map(u => u.order.targetId));
+  const sentryPosts = tac.sentries ? extractors.filter(x => dist(x, hq) > 600).slice(0, tac.sentries) : [];
+  for (const u of army.filter(u => baseType(u) === 'sentry' && u.order.type === 'idle' && !u.target)) {
+    const post = sentryPosts.find(x => !guarded.has(x.id));
+    if (!post) break;
+    cmd({ type: 'guard', ids: [u.id], targetId: post.id }); guarded.add(post.id);
+  }
   // Lower difficulties grow their army slowly, so you have time to prepare.
   const armyCap = diff.armyPerMinute ? Math.min(diff.maxArmy, 3 + Math.floor(game.time / 60 * diff.armyPerMinute)) : diff.maxArmy;
   for (const f of buildings.filter(b => b.type === 'factory' && b.built >= 1)) {
-    if (f.queue.length >= 2 || count('scout') + count('tank') + count('artillery') >= armyCap) continue;
+    const scouts = count('scout'), tanks = count('tank'), arty = count('artillery'), hornets = count('hornet'), sentries = count('sentry');
+    if (f.queue.length >= 2 || scouts + tanks + arty + hornets + sentries >= armyCap) continue;
     if (units.length >= CONFIG.UNIT_CAP - 2) continue;
-    const scouts = count('scout'), tanks = count('tank'), arty = count('artillery');
     let pick = 'tank';
-    if (diff.tactics && diff.tactics.adapt && ai.intel) pick = adaptiveMix(ai.intel, diff, scouts, tanks, arty, army.length, game.time);
+    // A Sentry to guard each outlying Extractor (Normal and Hard).
+    if (sentryPosts.length > sentries && game.time > tac.sentriesAfter) pick = 'sentry';
+    else if (diff.tactics && diff.tactics.adapt && ai.intel) pick = adaptiveMix(ai.intel, diff, scouts, tanks, arty, hornets, army.length, game.time);
     else if (scouts < 2 || scouts * 4 < army.length) pick = 'scout';
     else if (arty * 4 < tanks && game.time > diff.artilleryAfter) pick = 'artillery';
     // Keep a reserve for the builder, and hold off while saving for a Base Silo.
@@ -354,10 +365,12 @@ function updateIntel(game, team, ai) {
 // vehicles, an Artillery for every four Tanks) won the most in testing, so the
 // opponent only bends it to answer what it has seen: extra Artillery to crack
 // a defence of Gun Towers, extra Scouts to run down enemy Artillery.
-function adaptiveMix(I, diff, scouts, tanks, arty, army, time) {
+function adaptiveMix(I, diff, scouts, tanks, arty, hornets, army, time) {
   const a = diff.tactics.adapt;
-  const scoutShare = 0.25 + a * (I.artillery >= 2 ? 0.1 : 0);
-  if (scouts < 2 || scouts < army * scoutShare) return 'scout';
+  const fastShare = 0.25 + a * (I.artillery >= 2 ? 0.1 : 0);
+  // The fast share: Scouts, and once Hornets are allowed, as many Hornets.
+  if (scouts < 2) return 'scout';
+  if (scouts + hornets < army * fastShare) return diff.tactics.hornetsAfter && time > diff.tactics.hornetsAfter && hornets < scouts ? 'hornet' : 'scout';
   if (time <= diff.artilleryAfter) return 'tank';
   const siege = a * Math.min(3, Math.floor(I.towers / 2));   // extra guns against towers
   if (arty * 4 < tanks || arty < siege) return 'artillery';
@@ -368,7 +381,7 @@ function adaptiveMix(I, diff, scouts, tanks, arty, army, time) {
 // In an assault each vehicle has a job: Tanks are the wall that takes the
 // hits, Artillery sets up behind them and shells what they reveal, and the fast
 // Scouts swing round to strike somewhere else at the same moment.
-const roleOf = u => { const b = baseType(u); return b === 'tank' ? 'wall' : b === 'artillery' ? 'guns' : 'fast'; };
+const roleOf = u => { const b = baseType(u); return b === 'tank' || b === 'sentry' ? 'wall' : b === 'artillery' ? 'guns' : 'fast'; };
 
 // A point `d` from `target`, back toward `from`, on open ground.
 function standOff(game, target, from, d) {
@@ -427,7 +440,7 @@ function runTactics(game, team, ai, diff, c) {
   const intruder = game.entities.find(e => e.team === enemy && e.kind === 'unit' && e.def.role === 'combat' &&
     buildings.some(b => dist(b, e) < 380) && isVisibleTo(game, team, e));
   if (intruder) {
-    const defenders = mainArmy.filter(u => dist(u, hq) < 1400 && u.order.type !== 'attack');
+    const defenders = mainArmy.filter(u => dist(u, hq) < 1400 && u.order.type !== 'attack' && u.order.type !== 'guard');
     if (defenders.length) move(defenders, intruder);
     ai.defending = (ai.defending || 0) + 1;
   } else if ((tac.counter || tac.hold) && ai.defending > 6) {

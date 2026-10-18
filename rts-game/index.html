@@ -127,14 +127,23 @@
   #helpbtn { font-size: 17px; padding: 10px 22px; }
 
   /* Overlays */
-  .overlay { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
+  /* The card centres itself with auto margins, so a card taller than the
+     screen scrolls from its top instead of being cut off. */
+  .overlay { position: fixed; inset: 0; z-index: 10; display: flex;
     background: radial-gradient(ellipse at center, rgba(20,30,20,.9), rgba(5,7,5,.97)); overflow-y: auto; padding: 20px; }
-  .card { max-width: 720px; width: 100%; background: #131913; border: 1px solid var(--edge); border-radius: 8px; padding: 26px 30px; }
+  .card { margin: auto; max-width: 720px; width: 100%; background: #131913; border: 1px solid var(--edge); border-radius: 8px; padding: 26px 30px; }
   .card h1 { margin: 0 0 4px; font-size: 34px; letter-spacing: .06em; text-transform: uppercase; }
   .card h1 span { color: var(--accent); }
   .card h2 { margin: 18px 0 6px; font-size: 15px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); }
   .card p, .card li { color: #c6d1c1; }
   .card ul { margin: 4px 0; padding-left: 20px; }
+  /* Start screen: the two faction cards side by side. */
+  .card.menu { max-width: 640px; }
+  .factions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .faction { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 8px 10px 10px; text-align: left; }
+  .faction canvas { width: 100%; height: auto; aspect-ratio: 300 / 110; border-radius: 5px; background: #0d120d; }
+  .faction b { font-size: 16px; }
+  .faction.active { border-color: var(--accent); background: #1f2f1f; box-shadow: 0 0 0 1px var(--accent) inset; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
   .big { font-size: 17px; padding: 10px 22px; background: #2c4a2c; border-color: #5c9a5a; }
   .big:hover { background: #386038; }
@@ -281,9 +290,11 @@
 <div id="groupmenu" class="hidden"></div>
 <div id="armymenu" class="hidden">
   <button data-army="all">All combat <span class="n">0</span></button>
-  <button data-army="scout">Scouts <span class="n">0</span></button>
-  <button data-army="tank">Tanks <span class="n">0</span></button>
-  <button data-army="artillery">Artillery <span class="n">0</span></button>
+  <button data-army="scout"><span class="lbl" data-plural="Scouts">Scouts</span> <span class="n">0</span></button>
+  <button data-army="hornet"><span class="lbl" data-plural="Hornets">Hornets</span> <span class="n">0</span></button>
+  <button data-army="tank"><span class="lbl" data-plural="Tanks">Tanks</span> <span class="n">0</span></button>
+  <button data-army="sentry"><span class="lbl" data-plural="Sentries">Sentries</span> <span class="n">0</span></button>
+  <button data-army="artillery"><span class="lbl" data-plural="Artillery">Artillery</span> <span class="n">0</span></button>
 </div>
 <div id="minimap-wrap">
   <button id="maptoggle" aria-expanded="true" title="Show or hide the minimap">Map ▾</button>
@@ -292,9 +303,39 @@
 
 <!-- Title screen -->
 <div id="menu" class="overlay">
-  <div class="card">
+  <div class="card menu">
     <h1>Scrapline <span>Command</span></h1>
     <div class="dim">Gather scrap. Build your base. Destroy theirs.</div>
+    <h2>Choose your faction</h2>
+    <div class="factions">
+      <button class="faction active" data-faction="scrapline">
+        <canvas width="300" height="110"></canvas>
+        <b>Scrapline</b><span class="dim small">Tracked steel war machines built from scrap</span>
+      </button>
+      <button class="faction" data-faction="kethra">
+        <canvas width="300" height="110"></canvas>
+        <b>Kethra Concord</b><span class="dim small">Hovering alien constructs on gravity rings</span>
+      </button>
+    </div>
+    <div class="dim small">Both factions fight by the same rules; only their look and names differ. The enemy fields the other one.</div>
+    <h2>Difficulty</h2>
+    <div class="row">
+      <button data-difficulty="easy">Easy</button>
+      <button data-difficulty="normal" class="active">Normal</button>
+      <button data-difficulty="hard">Hard</button>
+    </div>
+    <div class="row" style="margin-top:20px">
+      <button id="start" class="big">Start battle</button>
+      <button id="howto">How to play</button>
+      <button id="watch">Watch AI vs AI</button>
+    </div>
+  </div>
+</div>
+
+<!-- Help -->
+<div id="help" class="overlay hidden">
+  <div class="card">
+    <h1>How to <span>play</span></h1>
     <h2>Your mission</h2>
     <ul>
       <li><b>Deploy your base.</b> You start with your Recycler on wheels. Drive it onto a glowing scrap geyser and
@@ -307,37 +348,19 @@
       <li><b>Protect your Recycler</b> at all costs. If it falls, you lose.
         <b>Destroy the enemy Recycler</b> to win.</li>
     </ul>
-    <h2>Basic controls</h2>
-    <ul class="only-mouse">
-      <li><b>Left-click</b> or <b>drag a box</b> to select. <b>Right-click</b> to move, attack or gather.</li>
-      <li>Scroll the map with the <b>arrow keys</b>, by touching the screen edge, or by clicking the minimap. <b>Mouse wheel</b> zooms.</li>
-      <li>Select your <b>Constructor</b> to build a <b>Factory</b>, then use the Factory to build tanks.</li>
+    <h2>Factions</h2>
+    <p class="small">This manual uses Scrapline names. The <b>Kethra Concord</b> fights by exactly the same rules under its own names:
+      Recycler = <b>Nexus</b> (on wheels: <b>Monad</b>), Scavenger = <b>Skimmer</b>, Constructor = <b>Loom</b>, Scout = <b>Shard</b>,
+      Hornet = <b>Talon</b>, Tank = <b>Bulwark</b>, Sentry = <b>Pylon</b>, Artillery = <b>Spire</b>, Factory = <b>Assembler</b>,
+      Extractor = <b>Siphon</b>, Base Silo = <b>Vault Orb</b>, Gun Tower = <b>Prism Tower</b>, Research Lab = <b>Archive</b>,
+      Radar = <b>Sensor Array</b>, Repair Pad = <b>Mending Lattice</b>.</p>
+    <h2>Vehicles</h2>
+    <ul>
+      <li><b>Scout</b>: fast, sees far, light gun. <b>Hornet</b>: light rocket tank, quicker and cheaper than a Tank, less armour.</li>
+      <li><b>Tank</b>: tough, steady damage. <b>Sentry</b>: mobile turret; stops and lowers its legs to fire a rapid stream at short range.</li>
+      <li><b>Artillery</b>: huge range and splash, but must stop to fire and only hits what your side can see.</li>
     </ul>
-    <ul class="only-touch">
-      <li><b>Tap</b> one of your vehicles to select it. Then <b>tap the map</b> to move, tap an enemy to attack, or tap scrap to gather.</li>
-      <li><b>Drag</b> one finger to scroll. <b>Pinch</b> to zoom. <b>Press and hold, then drag</b> to select a group.</li>
-      <li>The <b>Army</b> button selects all your fighters, or just Scouts, Tanks or Artillery. Tap the minimap to jump around.</li>
-      <li>Select your <b>Constructor</b> to build a <b>Factory</b>, then use the Factory to build tanks.</li>
-      <li class="dim">Tip: turn your phone sideways for the best view.</li>
-    </ul>
-    <h2>Difficulty</h2>
-    <div class="row">
-      <button data-difficulty="easy">Easy</button>
-      <button data-difficulty="normal" class="active">Normal</button>
-      <button data-difficulty="hard">Hard</button>
-    </div>
-    <div class="row" style="margin-top:20px">
-      <button id="start" class="big">Start battle</button>
-      <button id="watch">Watch AI vs AI</button>
-      <span class="dim small">Pause the game to open Help<span class="only-mouse"> (or press <kbd>F1</kbd>)</span>.</span>
-    </div>
-  </div>
-</div>
-
-<!-- Help -->
-<div id="help" class="overlay hidden">
-  <div class="card">
-    <h1>Field <span>Manual</span></h1>
+    <h2>Controls</h2>
     <table class="only-touch">
       <tr><td><b>Tap your vehicle</b></td><td>Select it. Tap the same kind twice quickly to select all of that kind on screen.</td></tr>
       <tr><td><b>Tap the map</b></td><td>With vehicles selected: move there · tap an enemy to attack · tap scrap to gather (scavengers) · tap a damaged building to repair (constructor) · with a Factory selected, set where new vehicles go</td></tr>
@@ -394,7 +417,7 @@
       <li>The enemy attacks in waves. Towers and a few tanks at home keep your Recycler safe while your army is away.</li>
       <li>Constructors can repair damaged buildings: select one and tap or right-click the building.</li>
     </ul>
-    <div class="row"><button id="helpclose" class="big">Back to battle</button></div>
+    <div class="row"><button id="helpclose" class="big">Back</button></div>
   </div>
 </div>
 
@@ -414,6 +437,7 @@
 <script src="js/sim.js"></script>
 <script src="js/ai.js"></script>
 <script src="js/sprites.js"></script>
+<script src="js/sprites_kethra.js"></script>
 <script src="js/render.js"></script>
 <script src="js/main.js"></script>
 </body>
