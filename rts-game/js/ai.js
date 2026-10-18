@@ -283,10 +283,11 @@ function unitPower(e) {
 }
 
 // Enemy strength the team can see (or has seen, for buildings) near a point.
-function enemyPowerNear(game, team, p, r) {
+function enemyPowerNear(game, team, p, r, unitsOnly) {
   let s = 0;
   for (const e of game.entities) {
     if (e.team === team || e.hp <= 0 || !e.def.weapon || dist(e, p) > r) continue;
+    if (unitsOnly && e.kind !== 'unit') continue;
     if (e.kind === 'unit' ? !isVisibleTo(game, team, e) : !e.seen[team]) continue;
     s += unitPower(e) * (e.kind === 'building' ? 1.3 : 1);
   }
@@ -323,180 +324,166 @@ function pickTarget(game, team, from, defenceWeight, onlyType) {
 function runTactics(game, team, ai, diff, c) {
   const { hq, army, buildings, rally, cmd, enemy } = c, tac = diff.tactics, now = game.time;
   const byId = id => { const u = game.byId.get(id); return u && u.hp > 0 && u.team === team ? u : null; };
-  const pad = buildings.find(b => b.type === 'repairpad' && b.built >= 1);
   const move = (list, p, fight = true) => list.length && cmd({ type: 'move', ids: list.map(u => u.id), x: p.x, y: p.y, attackMove: fight });
-  const sendRepair = list => { const hurt = list.filter(u => u.hp < u.maxHp * 0.5); if (pad && hurt.length) cmd({ type: 'gorepair', ids: hurt.map(u => u.id) }); return hurt; };
+  const pad = buildings.find(b => b.type === 'repairpad' && b.built >= 1);
 
-  // Tidy the squads: drop the destroyed, and squads with nobody left.
-  ai.squads = (ai.squads || []).filter(s => (s.ids = s.ids.filter(byId)).length);
-  const inSquad = new Set(ai.squads.flatMap(s => s.ids));
-  const free = army.filter(u => !inSquad.has(u.id));
+  // Squads currently away on a job (raids, retreats); their vehicles are left
+  // out of the normal wave logic below.
+  ai.squads = (ai.squads || []).filter(s => !s.done && (s.ids = s.ids.filter(byId)).length);
+  const busy = new Set(ai.squads.flatMap(s => s.ids));
+  const mainArmy = army.filter(u => !busy.has(u.id));
 
-  // --- Defence: free units (and any squad still near home) meet intruders.
+  // --- Defence (as before): everyone near home meets an intruder.
   const intruder = game.entities.find(e => e.team === enemy && e.kind === 'unit' && e.def.role === 'combat' &&
-    buildings.some(b => dist(b, e) < 420) && isVisibleTo(game, team, e));
-  if (intruder && now - (ai.lastDefend || -99) > 3) {
-    ai.lastDefend = now;
-    const nearHome = ai.squads.filter(s => s.kind === 'main' && s.state !== 'attack' && dist(centroidOf(s.ids.map(byId)), hq) < 1600);
-    for (const s of nearHome) { s.state = 'retreat'; s.t = now; }
-    const defenders = free.concat(nearHome.flatMap(s => s.ids.map(byId))).filter(u => u.order.type !== 'attack' && u.order.type !== 'move' || u.order.attackMove);
-    move(defenders.filter(u => dist(u, hq) < 1800), intruder);
+    buildings.some(b => dist(b, e) < 380) && isVisibleTo(game, team, e));
+  if (intruder) {
+    const defenders = mainArmy.filter(u => dist(u, hq) < 1400 && u.order.type !== 'attack');
+    if (defenders.length) move(defenders, intruder);
+    ai.defending = (ai.defending || 0) + 1;
+  } else if ((tac.counter || tac.hold) && ai.defending > 6) {
+    ai.beatOff = (ai.beatOff || 0) + 1;
+    // Just beat off an attack: the enemy's army is spent, so strike back now.
+    ai.defending = 0;
+    ai.nextWave = Math.min(ai.nextWave, now);
+    ai.counterNow = true;
+  } else ai.defending = 0;
+
+  // --- Repair: badly damaged idle vehicles go to the Repair Pad.
+  if (tac.repair && pad && !intruder && now - (ai.lastRepair || 0) > 3) {
+    ai.lastRepair = now;
+    const hurt = mainArmy.filter(u => u.order.type === 'idle' && !u.target && u.hp < u.maxHp * 0.45 && dist(u, pad) > 120);
+    if (hurt.length) cmd({ type: 'gorepair', ids: hurt.map(u => u.id) });
   }
 
-  // --- Damaged free units go to the Repair Pad; strays come back to the rally point.
-  if (tac.repair && pad) sendRepair(free.filter(u => u.order.type === 'idle' && !u.target && dist(u, pad) > 120));
-  const home = free.filter(u => u.order.type === 'idle' && !u.target && dist(u, rally) < 450 && u.hp >= u.maxHp * 0.5);
-  const strays = free.filter(u => u.order.type === 'idle' && !u.target && dist(u, rally) >= 450 && !(pad && dist(u, pad) < 250));
-  if (strays.length && !intruder) move(strays, rally, false);
+  const idle = mainArmy.filter(u => u.order.type === 'idle' && !u.target);
+  const atHome = idle.filter(u => dist(u, rally) < 300 || (pad && dist(u, pad) < 200));
+  const inField = idle.filter(u => !atHome.includes(u));
+  const objective = pickObjective(game, team, hq);
 
-  // --- Launch the main attack.
+  // --- Retreat: a fighting group badly outnumbered by enemy vehicles falls back.
+  if (tac.retreatAt && now - (ai.lastRetreatCheck || 0) > 1.5) {
+    ai.lastRetreatCheck = now;
+    const out = mainArmy.filter(u => dist(u, rally) > 900 && u.order.type !== 'idle');
+    // Group them into clusters around the first unit of each.
+    const left = out.slice();
+    while (left.length) {
+      const seed = left.shift(), grp = [seed];
+      for (let i = left.length - 1; i >= 0; i--) if (dist(left[i], seed) < 450) grp.push(left.splice(i, 1)[0]);
+      const ctr = centroidOf(grp), own = grp.reduce((a, u) => a + unitPower(u), 0);
+      const foe = enemyPowerNear(game, team, ctr, 600, true);
+      if (foe > 0 && own < foe * tac.retreatAt) {
+        ai.squads.push({ kind: 'retreat', ids: grp.map(u => u.id), t: now });
+        move(grp, rally, false);
+      }
+    }
+  }
+
+  // --- Units already out attacking keep pushing (as before), unless intruders need them.
+  if (!intruder) {
+    if (inField.length && objective && now >= diff.firstAttack) move(inField, objective);
+    else if (inField.length) move(inField, rally);
+  }
+
+  // --- Waves (as before), optionally round a flank.
   const waveSize = Math.min(diff.maxArmy, diff.waveBase + Math.floor(Math.max(0, now - diff.firstAttack) / 60 * diff.waveGrowth));
-  const target = pickTarget(game, team, rally, tac.cautious);
-  if (target && now >= ai.nextWave && home.length >= waveSize && !ai.squads.some(s => s.kind === 'main')) {
-    const wave = home.slice().sort((a, b) => dist(a, target) - dist(b, target)).slice(0, waveSize);
-    // Straight in, or round the flank where it has seen fewer defences.
-    let route = [];
-    if (game.rng() < tac.flank) {
-      const L = flankPoint(game, rally, target, 1, 0.55, 0.4), R = flankPoint(game, rally, target, -1, 0.55, 0.4);
+  const need = ai.counterNow ? Math.ceil(waveSize * (tac.counter || 0.6)) : waveSize;
+  // Hold: early on, let the enemy's waves break on our defences first, and only
+  // strike back after beating one off (or once the army is twice the wave size).
+  const holding = tac.hold && !ai.counterNow && !ai.beatOff && now < tac.hold && atHome.length < waveSize * 2;
+  if (!intruder && objective && !holding && now >= ai.nextWave && atHome.length >= need) {
+    ai.counterNow = false;
+    const wave = atHome.slice().sort((a, b) => dist(a, objective) - dist(b, objective)).slice(0, tac.allIn ? atHome.length : waveSize);
+    let first = objective;
+    if (tac.flank && game.rng() < tac.flank) {
+      const L = flankPoint(game, rally, objective, 1, 0.55, 0.35), R = flankPoint(game, rally, objective, -1, 0.55, 0.35);
       const pl = enemyPowerNear(game, team, L, 700), pr = enemyPowerNear(game, team, R, 700);
-      const side = pl < pr ? 1 : pr < pl ? -1 : (game.rng() < 0.5 ? 1 : -1);
-      route = [side > 0 ? L : R];
-      ai.raidSide = -side;   // a raid at the same time goes round the other side
+      first = pl < pr ? L : pr < pl ? R : (game.rng() < 0.5 ? L : R);
+      ai.raidSide = first === L ? -1 : 1;
     }
+    // Feigned retreat: two fast ones poke ahead, the wave waits halfway.
     const fast = wave.filter(u => u.def.speed >= 60).slice(0, 2);
-    if (tac.feint && game.rng() < tac.feint && wave.length >= 5 && fast.length === 2) {
-      // Feigned retreat: bait pokes the target, the rest wait in ambush.
-      const ambush = flankPoint(game, rally, target, 0, 0.45, 0);
-      const main = wave.filter(u => !fast.includes(u));
-      ai.squads.push({ kind: 'main', ids: main.map(u => u.id), state: 'ambush', t: now, targetId: target.id, route, ambush });
-      ai.squads.push({ kind: 'bait', ids: fast.map(u => u.id), state: 'poke', t: now, targetId: target.id, ambush });
-      move(main, ambush); move(fast, target);
-    } else {
-      ai.squads.push({ kind: 'main', ids: wave.map(u => u.id), state: 'move', t: now, targetId: target.id, route, wpi: 0 });
-      move(wave, route[0] || target);
-    }
+    if (tac.feint && game.rng() < tac.feint && wave.length >= 6 && fast.length === 2) {
+      const ambush = flankPoint(game, rally, objective, 0, 0.45, 0);
+      const rest = wave.filter(u => !fast.includes(u));
+      ai.squads.push({ kind: 'ambush', ids: rest.map(u => u.id), t: now, ambush, first });
+      ai.squads.push({ kind: 'bait', ids: fast.map(u => u.id), t: now, ambush, state: 'poke' });
+      move(rest, ambush); move(fast, objective);
+    } else move(wave, first);
     ai.nextWave = now + diff.waveEvery;
     if (tac.raidWithWave) ai.nextRaid = Math.min(ai.nextRaid || 0, now);
     pushEvent(game, enemy, 'Enemy attack force spotted, heading your way!', 'bad');
   }
 
-  // --- Launch a raid with fast vehicles, at enemy workers and outposts.
-  if (tac.raid && now > tac.raidAfter && now >= (ai.nextRaid || 0) && !ai.squads.some(s => s.kind === 'raid')) {
-    const raiders = home.filter(u => u.def.speed >= 60 && !ai.squads.some(s => s.ids.includes(u.id))).slice(0, tac.raidSize);
+  // --- Raids: spare fast vehicles hit enemy workers and outposts.
+  if (tac.raid && !intruder && now > tac.raidAfter && now >= (ai.nextRaid || 0) && !ai.squads.some(s => s.kind === 'raid')) {
+    const spare = atHome.length - waveSize;
+    const raiders = atHome.filter(u => u.def.speed >= 60).slice(0, Math.min(tac.raidSize, spare));
     if (raiders.length >= 2) {
-      const foeHq = game.entities.find(e => e.team === enemy && (e.type === 'recycler' || e.type === 'mobileRecycler') && (e.type === 'mobileRecycler' || e.seen[team]));
       const outpost = pickTarget(game, team, rally, 3, 'extractor');
-      // Without a known outpost, head for the enemy's side and hunt for workers.
-      const goal = outpost || (foeHq ? flankPoint(game, foeHq, hq, 0, 0.3, 0) : flankPoint(game, rally, { x: game.map.W * 32 - rally.x, y: game.map.H * 32 - rally.y }, 0, 0.7, 0));
-      const side = ai.raidSide || (game.rng() < 0.5 ? 1 : -1);
-      const route = [flankPoint(game, rally, goal, side, 0.6, 0.45), { x: goal.x, y: goal.y }];
-      ai.squads.push({ kind: 'raid', ids: raiders.map(u => u.id), state: 'move', t: now, route, wpi: 0, targetId: outpost ? outpost.id : 0 });
-      move(raiders, route[0]);
-      ai.nextRaid = now + tac.raidEvery; ai.raidSide = 0;
+      const foeHq = game.entities.find(e => e.team === enemy && (e.type === 'recycler' || e.type === 'mobileRecycler'));
+      const goal = outpost || (foeHq ? flankPoint(game, foeHq, hq, 0, 0.3, 0) : null);
+      if (goal) {
+        const side = ai.raidSide || (game.rng() < 0.5 ? 1 : -1);
+        const route = [flankPoint(game, rally, goal, side, 0.6, 0.45), { x: goal.x, y: goal.y }];
+        ai.squads.push({ kind: 'raid', ids: raiders.map(u => u.id), t: now, route, wpi: 0, targetId: outpost ? outpost.id : 0 });
+        move(raiders, route[0]);
+        ai.nextRaid = now + tac.raidEvery; ai.raidSide = 0;
+      }
     } else ai.nextRaid = now + 20;
   }
 
-  // --- Run every squad.
+  // --- Run the squads.
   for (const s of ai.squads) {
-    const m = s.ids.map(byId);
-    const ctr = centroidOf(m);
-    const own = m.reduce((a, u) => a + unitPower(u), 0);
-    const foe = enemyPowerNear(game, team, ctr, 600);
-    const age = now - s.t;
-    const to = (state) => { s.state = state; s.t = now; };
-
-    // Falling back: when the fight turns against the squad, run for home.
-    const canRetreat = s.state === 'move' || s.state === 'attack' || s.state === 'hunt';
-    const limit = s.kind === 'raid' ? tac.raidRetreat : tac.retreatAt;
-    if (canRetreat && foe > 0 && own < foe * limit) {
-      to('retreat');
-      sendRepair(m);
-      move(m.filter(u => u.hp >= u.maxHp * 0.5 || !pad), rally, false);
-      continue;
-    }
-    if (s.state === 'retreat') {
-      if (dist(ctr, rally) < 450 || age > 90) s.done = true;
-      continue;
-    }
-
-    // Hard: everyone near a fight shoots the same, weakest enemy.
-    if (tac.focus && (s.state === 'attack' || s.state === 'move' || s.state === 'hunt') && foe > 0 && now - (s.focusAt || 0) > 1.5) {
-      s.focusAt = now;
-      let pick = null, ps = Infinity;
-      for (const e of game.entities) {
-        if (e.team === team || e.kind !== 'unit' || e.hp <= 0 || dist(e, ctr) > 420 || !isVisibleTo(game, team, e)) continue;
-        const score = e.hp - (e.def.weapon ? 150 : 0);
-        if (score < ps) { ps = score; pick = e; }
-      }
-      if (pick) {
-        const shooters = m.filter(u => u.def.weapon && dist(u, pick) < u.def.weapon.range + 150 && u.order.targetId !== pick.id && !(u.def.weapon.minRange && dist(u, pick) < u.def.weapon.minRange));
-        if (shooters.length) cmd({ type: 'attack', ids: shooters.map(u => u.id), targetId: pick.id });
-      }
-    }
-
+    const m = s.ids.map(byId), ctr = centroidOf(m), age = now - s.t;
+    if (s.kind === 'retreat') { if (dist(ctr, rally) < 500 || age > 60) s.done = true; continue; }
     if (s.kind === 'bait') {
       const contact = game.entities.some(e => e.team === enemy && e.kind === 'unit' && e.def.weapon && dist(e, ctr) < 420 && isVisibleTo(game, team, e));
-      if (s.state === 'poke' && (contact || m.some(u => u.hp < u.maxHp * 0.8))) { to('lure'); move(m, s.ambush, false); }
-      else if (s.state === 'poke' && age > 50) s.done = true;              // nobody took the bait
+      if (s.state === 'poke' && (contact || m.some(u => u.hp < u.maxHp * 0.8))) { s.state = 'lure'; s.t = now; move(m, s.ambush, false); }
+      else if (s.state === 'poke' && age > 50) s.done = true;
       else if (s.state === 'lure' && (dist(ctr, s.ambush) < 260 || age > 35)) s.done = true;
       continue;
     }
-
-    if (s.state === 'ambush') {
-      // Wait until the bait is home and the pursuers are dealt with, then attack.
+    if (s.kind === 'ambush') {
       const baiting = ai.squads.some(b => b.kind === 'bait' && !b.done);
-      const near = enemyPowerNear(game, team, s.ambush, 550);
-      if (near > 0) s.clearAt = now;
-      if ((!baiting && now - (s.clearAt || s.t) > 5) || age > 70) {
-        to('move'); s.wpi = 0;
-        const t = byId(s.targetId) ? null : game.byId.get(s.targetId);
-        move(m, s.route[0] || (t && t.hp > 0 ? t : pickTarget(game, team, ctr, tac.cautious) || rally));
-      }
+      if (enemyPowerNear(game, team, s.ambush, 550, true) > 0) s.clearAt = now;
+      if ((!baiting && now - (s.clearAt || s.t) > 5) || age > 70) { s.done = true; move(m, s.first); }
       continue;
     }
-
-    if (s.state === 'move') {
-      // Follow the route's waypoints, then go for the target.
+    if (s.kind === 'raid') {
+      const own = m.reduce((a, u) => a + unitPower(u), 0);
+      if (enemyPowerNear(game, team, ctr, 600) > own * tac.raidRetreat || age > 150) { s.done = true; ai.squads.push({ kind: 'retreat', ids: s.ids.slice(), t: now }); move(m, rally, false); continue; }
       const wp = s.route[s.wpi];
-      if (wp && (dist(ctr, wp) < 260 || age > 100)) { s.wpi++; s.t = now; }
-      if (s.wpi < s.route.length) {
-        if (now - (s.issued || 0) > 12) { s.issued = now; move(m.filter(u => u.order.type === 'idle'), s.route[s.wpi]); }
-      } else {
-        to(s.kind === 'raid' ? 'hunt' : 'attack');
+      if (wp && (dist(ctr, wp) < 260 || now - (s.wpAt || s.t) > 90)) { s.wpi++; s.wpAt = now; if (s.route[s.wpi]) move(m, s.route[s.wpi]); }
+      if (s.wpi >= s.route.length || dist(ctr, s.route[s.route.length - 1]) < 700) {
+        let prey = null, pd = Infinity;
+        for (const e of game.entities) {
+          if (e.team !== enemy || e.kind !== 'unit' || e.def.weapon || e.hp <= 0 || !isVisibleTo(game, team, e)) continue;
+          const d = dist(e, ctr); if (d < 650 && d < pd) { pd = d; prey = e; }
+        }
+        if (prey && now - (s.hitAt || 0) > 2) { s.hitAt = now; cmd({ type: 'attack', ids: m.map(u => u.id), targetId: prey.id }); }
+        else if (!prey && now - (s.hitAt || 0) > 8) {
+          s.hitAt = now;
+          const t = s.targetId && game.byId.get(s.targetId);
+          if (t && t.hp > 0) move(m, t); else if (age > 40) { s.done = true; ai.squads.push({ kind: 'retreat', ids: s.ids.slice(), t: now }); move(m, rally, false); }
+        }
       }
-      continue;
-    }
-
-    if (s.state === 'hunt') {
-      // Raiders go for workers first, then the outpost; give up after a while.
-      let prey = null, pd = Infinity;
-      for (const e of game.entities) {
-        if (e.team !== enemy || e.kind !== 'unit' || e.def.weapon || e.hp <= 0 || !isVisibleTo(game, team, e)) continue;
-        const d = dist(e, ctr); if (d < 650 && d < pd) { pd = d; prey = e; }
-      }
-      if (prey && now - (s.issued || 0) > 2) { s.issued = now; cmd({ type: 'attack', ids: m.map(u => u.id), targetId: prey.id }); }
-      else if (!prey && now - (s.issued || 0) > 8) {
-        s.issued = now;
-        const t = s.targetId && game.byId.get(s.targetId);
-        if (t && t.hp > 0) move(m, t);
-        else if (age > 25) { to('retreat'); move(m, rally, false); }
-      }
-      if (age > 140) { to('retreat'); move(m, rally, false); }
-      continue;
-    }
-
-    if (s.state === 'attack') {
-      let t = game.byId.get(s.targetId);
-      if (!t || t.hp <= 0) {
-        t = pickTarget(game, team, ctr, tac.cautious * 0.5);
-        if (t) s.targetId = t.id;
-      }
-      if (!t) { to('retreat'); move(m, rally, false); continue; }
-      // Keep the idle members pushing on.
-      const idle = m.filter(u => u.order.type === 'idle' && !u.target);
-      if (idle.length && now - (s.issued || 0) > 4) { s.issued = now; move(idle, t); }
     }
   }
-  // Finished squads hand their vehicles back (they rejoin the next wave).
+
+  // --- Focus fire: each fighting group shoots its weakest visible enemy.
+  if (tac.focus && now - (ai.focusAt || 0) > 1.5) {
+    ai.focusAt = now;
+    for (const u of mainArmy) {
+      if (!u.def.weapon || u.order.type === 'idle' && !u.target) continue;
+      let pick = null, ps = Infinity;
+      for (const e of game.entities) {
+        if (e.team === team || e.kind !== 'unit' || e.hp <= 0 || dist(e, u) > u.def.weapon.range || !isVisibleTo(game, team, e)) continue;
+        if (u.def.weapon.minRange && dist(e, u) < u.def.weapon.minRange) continue;
+        const sc = e.hp - (e.def.weapon ? 150 : 0);
+        if (sc < ps) { ps = sc; pick = e; }
+      }
+      if (pick && u.target !== pick) u.target = pick;   // switch target without changing its orders
+    }
+  }
   ai.squads = ai.squads.filter(s => !s.done);
 }

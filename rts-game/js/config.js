@@ -204,16 +204,26 @@ const HOTKEYS = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I'];
 //   labAfter         seconds before it builds a Research Lab (0 = never)
 //   radarAfter       seconds before it builds a Radar (0 = never)
 //   towerUpgradeAfter seconds before it upgrades Gun Towers (0 = never)
-//   tactics          battle tactics (null = simple waves, as on Easy):
-//     flank          chance an attack swings round the less defended flank
-//     feint          chance an attack starts with a feigned retreat into an ambush
-//     raid           send fast raiders at workers and outposts; raidAfter/raidEvery
-//                    (seconds), raidSize (vehicles), raidWithWave (raid as the wave goes in)
-//     retreatAt      fall back when its strength drops below this share of the enemy's nearby
-//     raidRetreat    the same, for raiders
-//     focus          focus fire on the weakest enemy in a fight
-//     cautious       how much seen defences put it off a target (0 = ignore them)
-//     repair         seconds before it builds a Repair Pad and sends damaged vehicles there (0 = never)
+//   tactics          battle tactics (null = simple waves, as on Easy). Each was
+//                    tested on its own against the previous opponent:
+//     hold           seconds during which it holds back and lets the enemy's waves
+//                    break on its defences, unless it has beaten one off already
+//                    or its army is twice the wave size
+//     counter        after beating off an attack, strike back at once once it has
+//                    this share of a full wave at home
+//     allIn          waves take everything at home, not just the wave size
+//     flank          chance a wave swings round the flank with fewer seen defences
+//     feint          chance a wave starts with a feigned retreat: two fast
+//                    vehicles poke the enemy and lead pursuers into an ambush
+//     retreatAt      a group out fighting falls back when its strength drops below
+//                    this share of the enemy vehicles near it (0 = never)
+//     focus          vehicles in a fight shoot the weakest enemy in range
+//     raid           sneak raids with spare fast vehicles on workers and outposts;
+//                    raidAfter/raidEvery (seconds), raidSize, raidWithWave (raid
+//                    round the other flank as a wave goes in), raidRetreat
+//     cautious       how much seen defences put a raid off a target
+//     repair         seconds before it builds a Repair Pad and sends badly
+//                    damaged vehicles there (0 = never; it cost wins in tests)
 const DIFFICULTY = {
   easy:   { label: 'Easy',   incomeMult: 0.5,  firstAttack: 600, waveEvery: 240, waveBase: 3, waveGrowth: 0.25,
             maxArmy: 8,  armyPerMinute: 0.7, maxExtractors: 2, maxBaseSilos: 1, maxScavengers: 3, thinkEvery: 2.5, artilleryAfter: 1200, secondFactory: false,
@@ -221,11 +231,11 @@ const DIFFICULTY = {
   normal: { label: 'Normal', incomeMult: 1.0,  firstAttack: 300, waveEvery: 150, waveBase: 5, waveGrowth: 0.8,
             maxArmy: 25, armyPerMinute: 3, maxExtractors: 4, maxBaseSilos: 2, maxScavengers: 6, thinkEvery: 1.0, artilleryAfter: 240, secondFactory: true,
             upgradeBaseAfter: 120, labAfter: 360, radarAfter: 480, towerUpgradeAfter: 900,
-            tactics: { flank: 0.5, feint: 0.2, raid: true, raidAfter: 420, raidEvery: 240, raidSize: 3, raidWithWave: false,
-                       retreatAt: 0.6, raidRetreat: 1.0, focus: false, cautious: 0.5, repair: 600 } },
+            tactics: { hold: 900, counter: 0.6, allIn: false, flank: 0.5, feint: 0, retreatAt: 0.5, focus: false,
+                       raid: false, raidAfter: 420, raidEvery: 240, raidSize: 3, raidWithWave: false, raidRetreat: 1, cautious: 0.5, repair: 0 } },
   hard:   { label: 'Hard',   incomeMult: 1.35, firstAttack: 180, waveEvery: 100, waveBase: 6, waveGrowth: 1.5,
             maxArmy: 40, armyPerMinute: 0, maxExtractors: 5, maxBaseSilos: 3, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true,
             upgradeBaseAfter: 90, labAfter: 240, radarAfter: 360, towerUpgradeAfter: 600,
-            tactics: { flank: 0.7, feint: 0.4, raid: true, raidAfter: 240, raidEvery: 150, raidSize: 4, raidWithWave: true,
-                       retreatAt: 0.8, raidRetreat: 1.2, focus: true, cautious: 1, repair: 420 } },
+            tactics: { hold: 900, counter: 0.6, allIn: true, flank: 0.7, feint: 0.4, retreatAt: 0.5, focus: true,
+                       raid: false, raidAfter: 240, raidEvery: 150, raidSize: 4, raidWithWave: false, raidRetreat: 1.2, cautious: 1, repair: 0 } },
 };
