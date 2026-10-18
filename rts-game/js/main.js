@@ -382,7 +382,7 @@ function handleTap(p) {
   const hasBuilder = sel.some(u => u.kind === 'unit' && u.def.role === 'builder');
   const needsWork = hit && hit.team === view.team && hit.kind === 'building' && (hit.built < 1 || hit.hp < hit.maxHp);
   const artyDefend = hit && hit.team === view.team && hit.kind === 'building' && !hasBuilder &&
-    (sel.some(u => baseType(u) === 'artillery') || (sel.some(u => u.type === 'transport') && isStore(hit)));
+    sel.some(u => baseType(u) === 'artillery');
   if (hit && hit.team === view.team && !(hasBuilder && needsWork) && !artyDefend) { select(pickWithDoubleTap(hit)); return; }
   if (sel.length && !spectating) {
     // Tap targets are a little bigger for fingers.
@@ -420,7 +420,7 @@ function rightClick(w, pad = 0) {
   const units = sel.filter(e => e.kind === 'unit');
   const buildings = sel.filter(e => e.kind === 'building');
   if (!units.length) {
-    for (const b of buildings) if (b.def.produces) issueCommand(game, view.team, { type: 'rally', buildingId: b.id, x: w.x, y: w.y });
+    for (const b of buildings) if (b.def.produces || b.type === 'repairpad') issueCommand(game, view.team, { type: 'rally', buildingId: b.id, x: w.x, y: w.y });
     ping(w, '#8cffa0');
     return;
   }
@@ -429,13 +429,7 @@ function rightClick(w, pad = 0) {
   const node = scrapAt(w.x, w.y, pad);
   const geyser = geyserAt(w.x, w.y, pad);
   const arty = units.filter(u => baseType(u) === 'artillery');
-  const haulers = units.filter(u => u.def.role === 'hauler');
-  if (t && t.team === view.team && isStore(t) && haulers.length) {
-    issueCommand(game, view.team, { type: 'haul', ids: haulers.map(u => u.id), sourceId: t.id });
-    const rest = ids.filter(id => !haulers.some(h => h.id === id));
-    if (rest.length) issueCommand(game, view.team, { type: 'move', ids: rest, x: w.x, y: w.y });
-    ping(t, '#f0c040');
-  } else if (geyser && units.some(u => u.def.role === 'harvester' || u.def.role === 'hq')) {
+  if (geyser && units.some(u => u.def.role === 'harvester' || u.def.role === 'hq')) {
     issueCommand(game, view.team, { type: 'deploy', ids, geyserId: geyser.id });
     ping(geyser, '#f0c040');
   } else if (t && t.team === view.team && t.kind === 'building' && arty.length && !units.some(u => u.def.role === 'builder')) {
@@ -656,17 +650,13 @@ function refreshPanel() {
     if (e.kind === 'building' && e.built < 1) extra = `Under construction — ${Math.floor(e.built * 100)}%`;
     if (e.kind === 'building' && d.weapon && e.built >= 1) extra = `Damage ${d.weapon.damage} · Range ${d.weapon.range}`;
     if (e.kind === 'building' && d.income) extra = e.built >= 1
-      ? (game.entities.some(x => x.type === 'outsilo' && x.team === e.team && x.built >= 1 && footprintGap(e, x.tx, x.ty, x.size) <= 1)
-        ? `Pumping about ${Math.round(d.income * 60)} scrap a minute straight into your total`
-        : `Pumping about ${Math.round(d.income * 60)} scrap a minute into its tank: ${Math.floor(e.stored)} / ${d.store}.${e.stored >= d.store - 1 ? ' Full: send a Transport, or join an Extractor Silo onto it.' : ''}`)
+      ? `Pumping about ${Math.round(d.income * 60)} scrap a minute straight into your total` +
+        (e.stored > 0.5 ? `. Storage full: ${Math.floor(e.stored)} / ${d.store} waiting here${e.stored >= d.store - 1 ? ' (full, so pumping has stopped). Build a Base Silo or spend some scrap.' : '.'}` : '')
       : `Setting up — ${Math.floor(e.built * 100)}%`;
     if (e.kind === 'building' && d.capacity && e.built >= 1) extra = `Stores ${d.capacity} scrap`;
-    if (e.type === 'outsilo' && e.built >= 1) extra = `Stores ${d.capacity} scrap, and sends its Extractor's scrap straight to your total`;
     if (e.type === 'recycler' && e.built >= 1) extra = `Stores ${d.capacity} scrap · pumps its geyser very slowly (${(d.income * 60).toFixed(0)} a minute)`;
     if (e.type === 'recycler' && e.built < 1) extra = `Deploying — ${Math.floor(e.built * 100)}%`;
     if (e.type === 'mobileRecycler') extra = e.order.type === 'deploy' ? 'Driving to the geyser to deploy' : 'Not deployed yet. Drive it onto a scrap geyser.';
-    if (e.kind === 'unit' && e.def.role === 'hauler') extra = `Shield ${Math.ceil(e.shield)} / ${d.shield} · Carrying ${Math.floor(e.carry)} / ${d.carryMax}` +
-      (e.order.type === 'haul' ? (e.order.phase === 'full' ? ' · Waiting: storage full' : ' · Hauling') : '');
     if (e.kind === 'unit' && e.order.type === 'scout') extra = e.order.packId ? 'Scouting with the pack' : 'Scouting alone';
     if (e.kind === 'unit' && e.order.type === 'patrol') extra = 'On patrol';
     if (e.kind === 'unit' && e.order.type === 'guard') extra = 'Defending a building';
@@ -753,7 +743,13 @@ function refreshPanel() {
     if (first.type === 'repairpad' && first.built >= 1) {
       const parked = recycleCandidates(sel);
       if (parked.length) addRecycleButtons(addBtn, parked, tip, keys);
-      else tip.textContent = 'Drive vehicles onto the pad to repair them. Vehicles parked here can also be recycled for half their cost.';
+      // Waypoint: where vehicles sent by Go repair drive once they're fixed.
+      addBtn(first.rally ? 'Move waypoint' : 'Set waypoint', null, keys.shift(), () => { view.aim = 'rally'; refreshPanel(); },
+        { active: view.aim === 'rally', title: 'Repaired vehicles drive to the waypoint' });
+      if (first.rally) addBtn('Clear waypoint', null, keys.shift(), () => issueCommand(game, view.team, { type: 'rally', buildingId: first.id, clear: true }));
+      if (!tip.textContent) tip.textContent = view.aim === 'rally' ? `${isTouch ? 'Tap' : 'Click'} the map where repaired vehicles should go.`
+        : first.rally ? 'Vehicles sent here by Go repair drive to the waypoint (the green marker) once fixed.'
+        : 'Vehicles sent here by Go repair step off beside the pad once fixed. Set a waypoint to send them somewhere. Vehicles parked here can also be recycled for half their cost.';
     }
     if (first.def.demolishable !== false) {
       const refund = Math.round((first.def.salvageValue ?? first.def.cost) * 0.5);
@@ -780,6 +776,13 @@ function refreshPanel() {
     });
     if (view.placing && isTouch && view.placeReady) addBtn('Build here', null, '↵', confirmPlacement, { primary: true });
     if (view.placing) addBtn('Cancel', null, 'Esc', () => { view.placing = null; view.placeReady = false; refreshPanel(); });
+    // A Constructor can go for repairs, and be recycled on a pad, like any vehicle.
+    if (!view.placing) {
+      if (builder.hp < builder.maxHp && game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1))
+        addBtn('Go repair', null, 'G', () => { issueCommand(game, view.team, { type: 'gorepair', ids: [builder.id] }); sound('ack'); }, { title: 'Drive to the nearest Repair Pad' });
+      const parked = recycleCandidates(sel);
+      if (parked.length) { const rt = document.createElement('div'); rt.className = 'dim small tip'; addRecycleButtons(addBtn, parked, rt, ['Z']); if (rt.textContent) cmds.appendChild(rt); }
+    }
     const tip = document.createElement('div'); tip.className = 'dim small tip';
     tip.textContent = !view.placing ? `Pick a building, then ${isTouch ? 'tap' : 'click'} where it should go.`
       : isTouch ? 'Tap inside the green zone to position it, then press Build here.'
@@ -809,13 +812,6 @@ function refreshPanel() {
     { active: view.aim === 'deploy', title: 'Drive onto a scrap geyser and set up your base there' });
   else if (scavs.some(u => u.def.canDeploy)) addBtn('Deploy on geyser', null, keys.shift(), () => { view.aim = 'deploy'; refreshPanel(); },
     { active: view.aim === 'deploy', title: 'Turn into an Extractor on a scrap geyser' });
-  const haulers = ofType(sel, 'transport');
-  if (haulers.length) {
-    addBtn('Auto-haul', null, keys.shift(), () => order('haul', haulers), { title: 'Collect from whichever silo is fullest' });
-    const tip = document.createElement('div'); tip.className = 'dim small tip';
-    tip.textContent = `${isTouch ? 'Tap' : 'Right-click'} an Extractor to haul from that one only.`;
-    cmds.appendChild(tip);
-  }
   if (view.aim) {
     addBtn('Cancel', null, 'Esc', cancelModes);
     const tip = document.createElement('div'); tip.className = 'dim small tip';

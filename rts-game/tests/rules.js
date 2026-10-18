@@ -157,11 +157,16 @@ section('Workers and tech');
   run(g, S, 90);
   check('a Scavenger II deploys as an Extractor', mine(g, 1, 'extractor').length === 1);
   const ex = mine(g, 1, 'extractor')[0];
-  ex.stored = 0; run(g, S, 60);
-  check('an Extractor pumps about 42 scrap a minute into its tank', Math.abs(ex.stored - 42) < 2, ex.stored.toFixed(1));
-  run(g, S, 200);
-  check('an Extractor tank holds 120', Math.abs(ex.stored - 120) < 0.01, ex.stored.toFixed(1));
-  check('a Transport carries 30', S.UNIT_TYPES.transport.carryMax === 30);
+  // Only the Extractor and the Recycler's trickle pay in: no Scavengers.
+  for (const u of g.entities) if (u.team === 1 && u.def.role === 'harvester') u.hp = 0;
+  run(g, S, 1);
+  g.teams[1].scrap = 0; ex.stored = 0; run(g, S, 60);
+  check('an Extractor pays about 42 scrap a minute straight into storage', Math.abs(g.teams[1].scrap - 42 - 2.1) < 2, g.teams[1].scrap.toFixed(1));
+  g.teams[1].scrap = S.scrapCapacity(g, 1); run(g, S, 200);
+  check('with storage full, an Extractor holds up to 120', Math.abs(ex.stored - 120) < 0.01, ex.stored.toFixed(1));
+  g.teams[1].scrap = 0; run(g, S, 1);
+  check('the held scrap flows in once there is room', ex.stored < 1 && g.teams[1].scrap >= 120, `${Math.round(g.teams[1].scrap)} banked`);
+  check('no Transports or Extractor Silos exist', !S.UNIT_TYPES.transport && !S.BUILDING_TYPES.outsilo);
   const lab = placeDone(S, g, 1, 'lab', rec);
   g.teams[1].scrap = 300;
   S.issueCommand(g, 1, { type: 'research', buildingId: lab.id, key: 'tank2' });
@@ -189,14 +194,12 @@ section('Combat, demolish and the Repair Pad');
 
   const pad = placeDone(S, g, 1, 'repairpad', { x: rec.x + 100, y: rec.y - 200 });
   check('vehicles can drive over a Repair Pad', !S.isBlockedTile(g, pad.tx + 1, pad.ty + 1));
-  const kinds = ['scout', 'tank', 'artillery', 'transport', 'scavenger', 'constructor', 'scout2', 'tank2', 'artillery2', 'scavenger2', 'constructor2'];
+  const kinds = ['scout', 'tank', 'artillery', 'scavenger', 'constructor', 'scout2', 'tank2', 'artillery2', 'scavenger2', 'constructor2'];
   const hurt = kinds.map((k, i) => { const u = S.addUnit(g, k, 1, pad.x - 30 + (i % 4) * 20, pad.y - 30 + Math.floor(i / 4) * 20); u.hp = u.maxHp / 2; if (u.def.shield) u.shield = 0; return u; });
   run(g, S, 20);
   const healed = hurt.filter(u => u.hp >= u.maxHp - 1 || u.hp > u.maxHp * 0.5 + 300);
   check('every kind of vehicle is repaired on the pad', healed.length === kinds.length,
     hurt.filter(u => !healed.includes(u)).map(u => u.type).join(',') || 'all repaired');
-  const tr = hurt.find(u => u.type === 'transport');
-  check('Transports get their shield back on the pad', tr.shield >= tr.def.shield - 1);
 }
 
 section('Repair Pad: workers wait, and Recycle');
@@ -206,15 +209,29 @@ section('Repair Pad: workers wait, and Recycle');
   const rec = mine(g, 1, 'recycler')[0];
   const pad = placeDone(S, g, 1, 'repairpad', { x: rec.x + 150, y: rec.y - 200 });
   // Hurt workers sent to the pad stay until repaired instead of going back to work.
-  const scav = mine(g, 1, 'scavenger')[0], tr = S.addUnit(g, 'transport', 1, rec.x + 60, rec.y);
-  tr.autoHaul = true;
-  for (const u of [scav, tr]) { u.hp = u.maxHp * 0.3; if (u.def.shield) u.shield = 0; }
-  S.issueCommand(g, 1, { type: 'gorepair', ids: [scav.id, tr.id] });
+  const scav = mine(g, 1, 'scavenger')[0];
+  scav.hp = scav.maxHp * 0.3;
+  S.issueCommand(g, 1, { type: 'gorepair', ids: [scav.id] });
   run(g, S, 60);
   check('a hurt Scavenger waits on the pad until fully repaired', scav.hp >= scav.maxHp - 1, `${Math.round(scav.hp)}/${scav.maxHp}`);
-  check('a hurt Transport waits on the pad until fully repaired', tr.hp >= tr.maxHp - 1, `${Math.round(tr.hp)}/${tr.maxHp}`);
   run(g, S, 10);
   check('repaired workers then go back to work', !S.padUnder(g, scav) || scav.order.type !== 'idle');
+
+  // Vehicles sent by Go repair drive off once fixed: beside the pad, or to its waypoint.
+  const t1 = S.addUnit(g, 'tank', 1, rec.x + 80, rec.y - 60), t2b = S.addUnit(g, 'constructor', 1, rec.x + 100, rec.y - 60);
+  t1.hp = 100; t2b.hp = 40;
+  S.issueCommand(g, 1, { type: 'gorepair', ids: [t1.id, t2b.id] });
+  run(g, S, 60);
+  check('a repaired Tank leaves the pad by itself', t1.hp >= t1.maxHp - 1 && !S.padUnder(g, t1), `hp ${Math.round(t1.hp)}, on pad ${!!S.padUnder(g, t1)}`);
+  check('a Constructor can Go repair and leaves once fixed', t2b.hp >= t2b.maxHp - 1 && !S.padUnder(g, t2b));
+  const wp = { x: pad.x + 260, y: pad.y - 120 };
+  S.issueCommand(g, 1, { type: 'rally', buildingId: pad.id, x: wp.x, y: wp.y });
+  t1.hp = 100;
+  S.issueCommand(g, 1, { type: 'gorepair', ids: [t1.id] });
+  run(g, S, 60);
+  check("a repaired vehicle drives to the pad's waypoint", S.dist(t1, wp) < 90, `${Math.round(S.dist(t1, wp))} px away`);
+  S.issueCommand(g, 1, { type: 'rally', buildingId: pad.id, clear: true });
+  t1.hp = 0; t2b.hp = 0; run(g, S, 0.1);
 
   // Recycle: half the cost back, only on the pad, never the Recycler.
   const T = S.CONFIG.TILE;

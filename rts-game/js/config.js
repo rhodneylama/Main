@@ -31,9 +31,8 @@ const TEAMS = {
 
 // role: 'harvester' collects scrap, 'builder' constructs buildings,
 //       'combat' fights. Weapons: range and sight are in pixels.
-// Speeds (pixels per second) follow a chain: Transport is the slowest worker,
-// Scavengers are 10% faster, Constructors match Scavengers. Artillery is
-// kept the slowest of all.
+// Speeds (pixels per second): Scavengers and Constructors 43, Tanks 40,
+// Scouts 98. Artillery is kept the slowest of all.
 const UNIT_TYPES = {
   // The starting vehicle. Drive it onto a scrap geyser and deploy it to
   // found your base. While mobile it still holds your scrap.
@@ -67,12 +66,6 @@ const UNIT_TYPES = {
     desc: 'Builds and repairs structures.',
   },
   // No gun. A shield soaks up damage first and recharges once out of combat.
-  transport: {
-    name: 'Transport', role: 'hauler', cost: 70, buildTime: 7,
-    hp: 120, speed: 39, radius: 14, sight: 200,
-    carryMax: 30, shield: 150, shieldRegen: 20, shieldDelay: 3,
-    desc: 'Ferries scrap from Extractors that have no Extractor Silo back to base. Unarmed, but shielded.',
-  },
   scout: {
     name: 'Scout', role: 'combat', cost: 50, buildTime: 5,
     hp: 140, speed: 98, radius: 11, sight: 330,
@@ -130,10 +123,10 @@ const BUILDING_TYPES = {
     // It pumps that geyser very slowly: a twentieth of an Extractor.
     name: 'Recycler', cost: 0, buildTime: 10, hp: 4000, size: 3, sight: 300, buildable: false,
     income: 0.035, demolishable: false,
-    produces: ['scavenger', 'constructor', 'transport'], dropoff: true, capacity: 300, buildRadius: 14,
+    produces: ['scavenger', 'constructor'], dropoff: true, capacity: 300, buildRadius: 14,
     // Upgrading (production pauses meanwhile) swaps in the better workers.
     upgrade: { name: 'Recycler II', cost: 250, time: 40, hp: 5000,
-               produces: ['scavenger2', 'constructor2', 'transport'] },
+               produces: ['scavenger2', 'constructor2'] },
     weapon: { range: 210, damage: 24, cooldown: 0.8, projectile: 'bullet', vsBuilding: 1 },
     desc: 'Your headquarters, with a light defence gun. Lose it and you lose the battle.',
   },
@@ -149,20 +142,13 @@ const BUILDING_TYPES = {
   extractor: {
     name: 'Extractor', cost: 0, buildTime: 8, hp: 900, size: 2, sight: 240,
     income: 0.7, store: 120, buildRadius: 9, buildable: false, salvageValue: 60,
-    desc: 'Pumps scrap from a geyser. With an Extractor Silo joined on, scrap goes straight to your total; without one it fills a 120-scrap tank for Transports.',
+    desc: 'Pumps scrap from a geyser straight into your total. When your storage is full it holds up to 120 until there is room.',
   },
   // Built next to the Recycler: raises how much scrap you can hold.
   basesilo: {
     name: 'Base Silo', cost: 250, buildTime: 14, hp: 1100, size: 2, sight: 200,
     capacity: 300, dropoff: true, buildRadius: 8, placeNear: 'recycler', placeRange: 7,
     desc: 'Adds 300 to your scrap storage. Must be built next to your Recycler.',
-  },
-  // Joined directly onto an Extractor: that Extractor's scrap then goes
-  // straight into your total, no Transport needed. Pricey and small.
-  outsilo: {
-    name: 'Extractor Silo', cost: 500, buildTime: 12, hp: 800, size: 2, sight: 200,
-    capacity: 125, dropoff: true, buildRadius: 5, placeNear: 'extractor', adjacent: true,
-    desc: 'Must touch an Extractor. Sends its scrap straight to your total and adds 125 storage.',
   },
   lab: {
     name: 'Research Lab', cost: 200, buildTime: 20, hp: 900, size: 2, sight: 200, buildRadius: 6,
@@ -179,7 +165,7 @@ const BUILDING_TYPES = {
   repairpad: {
     name: 'Repair Pad', cost: 150, buildTime: 12, hp: 800, size: 3, sight: 180, walkable: true,
     repairRate: 30,
-    desc: 'Every vehicle parked on the pad is repaired (30 health a second each); Transports get their shields back too. Vehicles parked here can be recycled for half their cost.',
+    desc: 'Every vehicle parked on the pad is repaired (30 health a second each). Vehicles parked here can be recycled for half their cost.',
   },
   tower: {
     name: 'Gun Tower', cost: 110, buildTime: 14, hp: 1000, size: 2, sight: 300,
@@ -206,15 +192,14 @@ const HOTKEYS = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I'];
 //   upgradeBaseAfter seconds before it upgrades its Recycler (needed to claim geysers)
 //   labAfter         seconds before it builds a Research Lab (0 = never)
 //   radarAfter       seconds before it builds a Radar (0 = never)
-//   extractorSilos   seconds before it starts saving for Extractor Silos (0 = never)
 const DIFFICULTY = {
   easy:   { label: 'Easy',   incomeMult: 0.5,  firstAttack: 600, waveEvery: 240, waveBase: 3, waveGrowth: 0.25,
             maxArmy: 8,  armyPerMinute: 0.7, maxExtractors: 2, maxBaseSilos: 1, maxScavengers: 3, thinkEvery: 2.5, artilleryAfter: 1200, secondFactory: false,
-            upgradeBaseAfter: 300, labAfter: 0, radarAfter: 0, extractorSilos: 0 },
+            upgradeBaseAfter: 300, labAfter: 0, radarAfter: 0 },
   normal: { label: 'Normal', incomeMult: 1.0,  firstAttack: 300, waveEvery: 150, waveBase: 5, waveGrowth: 0.8,
             maxArmy: 25, armyPerMinute: 3, maxExtractors: 4, maxBaseSilos: 2, maxScavengers: 6, thinkEvery: 1.0, artilleryAfter: 240, secondFactory: true,
-            upgradeBaseAfter: 120, labAfter: 360, radarAfter: 480, extractorSilos: 600 },
+            upgradeBaseAfter: 120, labAfter: 360, radarAfter: 480 },
   hard:   { label: 'Hard',   incomeMult: 1.35, firstAttack: 180, waveEvery: 100, waveBase: 6, waveGrowth: 1.5,
             maxArmy: 40, armyPerMinute: 0, maxExtractors: 5, maxBaseSilos: 3, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true,
-            upgradeBaseAfter: 90, labAfter: 240, radarAfter: 360, extractorSilos: 420 },
+            upgradeBaseAfter: 90, labAfter: 240, radarAfter: 360 },
 };
