@@ -563,6 +563,11 @@ show their firing range.
 - The enemy base's health shows `?` in the top bar until your side has
   seen it.
 - Artillery can only hit what your side can see, so it relies on spotters.
+  It does fire on its own at anything its side can see out to its full
+  range (440), so a Tank or Scout up front, a Gun Tower or a Radar ping lets
+  Artillery behind them shell targets it can't see itself. (Vehicles look
+  for targets out to their sight or their range, whichever is further; this
+  only matters for Artillery.)
 - **Radar:** each Radar pings once when finished, then every **30 seconds**.
   A ping reveals everything within **750 pixels** (2.5 times a normal
   building's sight) for **4 seconds**, and marks that ground as explored.
@@ -634,6 +639,13 @@ each decision it runs through these steps in order:
    - Artillery if artillery is under a quarter of its tanks and time is past
      `artilleryAfter`;
    - otherwise a Tank;
+   - on Normal and Hard the mix **adapts** to a scouting report of what it
+     has seen of you: if it has seen 2 or more of your Artillery at once,
+     Scouts rise to a third of the army (to run them down); for every 2 of
+     your Gun Towers it knows of, it wants one more Artillery (up to 3 more
+     on Hard; half that effect on Normal). A bigger shift toward Artillery
+     and Scouts was tried and lost badly: Tanks give the most fighting
+     strength for the scrap.
    - the **Mk II** version whenever that Factory is a Factory II and the
      research is done.
 
@@ -667,16 +679,36 @@ each decision it runs through these steps in order:
     - **Flanking:** 70% of waves swing round a flank (a point 55% of the way
       there, pushed sideways by 35% of the distance) on the side where it
       has seen fewer defences, instead of going straight in.
-    - **Feigned retreat:** 40% of waves of 6 or more start with two fast
-      vehicles poking the target while the rest wait in ambush 45% of the
-      way there. Once the bait makes contact (or is hurt) it runs back past
-      the ambush; when the pursuers are dealt with (or after 70 s) the whole
-      force attacks.
+    - **Combined arms:** a wave with at least two Tanks or Artillery attacks
+      as an assault. The **Tanks** attack-move straight at the target and
+      take the hits. The **Artillery** goes to a firing spot 360 px short of
+      the target, behind the Tanks, and shells Gun Towers first, then enemy
+      Artillery, then anything else its side can see (the Tanks spot for
+      it). The **Scouts** (all of them on Hard, half on Normal) swing round
+      the side at the same moment: they dive on enemy Artillery if any is
+      in sight, otherwise strike a soft target (an Extractor or other
+      unarmed building away from Gun Towers, or another outpost) like a
+      raid. When the target falls, the assault moves on to the nearest known
+      building within 1,500 px. Stopping to gather out of range before going
+      in was tried and lost more games, so the assault goes straight in.
+    - **Fire by role:** in every fight, Artillery aims at Gun Towers, then at
+      the tightest bunch of enemy vehicles (for its splash); Scouts go for
+      enemy Artillery; Tanks finish off the weakest armed enemy.
+    - **Feigned retreat (Normal):** 40% of waves of 6 or more start with two
+      fast vehicles poking the target while the rest wait in ambush 45% of
+      the way there. Once the bait makes contact (or is hurt) it runs back
+      past the ambush; when the pursuers are dealt with (or after 70 s) the
+      whole force attacks. Off on Hard: alongside combined arms it cost games
+      there.
+    - **Retreat trap:** when a group falls back (below), any vehicles waiting
+      at home (at least 2, with at least 30% of the chasing strength) move
+      out to a spot 40% of the way toward it and lie in wait for whatever
+      follows it home, then return after 45 s.
     - **Retreat when outnumbered:** a group out fighting (units within 450 px
       of each other, more than 900 px from home) falls back to the rally
       point if its strength is under half that of the enemy vehicles it can
       see within 600 px. Strength = health ÷ 100 × damage per second (×1.5
-      for splash weapons).
+      for splash weapons). An assault that is losing falls back the same way.
     - **Focus fire:** in a fight, each vehicle switches to the weakest enemy
       vehicle in its range (armed ones first).
     - **Sneak raids:** after `raidAfter` (Normal 7:00, Hard 4:00), every
@@ -717,9 +749,13 @@ then mirrored, so both corners place buildings identically.
 | Army growth limit (units per minute, on top of 3) | 0.7 | 3 | none |
 | Most Extractors | 2 | 4 | 5 |
 | Upgrades Gun Towers after | never | 15:00 | 10:00 |
-| Battle tactics | none (simple waves) | all (section 13) | all, thinking twice as often |
+| Battle tactics | none (simple waves) | all (section 13) | all but the opening feint, thinking twice as often |
 | Holds back early until | — | 10:00, an attack beaten off, or 2 waves at home | 6:00, an attack beaten off, or 1.2 waves at home |
 | Sneak raids | — | from 7:00, every 4:00, 3 Scouts | from 4:00, every 2:30, 4 Scouts |
+| Combined arms | — | yes, half the Scouts flank | yes, all Scouts flank |
+| Feigned retreat (opening feint) | — | 40% of waves | off (the retreat trap instead) |
+| Retreat trap | — | yes | yes |
+| Army mix adapts to what it has seen | — | half strength | full strength |
 | Most Base Silos | 1 | 2 | 3 |
 | Most Scavengers | 3 | 6 | 7 |
 | Seconds between decisions | 2.5 | 1.0 | 0.5 |
@@ -957,7 +993,7 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `js/sprites.js` | The unit design sheet: vector drawings of every vehicle and building, their animations, damage smoke, explosions, wrecks and craters |
 | `js/render.js` | Drawing the map, fog, minimap, bars and effects; calls `sprites.js` for units and buildings. The ground is painted in chunks as they scroll into view (see below). |
 | `js/main.js` | Mouse, touch and keyboard input; panels and buttons; minimap toggle; sound; the game loop |
-| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (61 checks). |
+| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (63 checks). |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
 tables), `ROADMAP.md` (planned stages), `ECONOMY_TEST_REPORT.md` (the October
@@ -1003,8 +1039,8 @@ rebuilt.
 
 | Test type | Method | What it checks |
 | --- | --- | --- |
-| **Rules tests** (`tests/rules.js`, 61 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 12 geysers, 20-tile spacing, 6 per half, mirrored geysers and scrap, 20 to 24 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade). |
-| **AI duels** (`tests/balance/duels.sh`) | The current opponent plays the previous version of itself (`tests/balance/ai_previous.js`) on many seeds, 4 games at a time, up to 60 minutes each. With `BOTHOLD=1` both sides use the previous version, giving the baseline for the same seeds. | Whether a change to the opponent actually makes it stronger. Each tactic was tried alone, then in combinations; see the results below. |
+| **Rules tests** (`tests/rules.js`, 63 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 12 geysers, 20-tile spacing, 6 per half, mirrored geysers and scrap, 20 to 24 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target). |
+| **AI duels** (`tests/balance/duels.sh`) | The current opponent plays an earlier version of itself (`tests/balance/ai_previous.js`, the first one; `ai_v2.js` with `OPP=v2`, the 18 October one) on many seeds, 4 games at a time, up to 60 minutes each. With `BOTHOLD=1` both sides use the previous version, giving the baseline for the same seeds. | Whether a change to the opponent actually makes it stronger. Each tactic was tried alone, then in combinations; see the results below. |
 | **AI-vs-AI batches** | Run 30 to 120 full games between two computer players on different seeds. | Games end, typical length, and **fairness** by team and by corner. |
 | **AI tech progression** | Log when the AI reaches each milestone at each difficulty. | The AI actually upgrades, researches and fields Mk II units. |
 | **"Do nothing" survival** | The player deploys and then does nothing, at each difficulty. | Difficulty pacing: when the first attack lands and how long a passive player lasts. |

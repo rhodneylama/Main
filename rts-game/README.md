@@ -45,6 +45,14 @@ The enemy attacks in waves. On **Easy** its first attack comes after about 10
 minutes and is small, so you have time to learn. **Normal** attacks after about
 5 minutes; **Hard** after 3.
 
+On Normal and Hard the enemy fights like a commander: it holds back early and
+counter-attacks after you attack; it flanks; its Tanks lead while its
+Artillery shells your Gun Towers from behind them and its Scouts swing round
+to hit your Extractors or your Artillery at the same time; it raids your
+workers; it pulls back from fights it's losing and may leave a trap for
+whatever chases it; and it builds more Artillery if you build lots of Gun
+Towers, and more Scouts if you rely on Artillery.
+
 ## Playing on a phone or tablet
 
 The game works on touch screens. Turning your phone sideways gives the best view.
@@ -89,7 +97,7 @@ The game works on touch screens. Turning your phone sideways gives the best view
 | Constructor II | 110 | Built by a Recycler II. Builds and repairs buildings. | |
 | Scout | 50 | Fast, sees far. Spots targets for artillery. | **Scout**: explores the map. With several selected, **Scout as pack** keeps them together; **Scout solo** spreads them out. **Guard** (all armed vehicles): press it, then tap one of your buildings or vehicles to protect it. |
 | Tank | 100 | Tough all-rounder. | **Patrol**: loops around your buildings and fights anything it meets. |
-| Artillery | 140 | Very long range and splash damage, but very slow, and it can only hit what your side can see. It must stop and lower its legs (about half a second) before it can fire. | **Guard** a building to dig in beside it and shell anything in range. |
+| Artillery | 140 | Very long range and splash damage, but very slow, and it can only hit what your side can see: keep a Tank or Scout ahead of it to spot, and it fires on its own out to full range. It must stop and lower its legs (about half a second) before it can fire. | **Guard** a building to dig in beside it and shell anything in range. |
 | Scout / Tank / Artillery Mk II | 75 / 150 / 210 | Researched at a Research Lab, built at a Factory II. About +40% armour, +30% damage, +20% speed. Marked with gold chevrons. | As the basic version. |
 
 | Building | Cost | Role |
