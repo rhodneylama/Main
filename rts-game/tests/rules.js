@@ -297,6 +297,31 @@ section('Repair Pad: workers wait, and Recycle');
   check('with storage full, the rest of the refund is left on the pad', g.teams[1].scrap === S.scrapCapacity(g, 1) && after - before === 40, `banked 10, ground ${after - before}`);
 }
 
+section('Guard');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  // Escort: two Tanks guard a Scavenger that drives off; an enemy attacks it.
+  const scav = S.addUnit(g, 'scavenger', 1, rec.x + 120, rec.y - 120);
+  const g1 = S.addUnit(g, 'tank', 1, rec.x + 60, rec.y - 60), g2 = S.addUnit(g, 'tank', 1, rec.x + 80, rec.y - 40);
+  S.issueCommand(g, 1, { type: 'guard', ids: [g1.id, g2.id], targetId: scav.id });
+  const dest = { x: rec.x + 500, y: rec.y - 350 };
+  S.issueCommand(g, 1, { type: 'move', ids: [scav.id], x: dest.x, y: dest.y });
+  run(g, S, 25);
+  check('guards follow the vehicle they guard', S.dist(g1, scav) < 130 && S.dist(g2, scav) < 130, `${Math.round(S.dist(g1, scav))} and ${Math.round(S.dist(g2, scav))} px away`);
+  const foe = S.addUnit(g, 'scout', 2, scav.x + 150, scav.y);
+  const hp0 = foe.hp; run(g, S, 4);
+  check('guards attack an enemy near the guarded vehicle', foe.hp < hp0 || foe.hp <= 0 || !g.entities.includes(foe));
+  scav.hp = 0; run(g, S, 0.2);
+  check('guards stand down when the guarded vehicle is gone', g1.order.type === 'idle' && g2.order.type === 'idle');
+  // Guard a building: any armed vehicle, not just Artillery.
+  const tower = placeDone(S, g, 1, 'tower', { x: rec.x + 220, y: rec.y - 150 });
+  S.issueCommand(g, 1, { type: 'guard', ids: [g1.id], targetId: tower.id });
+  run(g, S, 15);
+  check('a Tank can guard a building', g1.order.type === 'guard' && S.dist(g1, tower) < 140, `${Math.round(S.dist(g1, tower))} px`);
+}
+
 section('Artillery stabilisers');
 {
   const S = load();

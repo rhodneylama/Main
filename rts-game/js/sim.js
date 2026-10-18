@@ -322,9 +322,17 @@ function issueCommand(game, team, cmd) {
     }
     case 'guard': {
       const b = own(cmd.targetId);
-      if (!b || b.kind !== 'building') return;
-      const guards = units.filter(u => u.def.weapon);
+      if (!b) return;
+      const guards = units.filter(u => u.def.weapon && u !== b);
       const T = CONFIG.TILE;
+      if (b.kind === 'unit') {
+        // Escort another vehicle: each guard keeps its own spot around it.
+        guards.forEach((u, i) => {
+          u.order = { type: 'guard', targetId: b.id, follow: true, slot: i * 2.39996 + angleTo(b, u) };
+          u.target = null; u.path = [];
+        });
+        break;
+      }
       guards.forEach((u, i) => {
         // Spread the defenders evenly around the building.
         const a = angleTo(b, u) + (i - (guards.length - 1) / 2) * (Math.PI * 2 / Math.max(3, guards.length)) * 0.5;
@@ -815,6 +823,7 @@ function updatePatrol(game, u, dt) {
 function updateGuard(game, u, dt) {
   const o = u.order, b = game.byId.get(o.targetId);
   if (!b || b.hp <= 0) { goIdle(u); return; }
+  if (o.follow) { updateEscort(game, u, b, dt); return; }
   const w = u.def.weapon;
   u.retarget -= dt;
   if (u.target && (u.target.hp <= 0 || !isVisibleTo(game, u.team, u.target) || edgeDist(u, u.target) > w.range ||
@@ -829,6 +838,41 @@ function updateGuard(game, u, dt) {
   u.path = [];
   if (u.target) aimAndFire(game, u, u.target, dt);
   else u.turret = turnToward(u.turret, angleTo(b, u), 2 * dt);
+}
+
+// Guarding a vehicle: stay close to it, shoot anything in range, and go after
+// whoever attacks it, but never stray more than LEASH from it.
+function updateEscort(game, u, b, dt) {
+  const o = u.order, w = u.def.weapon, LEASH = 320;
+  const valid = t => t && t.hp > 0 && isVisibleTo(game, u.team, t) && dist(t, b) < LEASH + w.range;
+  u.retarget -= dt;
+  if (u.target && !valid(u.target)) u.target = null;
+  if (u.retarget <= 0) {
+    u.retarget = 0.4 + game.rng() * 0.2;
+    // Whoever is shooting at the guarded vehicle comes first.
+    const attacker = b.lastHitBy && b.lastHitBy.team !== u.team && valid(b.lastHitBy) ? b.lastHitBy : null;
+    u.target = attacker || findTarget(game, u, w.range) || (u.target && valid(u.target) ? u.target : null);
+  }
+  if (u.target) {
+    const d = edgeDist(u, u.target);
+    if (d > w.range * 0.9 && dist(u, b) < LEASH) {
+      // Close in, re-planning now and then as the target moves.
+      if (!u.path.length || (u.repath = (u.repath || 0) - dt) <= 0) { u.repath = 0.6; planPath(game, u, u.target.x, u.target.y); }
+      followPath(game, u, dt, 12);
+    } else u.path = [];
+    aimAndFire(game, u, u.target, dt);
+    return;
+  }
+  // Keep station beside the guarded vehicle.
+  const r = b.radius + u.radius + 34;
+  const gx = b.x + Math.cos(o.slot) * r, gy = b.y + Math.sin(o.slot) * r;
+  if (Math.hypot(u.x - gx, u.y - gy) > 40) {
+    if (!u.path.length || Math.hypot((o.gx || 0) - gx, (o.gy || 0) - gy) > 48) { o.gx = gx; o.gy = gy; planPath(game, u, gx, gy); }
+    followPath(game, u, dt, 12);
+  } else {
+    u.path = [];
+    u.turret = turnToward(u.turret, b.angle !== undefined ? b.angle : u.turret, 2 * dt);
+  }
 }
 
 // --- Scavenger deploying onto a geyser -------------------------------------------

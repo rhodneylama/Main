@@ -120,9 +120,10 @@ function updateCamera(dt) {
 // Mouse
 // -----------------------------------------------------------------------------
 
-function entityAt(wx, wy, pad = 0) {
+function entityAt(wx, wy, pad = 0, allow = null) {
   let best = null, bd = Infinity;
   for (const e of game.entities) {
+    if (allow && !allow(e)) continue;
     if (e.team !== view.team && !view.revealAll && !isVisibleTo(game, view.team, e)) continue;
     const d = Math.hypot(e.x - wx, e.y - wy);
     const r = (e.kind === 'building' ? e.radius : e.radius + 6) + pad;
@@ -228,10 +229,12 @@ const ofType = (list, type) => mine(list).filter(e => e.kind === 'unit' && baseT
 
 // Second tap/click after pressing Defend or Deploy.
 function aimAt(w, pad) {
-  if (view.aim === 'defend') {
-    const b = entityAt(w.x, w.y, pad);
-    if (!b || b.team !== view.team || b.kind !== 'building') { logMessage('Tap one of your buildings to defend it', 'warn'); sound('error'); return; }
-    issueCommand(game, view.team, { type: 'guard', ids: ofType(view.selected, 'artillery').map(u => u.id), targetId: b.id });
+  if (view.aim === 'guard') {
+    const guards = mine(view.selected).filter(u => u.kind === 'unit' && u.def.weapon);
+    const b = entityAt(w.x, w.y, pad, e => !guards.includes(e));
+    if (!b || b.team !== view.team) { logMessage(`${isTouch ? 'Tap' : 'Click'} one of your buildings or vehicles to guard it`, 'warn'); sound('error'); return; }
+    issueCommand(game, view.team, { type: 'guard', ids: guards.map(u => u.id), targetId: b.id });
+    logMessage(`Guarding ${b.kind === 'building' ? nameOf(b) : b.def.name}`, 'info');
     ping(b, '#8cc8ff');
   } else if (view.aim === 'rally') {
     const b = mine(view.selected).find(e => e.kind === 'building');
@@ -659,7 +662,7 @@ function refreshPanel() {
     if (e.type === 'mobileRecycler') extra = e.order.type === 'deploy' ? 'Driving to the geyser to deploy' : 'Not deployed yet. Drive it onto a scrap geyser.';
     if (e.kind === 'unit' && e.order.type === 'scout') extra = e.order.packId ? 'Scouting with the pack' : 'Scouting alone';
     if (e.kind === 'unit' && e.order.type === 'patrol') extra = 'On patrol';
-    if (e.kind === 'unit' && e.order.type === 'guard') extra = 'Defending a building';
+    if (e.kind === 'unit' && e.order.type === 'guard') { const t = game.byId.get(e.order.targetId); extra = t ? `Guarding ${t.kind === 'building' ? nameOf(t) : t.def.name}` : 'Guarding'; }
     if (e.kind === 'building' && e.upgrading !== null) extra = `Upgrading to ${d.upgrade.name} — ${Math.floor(e.upgrading / d.upgrade.time * 100)}% (production paused)`;
     if (e.kind === 'building' && e.researching) extra = `Researching ${RESEARCH[e.researching.key].name} — ${Math.floor(e.researching.t / RESEARCH[e.researching.key].time * 100)}%`;
     if (e.type === 'radar' && e.built >= 1) extra = `Next radar ping in ${Math.ceil(e.pingTimer)}s`;
@@ -803,8 +806,8 @@ function refreshPanel() {
     addBtn('Scout solo', null, keys.shift(), () => order('scout', scouts, { pack: false }), { title: 'Each scout explores on its own' });
   } else if (scouts.length) addBtn('Scout', null, keys.shift(), () => order('scout', scouts), { title: 'Explore the map on its own' });
   if (tanks.length) addBtn('Patrol', null, keys.shift(), () => order('patrol', tanks), { title: 'Loop around your buildings, fighting anything met' });
-  if (arty.length) addBtn('Defend', null, keys.shift(), () => { view.aim = 'defend'; refreshPanel(); },
-    { active: view.aim === 'defend', title: 'Then pick one of your buildings to guard' });
+  if (sel.some(e => e.kind === 'unit' && e.def.weapon)) addBtn('Guard', null, keys.shift(), () => { view.aim = 'guard'; refreshPanel(); },
+    { active: view.aim === 'guard', title: 'Then pick one of your buildings or vehicles to protect' });
   const hurt = sel.filter(e => e.kind === 'unit' && e.hp < e.maxHp);
   if (hurt.length && game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1))
     addBtn('Go repair', null, keys.shift(), () => order('gorepair', hurt), { title: 'Drive to the nearest Repair Pad' });
@@ -819,7 +822,7 @@ function refreshPanel() {
   if (view.aim) {
     addBtn('Cancel', null, 'Esc', cancelModes);
     const tip = document.createElement('div'); tip.className = 'dim small tip';
-    tip.textContent = view.aim === 'defend' ? `${isTouch ? 'Tap' : 'Click'} one of your buildings to defend it.`
+    tip.textContent = view.aim === 'guard' ? `${isTouch ? 'Tap' : 'Click'} one of your buildings or vehicles. Armed vehicles in the selection will guard it.`
       : mobileHq.length ? `${isTouch ? 'Tap' : 'Click'} a glowing scrap geyser. Your Recycler drives there and deploys as your base.`
       : `${isTouch ? 'Tap' : 'Click'} a glowing scrap geyser. The Scavenger drives there and becomes an Extractor.`;
     cmds.appendChild(tip);
