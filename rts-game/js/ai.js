@@ -389,7 +389,7 @@ function runTactics(game, team, ai, diff, c) {
   const need = ai.counterNow ? Math.ceil(waveSize * (tac.counter || 0.6)) : waveSize;
   // Hold: early on, let the enemy's waves break on our defences first, and only
   // strike back after beating one off (or once the army is twice the wave size).
-  const holding = tac.hold && !ai.counterNow && !ai.beatOff && now < tac.hold && atHome.length < waveSize * 2;
+  const holding = tac.hold && !ai.counterNow && !ai.beatOff && now < tac.hold && atHome.length < waveSize * (tac.holdArmy || 2);
   if (!intruder && objective && !holding && now >= ai.nextWave && atHome.length >= need) {
     ai.counterNow = false;
     const wave = atHome.slice().sort((a, b) => dist(a, objective) - dist(b, objective)).slice(0, tac.allIn ? atHome.length : waveSize);

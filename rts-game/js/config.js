@@ -208,7 +208,7 @@ const HOTKEYS = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I'];
 //                    tested on its own against the previous opponent:
 //     hold           seconds during which it holds back and lets the enemy's waves
 //                    break on its defences, unless it has beaten one off already
-//                    or its army is twice the wave size
+//                    or its army is holdArmy times the wave size (default 2)
 //     counter        after beating off an attack, strike back at once once it has
 //                    this share of a full wave at home
 //     allIn          waves take everything at home, not just the wave size
@@ -236,6 +236,6 @@ const DIFFICULTY = {
   hard:   { label: 'Hard',   incomeMult: 1.35, firstAttack: 180, waveEvery: 100, waveBase: 6, waveGrowth: 1.5,
             maxArmy: 40, armyPerMinute: 0, maxExtractors: 5, maxBaseSilos: 3, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true,
             upgradeBaseAfter: 90, labAfter: 240, radarAfter: 360, towerUpgradeAfter: 600,
-            tactics: { hold: 900, counter: 0.6, allIn: true, flank: 0.7, feint: 0.4, retreatAt: 0.5, focus: true,
-                       raid: false, raidAfter: 240, raidEvery: 150, raidSize: 4, raidWithWave: false, raidRetreat: 1.2, cautious: 1, repair: 0 } },
+            tactics: { hold: 480, holdArmy: 1.5, counter: 0.6, allIn: true, flank: 0.7, feint: 0.4, retreatAt: 0.5, focus: true,
+                       raid: true, raidAfter: 240, raidEvery: 150, raidSize: 4, raidWithWave: true, raidRetreat: 1.2, cautious: 1, repair: 0 } },
 };
