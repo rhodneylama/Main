@@ -8,9 +8,11 @@ improvements.
 
 **Last updated:** 11 October 2026. It covers everything up to and including
 the tech tree (upgrades, research, Radar, Repair Pad), the sprite art, the
-1.9× bigger map, recycling at the Repair Pad, and the October economy
-retune (12 geysers, slower Extractors with bigger tanks, smaller Transports,
-an AI that favours geysers).
+1.9× bigger map, recycling at the Repair Pad, the October economy retune,
+and the October gameplay round: no Transports or Extractor Silos (Extractors
+pay straight into storage), Repair Pad waypoint, Guard, unit groups, an
+unlimited production queue, Gun Tower upgrades, less traffic jamming, and a
+new tactical opponent on Normal and Hard.
 
 All values below are copied from the code. The balance numbers live in
 `js/config.js`; a few rules are fixed inside the other files and are named
@@ -193,16 +195,15 @@ research.
 You can only hold as much scrap as your storage allows. Income that would go
 over the cap is not lost; it waits:
 
-- Scavengers and Transports wait at the base with their load, retrying once
-  a second.
-- Extractors hold up to 30 in their own tank, then stop pumping.
+- Scavengers wait at the base with their load, retrying once a second.
+- Extractors hold up to 120 each, then stop pumping; it flows in as soon as
+  there is room.
 - The Recycler's own trickle is simply not added.
 
 | Source of storage | Adds |
 | --- | --- |
 | Recycler (mobile, deploying, deployed, or upgraded) | 300 |
 | Base Silo | 300 |
-| Extractor Silo | 125 |
 
 If a silo is destroyed and storage drops below what you hold, the excess is
 lost. The top bar shows `held / capacity` and turns yellow when full. A
@@ -213,11 +214,11 @@ lost. The top bar shows `held / capacity` and turns yellow when full. A
 | Source | Rate | Delivered how | Runs out? |
 | --- | --- | --- | --- |
 | Scavenger (either tier) collecting loose scrap | Gathers 4 per second, carries 25 per trip. Real income depends on distance: roughly 40 to 70 a minute per Scavenger near home. | Drives it to the Recycler, a Base Silo or an Extractor Silo | Yes. Each pile holds 400, and fields empty over time. |
-| Extractor on a geyser (needs a **Scavenger II** to create) | 0.7 per second (42 a minute) | With an Extractor Silo touching it, straight into storage. Without one, into its own 120-scrap tank, which Transports empty. | No |
+| Extractor on a geyser (needs a **Scavenger II** to create) | 0.7 per second (42 a minute) | Straight into storage. When storage is full, up to 120 waits in the Extractor until there is room. | No |
 | Deployed Recycler | 0.035 per second (2.1 a minute), a twentieth of an Extractor | Straight into storage | No |
 | Salvage from destroyed vehicles | 30% of the vehicle's cost, left as a pile on the ground | Collected by Scavengers | Yes |
 | Demolishing your own building | 50% of its cost, left as piles of at most 40 on the ground | Collected by Scavengers | Yes |
-| Cancelling a unit in a build queue | 100% of its cost, straight to storage (if there is room) | Immediate | n/a |
+| Cancelling the vehicle being built | 100% of its cost, straight to storage (if there is room). Vehicles still waiting in the queue haven't been paid for. | Immediate | n/a |
 
 The computer opponent's income is multiplied by its difficulty's
 `incomeMult` (see [Difficulty levels](#14-difficulty-levels)). The human
@@ -225,17 +226,18 @@ player always has ×1.
 
 ### Spending
 
-Costs are paid in full when a unit is queued, a building is placed, an
-upgrade is started, or research begins. You can queue at most 5 units per
-building. Units in a queue can be cancelled for a full refund; buildings can
-be demolished (see section 7).
+Buildings, upgrades and research are paid for in full when started. **Vehicles
+are paid for when their turn comes** in a building's queue: you can queue as
+many as you like (up to 99 per building); if there isn't enough scrap when a
+vehicle's turn comes, the queue waits ("waiting for scrap"). Removing a
+waiting vehicle refunds nothing (it wasn't paid for); cancelling the one
+being built refunds it. Buildings can be demolished (see section 7).
 
 ### The flow in words
 
 ```
-loose scrap ──Scavenger──▶ Recycler / Base Silo / Extractor Silo ──▶ STORAGE
-geyser ──Extractor (from a Scavenger II)──▶ Extractor Silo touching it? ──yes──▶ STORAGE
-                                                                     └─no──▶ tank (120) ──Transport (30 a trip)──▶ STORAGE
+loose scrap ──Scavenger──▶ Recycler / Base Silo ──▶ STORAGE
+geyser ──Extractor (from a Scavenger II)──▶ STORAGE (when full, up to 120 waits in the Extractor)
 Recycler's own geyser ──(2.1/min)──▶ STORAGE
 ```
 
@@ -256,7 +258,6 @@ to build it.
 | Scavenger II | Harvester | 80 | 7 s | 180 | 43 | 200 | 13 | Recycler II | Recycler upgrade |
 | Constructor | Builder | 80 | 8 s | 160 | 43 | 220 | 13 | Recycler | — |
 | Constructor II | Builder | 110 | 9 s | 200 | 43 | 220 | 13 | Recycler II | Recycler upgrade |
-| Transport | Hauler | 70 | 7 s | 120 + 150 shield | 39 | 200 | 14 | Recycler / Recycler II | — |
 | Scout | Combat | 50 | 5 s | 140 | 98 | 330 | 11 | Factory | — |
 | Tank | Combat | 100 | 9 s | 400 | 40 | 260 | 15 | Factory | — |
 | Artillery | Combat | 140 | 12 s | 200 | 32 | 220 | 15 | Factory | — |
@@ -264,10 +265,8 @@ to build it.
 | Tank Mk II | Combat | 150 | 12 s | 560 | 48 | 260 | 15 | Factory II | Advanced Tanks |
 | Artillery Mk II | Combat | 210 | 16 s | 280 | 38 | 220 | 15 | Factory II | Advanced Artillery |
 
-**Speed chain (a stated design rule):** Transport 39 → Scavenger 43 (+10%)
-= Constructor 43. Tank 40, Artillery 32 (kept the slowest), Scout 98. The
-mobile Recycler moves at 30. Mk II vehicles are 20% faster than their basic
-versions.
+**Speeds:** Scavengers and Constructors 43, Tank 40, Artillery 32 (kept the
+slowest), Scout 98. (Transports, removed in October, were 39.)
 
 **Mk II rule of thumb:** about +40% HP, +30% damage, +20% speed, for +50%
 cost. A Mk II counts as the same kind of vehicle as its basic version for
@@ -286,7 +285,7 @@ orders and the Army menu.
 | Recycler (deployed) | 210 | — | 24 | 0.8 | Bullet | — | ×1.0 |
 | Gun Tower | 250 | — | 22 | 0.9 | Shell | — | ×1.0 |
 
-Scavengers, Constructors, Transports and the mobile Recycler are unarmed.
+Scavengers, Constructors and the mobile Recycler are unarmed.
 
 ### Special abilities
 
@@ -297,10 +296,9 @@ Scavengers, Constructors, Transports and the mobile Recycler are unarmed.
 | Scavenger II | As Scavenger, plus **Deploy on geyser:** becomes an Extractor (8 s to set up). |
 | Constructor | Builds buildings and finishes construction sites. **Cannot** repair. |
 | Constructor II | Builds, and **repairs** damaged buildings at 25 HP per second. |
-| Transport | **Auto-haul:** empties the fullest Extractor tank (at least 15 stored), preferring ones no other Transport is heading to. Loads 40 per second, carries 30. **Shield:** absorbs the first 150 damage; recharges at 20 per second after 3 seconds without being hit. |
 | Scout (and Mk II) | **Scout** (alone) or **Scout as pack** / **Scout solo** (groups). |
 | Tank (and Mk II) | **Patrol:** loops around all your buildings. |
-| Artillery (and Mk II) | **Defend:** holds a post beside one of your buildings. |
+| Any armed vehicle | **Guard:** then pick one of your buildings or vehicles. Guarding a building: take a post beside it and fire at anything in range. Guarding a vehicle: keep a spot beside it, follow it, fight anything in range, go after whoever attacks it (never more than 320 px away), stand down if it is destroyed. |
 | Any damaged vehicle | **Go repair:** drives to the nearest Repair Pad (the button appears once you have one). |
 | Any vehicle parked on your Repair Pad (not the Recycler) | **Recycle:** takes it apart for half its cost. Needs a second press, **Confirm recycle**. |
 
@@ -314,7 +312,6 @@ Scavengers, Constructors, Transports and the mobile Recycler are unarmed.
 | Factory | 150 | 18 s | 1,400 (1,800 as Factory II) | 3×3 | 220 | — | 10 | Constructor |
 | Extractor | — | 8 s (deploy) | 900 | 2×2 | 240 | tank of 120 | 9 | Deploying a Scavenger II on a geyser |
 | Base Silo | 250 | 14 s | 1,100 | 2×2 | 200 | 300 | 8 | Constructor |
-| Extractor Silo | 500 | 12 s | 800 | 2×2 | 200 | 125 | 5 | Constructor |
 | Gun Tower | 110 | 14 s | 1,000 | 2×2 | 300 | — | — | Constructor |
 | Research Lab | 200 | 20 s | 900 | 2×2 | 200 | — | 6 | Constructor |
 | Radar | 150 | 16 s | 600 | 2×2 | 220 | — | 6 | Constructor |
@@ -324,17 +321,16 @@ Scavengers, Constructors, Transports and the mobile Recycler are unarmed.
 
 | Building | Produces / offers | Other functions |
 | --- | --- | --- |
-| Recycler | Scavenger, Constructor, Transport. **Upgrade to Recycler II.** | Headquarters. Defence gun (fires from the centre drum; no visible barrel). Drop-off point. Pumps its own geyser at 2.1 a minute. Cannot be demolished. |
-| Recycler II | Scavenger II, Constructor II, Transport (replaces the basic workers) | As Recycler, with 5,000 HP. |
+| Recycler | Scavenger, Constructor. **Upgrade to Recycler II.** | Headquarters. Defence gun (fires from the centre drum; no visible barrel). Drop-off point. Pumps its own geyser at 2.1 a minute. Cannot be demolished. |
+| Recycler II | Scavenger II, Constructor II (replace the basic workers) | As Recycler, with 5,000 HP. |
 | Factory | Scout, Tank, Artillery. **Upgrade to Factory II.** | — |
 | Factory II | Scout, Tank, Artillery, plus Scout / Tank / Artillery **Mk II** (each once researched; otherwise shown as "Research first") | 1,800 HP. |
 | Extractor | — | Pumps 42 a minute from its geyser into a 120 tank. Salvage value counts as 60 (the Scavenger it came from). |
 | Base Silo | — | Adds 300 storage. Drop-off point. Must be within 7 tiles of your Recycler's edge. |
-| Extractor Silo | — | Adds 125 storage. Drop-off point. Must touch one of your Extractors (at most one empty square between them). Makes that Extractor send its scrap straight to storage. |
-| Gun Tower | — | Defensive gun (see Weapons). |
+| Gun Tower | **Upgrade once:** Artillery Tower or Heavy Gun Tower (section 8) | Defensive gun (see Weapons). |
 | Research Lab | Research: Advanced Scouts, Advanced Tanks, Advanced Artillery (see section 8) | One topic at a time. The glass dome pulses while researching. |
 | Radar | — | Pings every 30 s, revealing a 750 px circle for 4 s (see section 12). |
-| Repair Pad | Recycle (vehicles parked on it) | Vehicles drive over it (it doesn't block movement). Every kind of vehicle of yours parked on it regains 30 HP per second, and Transport shields refill at the same rate. Nothing can be built on top of it. Vehicles parked on it can be **recycled** (below). |
+| Repair Pad | Recycle (vehicles parked on it); Set / Clear waypoint | Vehicles drive over it (it doesn't block movement). Every kind of vehicle of yours parked on it regains 30 HP per second, and Transport shields refill at the same rate. Nothing can be built on top of it. Vehicles parked on it can be **recycled** (below). |
 
 ### Building lifecycle
 
@@ -349,9 +345,10 @@ Scavengers, Constructors, Transports and the mobile Recycler are unarmed.
   II can repair buildings".
 - **Upgrading** (Recycler, Factory): see section 8. Production pauses until
   the upgrade finishes.
-- **Waypoint** (Recycler, Factory): every new vehicle drives straight to
+- **Waypoint** (Recycler, Factory, Repair Pad): for the Repair Pad, it's
+  where vehicles sent by Go repair drive once fixed. For the others, every new vehicle drives straight to
   it. Without one, combat units wait beside the building, Scavengers start
-  harvesting and Transports start hauling.
+  harvesting.
 - **Demolish:** asks for confirmation, then removes the building and leaves
   half its cost on the ground as scrap piles. Frees a geyser if it was an
   Extractor.
@@ -377,11 +374,18 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
 
 | Upgrade | Cost | Time | New HP | Unlocks |
 | --- | --- | --- | --- | --- |
-| Recycler → Recycler II | 250 | 40 s | 5,000 | Builds Scavenger II, Constructor II, Transport (replaces the basic workers) |
+| Recycler → Recycler II | 250 | 40 s | 5,000 | Builds Scavenger II and Constructor II (replace the basic workers) |
 | Factory → Factory II | 200 | 30 s | 1,800 | Also builds Scout, Tank and Artillery Mk II, once each is researched |
 
 - Only one upgrade level exists for each.
 - Production pauses while a building upgrades; queued units wait.
+
+**Gun Tower upgrades** (once per tower; it keeps firing its old gun while upgrading):
+
+| Upgrade | Cost | Time | HP | Weapon |
+| --- | --- | --- | --- | --- |
+| Artillery Tower | 180 | 30 s | 1,200 | Shells with 60 px splash: range 520, minimum range 120, damage 70 every 4.5 s, ×1.6 vs buildings. Only hits what your side can see. |
+| Heavy Gun Tower | 150 | 25 s | 1,600 | Twin cannon: range 280, damage 30 every 0.6 s. |
 - Upgraded buildings show gold chevrons.
 - A Factory II can be built without any research, but its Mk II buttons say
   "Research first" until researched.
@@ -461,7 +465,7 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
 | Move | Any vehicle | Drives to the point. Groups spread into a grid about 34 pixels apart. |
 | Attack-move | Armed vehicles | Moves, but stops to fight anything seen on the way. |
 | Attack | Armed vehicles | Chases and fires at one target until it dies or is lost from sight. |
-| Stop | Any vehicle | Stops and stands guard. Transports also stop auto-hauling. |
+| Stop | Any vehicle | Stops and stands guard. |
 | Gather | Scavengers | Collects a chosen scrap pile, then carries on automatically. |
 | Deploy | Scavenger II or mobile Recycler | Drives onto a geyser and becomes an Extractor or the Recycler. A basic Scavenger gets a message explaining it needs to be a Scavenger II. |
 | Build | Constructor (either tier) | Places a building or finishes a construction site. |
@@ -469,9 +473,8 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
 | Scout | Scouts | Explores: unexplored ground first, then areas under fog. Fires at enemies passed without stopping. Picks a new destination on arrival or after 45 seconds. |
 | Scout as pack | 2+ Scouts | As Scout, but the group travels together in a loose ring of about 34 pixels and picks a new destination when any of them arrives (or after 40 seconds). |
 | Patrol | Tanks | Loops around the outside of all your finished buildings, fighting anything met. |
-| Defend | Artillery | Takes a post beside the chosen building and fires at anything in range. Never chases. Returns to its post after moving. |
-| Auto-haul | Transports | Empties Extractor tanks (see Units). Can be pinned to one Extractor. |
-| Go repair | Damaged vehicles | Drives to the nearest Repair Pad and parks on it. |
+| Guard | Any armed vehicle | See Special abilities: protect one of your buildings or vehicles. |
+| Go repair | Damaged vehicles (Constructors too) | Drives to the nearest Repair Pad. Once fixed, it drives to the pad's waypoint, or to its own spot just beside the pad (facing the map centre) so the pad stays clear. Workers go back to work. |
 | Recycle | Vehicles parked on one of your Repair Pads | Two steps: **Recycle**, then **Confirm recycle** (or **Keep** / `Esc` to back out). The confirm button has no keyboard shortcut, so a double key press can't recycle anything. Shown on a selected vehicle that is parked on a pad, and on the selected pad itself (recycling every vehicle parked on it). |
 
 ### Recycling
@@ -480,7 +483,7 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
   inside the pad's 3 × 3 footprint. Nowhere else.
 - You get back **50% of the vehicle's cost**, the same share as demolishing
   a building (Scout 25, Tank 50, Artillery 70, Scavenger 30, Constructor 40,
-  Transport 35, Scout Mk II 38, Tank Mk II 75, Artillery Mk II 105,
+  Scout Mk II 38, Tank Mk II 75, Artillery Mk II 105,
   Scavenger II 40, Constructor II 55).
 - The refund goes straight into storage. Whatever doesn't fit is left on
   the pad as loose scrap for Scavengers.
@@ -495,15 +498,22 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
   were told to stand, and then return there.
 - **Idle Scavengers** look for scrap within 450 pixels once a second and go
   back to work. When a pile runs out, they look within 900 pixels.
-- **Idle Transports** resume hauling unless told to Stop.
 - **Vehicles on a Repair Pad** are repaired automatically, with a pulsing
   green ring and rising green "+" signs. Every kind of vehicle is repaired.
-  Combat vehicles don't leave by themselves. **Idle Scavengers and
-  Transports wait on the pad until fully repaired** (and shields full), then
-  go back to work.
+  Vehicles sent by **Go repair** drive off once fixed (to the waypoint or
+  beside the pad). **Idle Scavengers wait on the pad until fully repaired**,
+  then go back to work. Vehicles you simply park there stay.
 - **Arrival:** a vehicle counts as arrived when it reaches its destination,
   or when it is within 120 pixels and has not got any closer for 2 seconds
   (this stops crowds jostling forever).
+- **Traffic:** a moving vehicle looks ahead (twice its radius plus 0.7 s of
+  travel) for another vehicle in its path and steers round it, passing on
+  the right when it is dead ahead, so head-on meetings slide past. When two
+  overlap, a moving vehicle pushes a parked one aside (the parked one takes
+  most of the push), and two Scavengers of the same side may squeeze to 60%
+  of their usual spacing. Measured: 6 Scavengers on one field earn 9% more
+  and spend ~40% less time blocked; 8 Tanks swapping places with 8 others
+  head-on finish 13% faster.
 - **Getting unstuck:** a vehicle that barely moves for 1.2 seconds
   re-plans its route; after 3.5 seconds it gives up.
 - **Route-finding:** A* search over the tile grid, with diagonal moves
@@ -525,11 +535,10 @@ A Constructor can place a building only if **all** of these hold:
 3. No enemy vehicle is within one building-width of the spot.
 4. The spot is inside your **territory**: within the territory radius of one
    of your finished buildings (Recycler 14, Factory 10, Extractor 9, Base
-   Silo 8, Research Lab 6, Radar 6, Extractor Silo 5 tiles; Gun Towers and
+   Silo 8, Research Lab 6, Radar 6 tiles; Gun Towers and
    Repair Pads add none).
 5. Special rules:
    - Base Silos must be within 7 tiles of your Recycler's edge.
-   - Extractor Silos must touch one of your Extractors.
 6. You can afford it.
 
 Before the Recycler is deployed you have no territory and cannot build.
@@ -582,10 +591,6 @@ each decision it runs through these steps in order:
    - a Constructor II, if upgraded and it has none (so it can repair);
    - a Scavenger II, if it wants a new geyser and has no Scavenger II
      available to deploy;
-   - a Transport, if it has fewer than it needs to keep up with its
-     Extractors that have no Extractor Silo: for each, enough trips to carry
-     its output given the round trip to the Recycler (at least 1, at most 2
-     per Extractor);
    - a Scavenger (Scavenger II once upgraded), if it has fewer than
      `min(maxScavengers, 3 + minutes ÷ 2.5)` minus one for every two
      Extractors it runs (never below 3).
@@ -601,17 +606,19 @@ each decision it runs through these steps in order:
    4. a first Gun Tower after 90 seconds (300 on Easy);
    5. a Base Silo, if under `maxBaseSilos`, storage at least 70% full, and
       past 150 seconds;
-   6. an Extractor Silo on its furthest Extractor lacking one, after
-      `extractorSilos` seconds (10:00 Normal, 7:00 Hard, never on Easy) and
-      once its storage can hold 500. It saves up for it (army production
-      pauses meanwhile);
    7. a Research Lab after `labAfter` (never on Easy);
    8. a Radar after `radarAfter` (never on Easy);
    9. a second Factory after 300 seconds (not on Easy);
    10. more Gun Towers, up to 1 plus the number of Extractors, after 200
        seconds, placed at Extractors that have none nearby.
 
-   While saving for a Base Silo or an Extractor Silo, it pauses army production.
+   (A Repair Pad would come after the second Factory when `tactics.repair`
+   is set; it is off on every level, because it cost wins in testing.)
+
+   While saving for a Base Silo, it pauses army production.
+   **Gun Tower upgrades** (after `towerUpgradeAfter`: 15:00 Normal, 10:00
+   Hard, never Easy): one tower at a time; towers within 500 px of its
+   Recycler become Heavy Gun Towers, others Artillery Towers.
 6. **Research and Factory upgrade:** an idle lab researches Advanced Tanks,
    then Scouts, then Artillery. Once anything is researched, it upgrades one
    Factory at a time to Factory II. It saves for both, pausing army
@@ -632,8 +639,10 @@ each decision it runs through these steps in order:
    the map centre.
 8. **Defence:** if an enemy combat vehicle it can see is within 380 pixels
    of any of its buildings, every combat unit within 1,400 pixels of its
-   Recycler attack-moves there. Nothing else happens that turn.
-9. **Attack:**
+   Recycler attack-moves there. On Easy nothing else happens that turn; on
+   Normal and Hard the tactics below still run (but no wave or raid leaves
+   while the base is under attack).
+9. **Attack (Easy):**
    - The target is the nearest enemy building it knows of, or your Recycler
      wherever it is.
    - Idle units already out in the field keep pushing to the target after
@@ -643,6 +652,36 @@ each decision it runs through these steps in order:
      and announces "Enemy attack force spotted".
    - `waveSize = min(maxArmy, waveBase + minutes since first attack × waveGrowth)`.
    - The next wave is due `waveEvery` seconds later.
+10. **Battle tactics (Normal and Hard)**, on top of the same waves. Each was
+    added only if it beat the previous opponent in testing (section 20):
+    - **Hold, then counter-attack.** Early on it lets the enemy's waves break
+      on its towers and army at home, instead of trading attacks. It stops
+      holding after `hold` seconds (Normal 10:00, Hard 6:00), as soon as it
+      has beaten off an attack, or once its army at home is `holdArmy` times
+      the wave size (Normal 2, Hard 1.2). Right after beating off an attack
+      it **counter-attacks** at once, as soon as it has 60% of a wave at home.
+    - **All-in waves:** a wave takes everything waiting at home.
+    - **Flanking:** 70% of waves swing round a flank (a point 55% of the way
+      there, pushed sideways by 35% of the distance) on the side where it
+      has seen fewer defences, instead of going straight in.
+    - **Feigned retreat:** 40% of waves of 6 or more start with two fast
+      vehicles poking the target while the rest wait in ambush 45% of the
+      way there. Once the bait makes contact (or is hurt) it runs back past
+      the ambush; when the pursuers are dealt with (or after 70 s) the whole
+      force attacks.
+    - **Retreat when outnumbered:** a group out fighting (units within 450 px
+      of each other, more than 900 px from home) falls back to the rally
+      point if its strength is under half that of the enemy vehicles it can
+      see within 600 px. Strength = health ÷ 100 × damage per second (×1.5
+      for splash weapons).
+    - **Focus fire:** in a fight, each vehicle switches to the weakest enemy
+      vehicle in its range (armed ones first).
+    - **Sneak raids:** after `raidAfter` (Normal 7:00, Hard 4:00), every
+      `raidEvery` (4:00 / 2:30), 3 or 4 spare fast vehicles (Scouts) swing
+      round the flank opposite the main wave to the least defended enemy
+      Extractor it knows of (or toward your base), hunt workers there, and
+      run for home when they meet more strength than their own (×1.0 / ×1.2)
+      or after 2.5 minutes. Raids only use vehicles beyond a full wave.
 
 Buildings are placed by searching rings around its Recycler toward the map
 centre (Towers at 8 tiles, others at 5), leaving a one-tile gap for driving.
@@ -674,7 +713,10 @@ then mirrored, so both corners place buildings identically.
 | Most combat vehicles | 8 | 25 | 40 |
 | Army growth limit (units per minute, on top of 3) | 0.7 | 3 | none |
 | Most Extractors | 2 | 4 | 5 |
-| Saves for Extractor Silos after | never | 10:00 | 7:00 |
+| Upgrades Gun Towers after | never | 15:00 | 10:00 |
+| Battle tactics | none (simple waves) | all (section 13) | all, thinking twice as often |
+| Holds back early until | — | 10:00, an attack beaten off, or 2 waves at home | 6:00, an attack beaten off, or 1.2 waves at home |
+| Sneak raids | — | from 7:00, every 4:00, 3 Scouts | from 4:00, every 2:30, 4 Scouts |
 | Most Base Silos | 1 | 2 | 3 |
 | Most Scavengers | 3 | 6 | 7 |
 | Seconds between decisions | 2.5 | 1.0 | 0.5 |
@@ -692,8 +734,9 @@ does nothing; one test map, seed 5):
 | After the tech tree | about 16 min | about 9 min | about 5 min |
 | Big map (early October) | about 17 min | about 13 min | about 8 min |
 | October economy retune | about 21 min | about 11 min | about 6 min |
+| Tactical opponent (Oct.) | about 21 min | about 9 min | about 6.5 min |
 
-The first attack still lands at 10:00 / 5:00 / 3:00.
+The first attack lands at 10:00 / 5:00 / 3:00.
 
 If the player never deploys at all, the enemy kills the unarmed mobile
 Recycler at its first attack.
@@ -707,7 +750,7 @@ Recycler at its first attack.
 | Action | How |
 | --- | --- |
 | Select a vehicle | Tap it. Tap the same kind twice quickly to select all of that kind on screen. |
-| Order selected vehicles | Tap the ground (move), an enemy (attack), scrap (gather), a geyser (deploy), a damaged building (repair, with a Constructor II), your building (defend, with Artillery), or an Extractor (haul, with Transports). |
+| Order selected vehicles | Tap the ground (move), an enemy (attack), scrap (gather), a geyser (deploy), a damaged building (repair, with a Constructor II), or your building (guard it, with Artillery). Use **Guard** for any armed vehicle to protect a building or a vehicle. |
 | Box select | Press and hold on the map, then drag. |
 | Scroll / zoom | One-finger drag / pinch. |
 | Build | Select the Constructor, pick a building, tap where it goes, then press **Build here**. |
@@ -725,7 +768,7 @@ Recycler at its first attack.
 | Command buttons | `Q` `W` `E` `R` `T` `Y` `U` `I`, in the order the buttons appear |
 | Attack-move / Stop | `A` then click / `S` |
 | Demolish | `Z` (then `Z` again to confirm) |
-| Squads | `Ctrl`+`1`–`9` saves; `1`–`9` selects; press twice to jump to it. |
+| Unit groups | **Groups ▾** in the top bar: six groups, each with **Set** (save the selected vehicles) and a row to select it (twice to jump to it). `Ctrl`+`1`–`9` saves, `1`–`9` selects, the same groups. A vehicle is in one group at a time; its number shows beside it. |
 | Jump to base / selection | `H` / `Space` |
 | Idle worker | `X` |
 | Scroll | Arrow keys, screen edge, middle-drag, or the minimap |
@@ -782,7 +825,6 @@ progress bars, fog and minimap dots itself.
 | Tank, Artillery, Gun Tower | Turret turns on its own, recoils and flashes when firing |
 | Artillery | Four stabiliser legs fold out when it parks to fire, and fold away before it drives |
 | Mk II vehicles, Tier II workers, upgraded buildings | Gold chevrons; plus side skirts (Tank Mk II), fins (Scout Mk II), clamps (Scavenger II) |
-| Transport | Dashed shield bubble while the shield is up; flickers when hit |
 | Radar | Dish spins |
 | Extractor | Pump head spins, centre glows |
 | Recycler (deployed) | Centre drum turns. **No visible gun barrel** (see below) |
@@ -807,14 +849,13 @@ start zoomed out (about 0.55×).
 | Building | Tiles | Pixels |
 | --- | --- | --- |
 | Recycler, Factory, Repair Pad | 3 × 3 | 96 × 96 |
-| Extractor, Base Silo, Extractor Silo, Gun Tower, Research Lab, Radar | 2 × 2 | 64 × 64 |
+| Extractor, Base Silo, Gun Tower (and its upgrades), Research Lab, Radar | 2 × 2 | 64 × 64 |
 
 | Vehicle | Body diameter | Notes |
 | --- | --- | --- |
 | Recycler (mobile) | 44 px | |
 | Tank / Tank Mk II | 30 px | Barrel reaches about 22 px from the centre |
 | Artillery / Artillery Mk II | 30 px | Long barrel reaches about 36 px from the centre |
-| Transport | 28 px | |
 | Scavenger / Scavenger II, Constructor / Constructor II | 26 px | |
 | Scout / Scout Mk II | 22 px | |
 
@@ -834,7 +875,7 @@ to image files instead:
   game can tint.
 - Transparent PNG backgrounds.
 - Current visual markers to keep: gold chevrons for Mk II vehicles and
-  upgraded buildings; the Transport's shield bubble; the Repair Pad's hazard
+  upgraded buildings; the Repair Pad's hazard
   stripes and green cross; the radar dish's rotation.
 
 ---
@@ -883,15 +924,14 @@ times.
 | Tank Mk II | about 132 s |
 | Scavenger / Constructor (either tier) | about 148 s |
 | Tank | about 159 s |
-| Transport | about 163 s |
 | Artillery Mk II | about 167 s |
 | Artillery | about 198 s |
 | Mobile Recycler | about 212 s |
 
 **Economy:**
 
-- An Extractor (42 a minute) pays for an Extractor Silo (500) in about 12
-  minutes. It makes storage room and removes the need for a Transport.
+- An Extractor (42 a minute, straight into storage) pays back the Scavenger
+  II (80) that became it in about 2 minutes.
 - A Base Silo (250 for +300 storage) is the cheapest way to raise the cap.
 - The full tech path costs 250 (Recycler II) + 200 (Lab) + 200 (research) +
   200 (Factory II) = 850 scrap before the first Tank Mk II, plus its 150.
@@ -928,7 +968,7 @@ Balance-testing tools are in `tests/balance/` (see that report, section 13).
   online multiplayer possible later: players would exchange commands
   rather than the whole game state. Commands include move, attack, harvest,
   deploy, build, repair, produce, cancel, rally, demolish, upgrade, research,
-  scout, patrol, guard, haul, gorepair and recycle.
+  scout, patrol, guard, gorepair, recycle and upgrade (with an `option` for Gun Towers).
 - **Deterministic simulation.** All randomness in the rules uses a seeded
   generator (`makeRng`), including the per-tick shuffle of update order. The
   same seed and the same commands give the same game.
@@ -1022,10 +1062,14 @@ rebuilt.
    the AI). It may never recover. Seen in an Easy AI-vs-AI game.
 5. **Never tested on a real phone.** Touch controls have only been tested
    in a simulated iPhone.
-6. **The AI doesn't use** Scout, Patrol, Defend, Go repair or the Repair Pad,
-   and never demolishes. On Easy it skips research and the Radar entirely.
-7. **The AI rarely builds Extractor Silos** (they cost 500 and need a Base
-   Silo first).
+6. **The AI doesn't use** Scout, Patrol, Guard, Go repair or the Repair Pad,
+   and never demolishes. On Easy it skips research, the Radar and all
+   battle tactics.
+7. **The tactical opponent was tuned against the previous opponent, not
+   against people.** It beats the old one clearly (section 20), but a human
+   who turtles behind towers, or who raids it, may find new weaknesses. Its
+   "hold, then counter-attack" opening means Normal and Hard may feel quieter
+   in the first minutes if you don't attack it.
 8. **Balance is untested with human play.** All numbers come from design
    intent and AI-vs-AI results, not from people playing.
 9. **Sprites not yet checked on a real phone.** They draw in about 5 ms a
@@ -1035,11 +1079,10 @@ rebuilt.
 ### Open design questions
 
 - Should terrain affect speed or sight (hills, forests, roads)?
-- Is the Recycler's 3-a-minute trickle meaningful, or only flavour?
-- Should Extractor Silos really cost 500 when base storage is only 300?
+- Is the Recycler's 2-a-minute trickle meaningful, or only flavour?
 - Should the enemy be denied knowledge of where your Recycler is?
 - How long should a typical game be?
-- What do Transports do once every Extractor has a silo?
+- Should Easy get some battle tactics (for example flanking) to feel less predictable?
 - **Tech tree:**
   - Should Factory II require a Research Lab to exist?
   - Should research be lost if the lab is destroyed?
@@ -1068,17 +1111,23 @@ only on purpose.
 4. **Battlezone 2-style economy:** loose scrap for Scavengers; geysers with
    Extractors; a Recycler that deploys onto a geyser and pumps it at a
    twentieth of an Extractor's rate.
-5. **Storage is limited,** expanded by Base Silos (next to the Recycler) and
-   Extractor Silos (joined onto Extractors, double the cost of a Base Silo,
-   125 storage).
-6. **Speeds:** Transports and Tanks halved, Scouts −25%, Scavengers 10%
-   faster than Transports, Constructors equal to Scavengers, Artillery the
-   slowest.
-7. **Unit roles:** Scouts scout (solo or as a pack), Tanks patrol,
-   Artillery defends buildings, Transports are unarmed but shielded.
+5. **Storage is limited,** expanded by Base Silos (next to the Recycler)
+   only. **No Extractor Silos and no Transports** (removed October 2026):
+   an Extractor's scrap goes straight into storage.
+6. **Speeds:** Tanks and Scouts slowed, Constructors equal to Scavengers,
+   Artillery the slowest.
+7. **Unit roles:** Scouts scout (solo or as a pack), Tanks patrol, any armed
+   vehicle can **Guard** a building or another vehicle.
 8. **Buildings can be demolished** for 50% of their cost, left as scrap on
    the ground.
-9. **Waypoints** on the Recycler and Factory, which can be set and cleared.
+9. **Waypoints** on the Recycler, Factory and Repair Pad (where repaired
+   vehicles go, so the pad doesn't pile up), which can be set and cleared.
+9d. **Production queue:** no fixed limit, a counter per vehicle type, and
+    each vehicle paid for when it starts.
+9e. **Unit groups** like Battlezone 2, on a Groups button as well as keys.
+9f. **Gun Towers upgrade** to an Artillery Tower or a Heavy Gun Tower.
+9g. **The opponent should be cunning:** different routes, sneak attacks,
+    feigned retreats, better tactics at higher difficulty.
 9b. **Map size and geysers:** the map is 182 × 137 (1.9× per side), with 12
     geysers (6 per half, at least 20 tiles apart, from home out to the
     contested middle) and 22 scrap fields.
@@ -1126,7 +1175,7 @@ to refine, not a finished plan.
 | 4. Core balance | Every unit has a clear job; no single unit type dominates; Mk II worth its price. | Unit-versus-unit duel tables (equal scrap spent); AI-vs-AI with forced army compositions. |
 | 5. Tech tree tuning | Upgrade and research costs and times feel right; the tech path is a real choice versus more basic units. | Timing curves; basic-army vs tech-army AI matchups. |
 | 6. Difficulty curve | Easy beatable by a first-time player; Hard challenging. | "Do nothing" survival, scripted "simple player" bots, human playtests. |
-| 7. AI competence | The AI uses Scout, Patrol, Defend, the Repair Pad and Extractor Silos; recovers from losing its Scavengers. | AI-vs-AI game length; milestone logs. |
+| 7. AI competence | The AI uses Scout, Patrol, Guard and the Repair Pad without losing strength; recovers from losing its Scavengers; holds up against human tactics. | AI-vs-AI game length; milestone logs. |
 | 8. Art | Done: sprites from the unit design sheet (section 17). Remaining: check on real phones; sound. | Visual review on desktop and phone; performance check. |
 | 9. Content | New units, buildings or terrain effects (roadmap Stage 2). | Each addition gets its own rules test and balance check. |
 | 10. Campaign / 4X layer | Sector map between battles (roadmap Stage 3). | Design first, then playtests. |
