@@ -377,7 +377,7 @@ function adaptiveMix(I, diff, scouts, tanks, arty, hornets, army, time) {
   const fastShare = 0.25 + a * (I.artillery >= 2 ? 0.1 : 0);
   // The fast share: Scouts, and once Hornets are allowed, as many Hornets.
   if (scouts < 2) return 'scout';
-  if (scouts + hornets < army * fastShare) return diff.tactics.hornetsAfter && time > diff.tactics.hornetsAfter && hornets < scouts ? 'hornet' : 'scout';
+  if (scouts + hornets < army * fastShare) return diff.tactics.hornetsAfter && time > diff.tactics.hornetsAfter && hornets < scouts * (diff.tactics.hornetRatio || 1) ? 'hornet' : 'scout';
   if (time <= diff.artilleryAfter) return 'tank';
   const siege = a * Math.min(3, Math.floor(I.towers / 2));   // extra guns against towers
   if (arty * 4 < tanks || arty < siege) return 'artillery';
