@@ -307,9 +307,12 @@ const HOTKEYS = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I'];
 //                    what it has seen of the enemy (towers, artillery)
 //     trap           when a group falls back, vehicles at home lie in wait on
 //                    its way home for whatever chases it
-//     hornetsAfter   seconds before Hornets take half of the fast share of the army
+//     hornetsAfter   seconds before Hornets take half of the fast share of the
+//                    army (0 = never); hornetRatio Hornets per Scout (default 1)
+//     sentryMix      after sentriesAfter (seconds), one Sentry for every this
+//                    many Tanks in the army
 //     sentries       how many outlying Extractors (over 600 px from home) get a
-//                    Sentry to guard them; sentriesAfter (seconds)
+//                    Sentry to guard them (0 everywhere: it cost games in tests)
 const DIFFICULTY = {
   easy:   { label: 'Easy',   incomeMult: 0.5,  firstAttack: 600, waveEvery: 240, waveBase: 3, waveGrowth: 0.25,
             maxArmy: 8,  armyPerMinute: 0.7, maxExtractors: 2, maxBaseSilos: 1, maxScavengers: 3, thinkEvery: 2.5, artilleryAfter: 1200, secondFactory: false,
@@ -320,7 +323,7 @@ const DIFFICULTY = {
             tactics: { hold: 600, holdArmy: 2, counter: 0.6, allIn: true, flank: 0.7, feint: 0.4, retreatAt: 0.5, focus: true,
                        raid: true, raidAfter: 420, raidEvery: 240, raidSize: 3, raidWithWave: true, raidRetreat: 1, cautious: 0.5, repair: 0,
                        combined: true, flankers: 0.5, adapt: 0.5, trap: true,
-                       hornetsAfter: 420, sentryMix: 4, sentriesAfter: 600 } },
+                       hornetsAfter: 900, sentryMix: 4, sentriesAfter: 900 } },
   hard:   { label: 'Hard',   incomeMult: 1.35, firstAttack: 180, waveEvery: 100, waveBase: 6, waveGrowth: 1.5,
             maxArmy: 40, armyPerMinute: 0, maxExtractors: 5, maxBaseSilos: 3, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true,
             upgradeBaseAfter: 90, labAfter: 240, radarAfter: 360, towerUpgradeAfter: 600,

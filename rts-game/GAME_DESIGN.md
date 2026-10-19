@@ -689,17 +689,18 @@ each decision it runs through these steps in order:
      on Hard; half that effect on Normal). A bigger shift toward Artillery
      and Scouts was tried and lost badly: Tanks give the most fighting
      strength for the scrap.
-   - **Hornets:** after `hornetsAfter` (Normal 7:00, Hard 5:00) the fast
+   - **Hornets:** after `hornetsAfter` (Normal 15:00, Hard 5:00) the fast
      share of the army is split evenly between Scouts and Hornets (at least
      2 Scouts are kept for raids; Hornets are too slow for raids and fight
      as flankers in assaults).
-   - **Sentries:** after `sentriesAfter` (Normal 10:00, Hard 7:00) it builds
-     one Sentry for each of its outlying Extractors (more than 600 px from
-     home), up to `sentries` (Normal 2, Hard 3), and sends each idle Sentry
-     to **guard** an unguarded one. Guarding Sentries stay put: they don't
-     join waves or base defence.
+   - **Sentries:** after `sentriesAfter` (Normal 15:00, Hard 7:00) one Sentry
+     for every 4 Tanks; they fight in the army's front line alongside the
+     Tanks. (Posting Sentries to guard outlying Extractors was tried and
+     cost games, as did earlier Hornets and Sentries on Normal, where the
+     army is smaller.)
    - It researches Advanced Hornets and Advanced Sentries after the other
-     three topics.
+     three topics, and only for vehicles it builds (saving for research
+     pauses its army production).
    - the **Mk II** version whenever that Factory is a Factory II and the
      research is done.
 
@@ -1157,6 +1158,27 @@ What was tried on the way (Hard, 32 seeds unless noted, baseline 15):
 | **No opening feint** | **19, then 16 on seeds 33–64** (baseline 14) | **Yes, on Hard** |
 | Retreat trap | 34 of 64 (baseline 29) | Yes |
 
+### AI duel results: Hornets and Sentries (19 October 2026)
+
+Against the 18 October opponent, Hard seeds 1–64 (it won 33 there before
+the new vehicles; the baseline is 29):
+
+| How the opponent used the new vehicles | Wins |
+| --- | --- |
+| Hornets, plus Sentries guarding outposts | 27 |
+| Hornets only | 30 |
+| Sentries guarding outposts only | 23 |
+| Hornets, research only what it builds | 29 |
+| **Hornets, plus one Sentry per four Tanks in the army** | **31** (30 on seeds 65–128, baseline 24) |
+| One Hornet per three Scouts, one Sentry per six Tanks | 29 |
+| Neither (current code) | 33 |
+
+Using the new vehicles costs the opponent a little strength (Tanks give the
+most fighting strength for the scrap), but the shipped mix still beats the
+18 October opponent: **61 of 128** against a baseline of 53. On Normal,
+bringing them in at 5–10 minutes lost (12 of 32, baseline 15); from 15:00
+it wins **17** (the opponent without them won 18).
+
 ### Bugs these tests have caught (for reference)
 
 - **Combat:** gun towers never reloaded; building guns were outranged by
@@ -1431,4 +1453,4 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     **Hornet** light rocket tank and the **Sentry** mobile turret for both
     factions, with Mk II versions and research; a new start screen (choose
     faction and difficulty; How to play on its own screen); the opponent
-    builds Hornets as flankers and posts Sentries at its outlying Extractors.
+    builds Hornets as flankers and Sentries for its front line (section 20).
