@@ -63,7 +63,7 @@ The game works on touch screens. Turning your phone sideways gives the best view
 | Move / attack / gather | With vehicles selected, tap the ground, an enemy, or a scrap pile |
 | Select a group | Press and hold on the map, then drag a box |
 | Select fighters | **Army** button, then All, Scouts, Tanks or Artillery |
-| Unit groups | **Groups** button: **Set** saves the selected vehicles as group 1–6; tap a group to select it (twice to jump to it). Group numbers show beside the vehicles. |
+| Formations | **Formation** button: pick Column, Battle line, Wedge, Testudo, Echelon or Scout screen (each shown as a little diagram). Group moves then march in that shape; picking one with vehicles selected forms them up on the spot. **Free** turns it off. |
 | Scroll / zoom | Drag one finger / pinch |
 | Build | Select the Constructor, pick a building, tap where it goes, then press **Build here** |
 | Deselect, jump home, find an idle worker | **Deselect**, **Base**, **Idle worker** buttons in the top bar |
@@ -79,7 +79,7 @@ The game works on touch screens. Turning your phone sideways gives the best view
 | Attack-move (fight anything on the way) | `A`, then left-click |
 | Stop | `S` |
 | Command buttons | `Q` `W` `E` `R`, or click them |
-| Unit groups | `Ctrl` + `1`–`9` saves the selection as a group. Press the number to reselect it; press twice to jump to it. Same groups as the **Groups** button. |
+| Unit groups | `Ctrl` + `1`–`9` saves the selection as a group. Press the number to reselect it; press twice to jump to it. |
 | Scroll the map | Arrow keys, push the mouse against the screen edge, middle-drag, or click the minimap |
 | Zoom | Mouse wheel |
 | Jump to base / to selection | `H` / `Space` |
@@ -104,6 +104,35 @@ Base Silo = **Vault Orb**, Gun Tower = **Prism Tower**, Research Lab =
 
 **How to play** on the start screen (or Help on the pause screen) has the
 mission, the controls and tips.
+
+## Formations
+
+Choose how your vehicles line up when you move them together (the
+**Formation** button in the top bar). Squares in the diagrams are armour
+(Tanks, Sentries), triangles fast units (Scouts, Hornets), circles Artillery
+and workers.
+
+| Formation | Shape | Good for |
+| --- | --- | --- |
+| Free | No formation; everyone drives at their own speed | Quick moves |
+| Column | Two abreast: fast units lead, armour in the middle, guns and workers at the back | Narrow passes |
+| Battle line | Armour shoulder to shoulder, fast units on the wings, Artillery in a row behind | Meeting an enemy head-on |
+| Wedge | Armour at the point and edges, fast units on the trailing wings, Artillery inside the V | Punching through |
+| Testudo | A ring of armour with Artillery and workers safe in the middle | Escorting guns or workers |
+| Echelon | A staggered diagonal, guns tucked behind | Advancing past a threat on one side |
+| Scout screen | Fast units spread out ahead, armour in a block, guns at the rear | Spotting ambushes before the main body arrives |
+
+In a formation the group forms up, then marches at its slowest vehicle's
+pace, waiting for stragglers, and arrives in shape. With Attack-move it
+fights on the way.
+
+## Music
+
+The music is composed live in the game: calm on the start screen, steady
+while you build, and it brings in drums and a driving lead when fighting
+breaks out near your forces. Each faction has its own sound. **Music: On/Off**
+is on the start screen and the pause screen (with a volume slider); `M`
+silences sound and music together.
 
 ## Your forces
 

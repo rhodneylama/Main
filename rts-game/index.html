@@ -123,6 +123,8 @@
     background: rgba(0,0,0,.35); }
   .pausebox { text-align: center; background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; padding: 18px 26px; }
   .pausebox .row { justify-content: center; }
+  .music-row { margin-top: 10px; align-items: center; gap: 12px; }
+  .music-row input { vertical-align: middle; width: 120px; accent-color: var(--accent); }
   .pausetitle { font-size: 34px; font-weight: 800; letter-spacing: .2em; color: rgba(255,255,255,.9); }
   #helpbtn { font-size: 17px; padding: 10px 22px; }
 
@@ -280,6 +282,10 @@
       <button id="resumebtn" class="big">Resume</button>
       <button id="helpbtn">Help<span class="only-mouse"> (F1)</span></button>
     </div>
+    <div class="row music-row">
+      <button class="musicbtn">Music: On</button>
+      <label class="dim small">Volume <input id="musicvol" type="range" min="0" max="100" value="50"></label>
+    </div>
   </div>
 </div>
 
@@ -328,6 +334,7 @@
       <button id="start" class="big">Start battle</button>
       <button id="howto">How to play</button>
       <button id="watch">Watch AI vs AI</button>
+      <button class="musicbtn">Music: On</button>
     </div>
   </div>
 </div>
@@ -368,7 +375,7 @@
       <tr><td><b>One-finger drag</b></td><td>Scroll the map</td></tr>
       <tr><td><b>Pinch</b></td><td>Zoom in and out</td></tr>
       <tr><td><b>Attack-move</b></td><td>Press the button, then tap: vehicles travel there and fight anything on the way</td></tr>
-      <tr><td><b>Army · Groups · Base · Idle · Deselect</b></td><td>Quick buttons in the top bar. Army selects all fighters, or one kind. <b>Formation</b> picks how your vehicles line up when you move them together</td></tr>
+      <tr><td><b>Army · Formation · Base · Idle · Deselect</b></td><td>Quick buttons in the top bar. Army selects all fighters, or one kind. <b>Formation</b> picks how your vehicles line up when you move them together</td></tr>
       <tr><td><b>Formations</b></td><td>Column, Battle line, Wedge, Testudo (armour around guns and workers), Echelon or Scout screen. The group forms up, marches at its slowest vehicle's pace and waits for stragglers, then arrives in shape. Picking one with vehicles selected forms them up on the spot. Free turns it off.</td></tr>
       <tr><td><b>Building</b></td><td>Pick a building, tap where it should go, then press <b>Build here</b></td></tr>
           <tr><td><b>Scout</b></td><td>Scouts explore on their own. With several selected, <b>Scout as pack</b> keeps them together; <b>Scout solo</b> spreads them out.</td></tr>
@@ -418,6 +425,7 @@
       <li>The scrap counter shows what you hold and how much room you have. When it turns yellow you're full, and scrap waits outside until you spend some or build a Base Silo.</li>
       <li>The enemy attacks in waves. Towers and a few tanks at home keep your Recycler safe while your army is away.</li>
       <li>Constructors can repair damaged buildings: select one and tap or right-click the building.</li>
+      <li><b>Music</b> follows the battle: it builds up when fighting breaks out near your forces. Turn it on or off on the start or pause screen.</li>
     </ul>
     <div class="row"><button id="helpclose" class="big">Back</button></div>
   </div>
@@ -441,6 +449,7 @@
 <script src="js/sprites.js"></script>
 <script src="js/sprites_kethra.js"></script>
 <script src="js/render.js"></script>
+<script src="js/music.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

@@ -508,7 +508,7 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
 
 | Order | Who | What it does |
 | --- | --- | --- |
-| Move | Any vehicle | Drives to the point. Groups spread into a grid about 34 pixels apart. |
+| Move | Any vehicle | Drives to the point. Groups spread into a grid about 34 pixels apart, or, with a formation chosen, march in that formation (section 10, "Formations"). |
 | Attack-move | Armed vehicles | Moves, but stops to fight anything seen on the way. |
 | Attack | Armed vehicles | Chases and fires at one target until it dies or is lost from sight. |
 | Stop | Any vehicle | Stops and stands guard. |
@@ -522,6 +522,34 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
 | Guard | Any armed vehicle | See Special abilities: protect one of your buildings or vehicles. |
 | Go repair | Damaged vehicles (Constructors too) | Drives to the nearest Repair Pad. Once fixed, it drives to the pad's waypoint, or to its own spot just beside the pad (facing the map centre) so the pad stays clear. Workers go back to work. |
 | Recycle | Vehicles parked on one of your Repair Pads | Two steps: **Recycle**, then **Confirm recycle** (or **Keep** / `Esc` to back out). The confirm button has no keyboard shortcut, so a double key press can't recycle anything. Shown on a selected vehicle that is parked on a pad, and on the selected pad itself (recycling every vehicle parked on it). |
+
+### Formations
+
+Group moves can use a formation, picked on the **Formation ▾** menu (the
+default is **Free**: the old grid). Vehicles are placed by type: **heavy**
+(Tanks, Sentries, the mobile Recycler), **light** (Scouts, Hornets) and
+**soft** (Artillery, Scavengers, Constructors). Spacing is 38 px.
+
+| Formation | Layout (front of the group is "forward") |
+| --- | --- |
+| Column | Two abreast; light first, then heavy, then soft. |
+| Battle line | Heavy abreast in the front row, light added alternately to the left and right wings; soft in a second row 1.2 spacings behind. |
+| Wedge | Heavy, then light, along a V: one at the point, then pairs stepping 0.8 spacing back and 0.8 out; soft in pairs inside the V. |
+| Testudo (`box`) | Soft in a square grid in the middle; heavy then light evenly on a ring around them (radius at least 1.3 spacings), heavy taking the front-most places. |
+| Echelon | Heavy then light on a diagonal stepping back (0.65) and right (0.75); soft just behind and left of it. |
+| Scout screen | Light spread 1.6 spacings apart, 2.6 spacings ahead; heavy in a square block; soft in rows of three behind it. |
+
+The shape is centred on the spot ordered. On the move: the group first
+**forms up** around its current centre, facing the way it's going (up to
+6 s); then an anchor travels along one route at **90% of the slowest
+vehicle's speed**, turning at most 0.8 radians a second, and each vehicle
+drives to its place around the anchor (straight there, or by its own route
+if something is in the way; a place on rock or water falls back to the
+anchor). If any vehicle is more than 110 px from its place, the anchor
+waits (up to 4 s at a time). At the end everyone settles into place and
+stands there. Choosing a formation with vehicles selected forms them up on
+the spot, facing the way they face. The computer opponent doesn't use
+formations.
 
 ### Recycling
 
@@ -862,7 +890,8 @@ Recycler at its first attack.
 | Command buttons | `Q` `W` `E` `R` `T` `Y` `U` `I`, in the order the buttons appear |
 | Attack-move / Stop | `A` then click / `S` |
 | Demolish | `Z` (then `Z` again to confirm) |
-| Unit groups | **Groups ▾** in the top bar: six groups, each with **Set** (save the selected vehicles) and a row to select it (twice to jump to it). `Ctrl`+`1`–`9` saves, `1`–`9` selects, the same groups. A vehicle is in one group at a time; its number shows beside it. |
+| Formations | **Formation ▾** in the top bar (it shows the current one): a card per formation with a diagram and a sentence. Applies to every group move until changed; remembered on that device. |
+| Unit groups (keyboard) | `Ctrl`+`1`–`9` saves the selection as a group, `1`–`9` selects it (twice to jump to it). A vehicle is in one group at a time; its number shows beside it. (The Groups menu was replaced by Formations.) |
 | Jump to base / selection | `H` / `Space` |
 | Idle worker | `X` |
 | Scroll | Arrow keys, screen edge, middle-drag, or the minimap |
@@ -903,6 +932,21 @@ The game speed button cycles through ×1, ×2 and ×4.
   (mission, factions and their names, vehicles, controls, tips; reachable
   from the start screen or the pause screen), pause, end (Victory / Defeat
   with stats; sides are named by faction).
+
+### Music
+
+Composed live by `js/music.js` with Web Audio (no audio files): a four-bar
+loop in A minor (Am, F, C, G) at 104 beats a minute, in five layers that
+fade with the action. The start screen plays pads and a slow arpeggio. In
+battle a bass pulse and hi-hats join, and as fighting heats up (up to 6
+enemy fighters your side can see within 650 px of your vehicles or
+buildings, checked twice a second) the arpeggio, busier hi-hats and kick and
+snare come in, and fade out slowly after. Scrapline sounds industrial (saw
+and square waves); the Kethra Concord glassy (sine and triangle waves, more
+echo, a flattened second in the arpeggio). It dips while paused, and ends
+with a short rising (victory) or falling (defeat) phrase. **Music: On/Off**
+on the start and pause screens, a volume slider on the pause screen, both
+remembered on that device; `M` silences sound effects and music together.
 
 ---
 
@@ -1051,8 +1095,9 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `js/ai.js` | The computer opponent |
 | `js/sprites.js` | The unit design sheet: vector drawings of every vehicle and building, their animations, damage smoke, explosions, wrecks and craters |
 | `js/render.js` | Drawing the map, fog, minimap, bars and effects; calls `sprites.js` for units and buildings. The ground is painted in chunks as they scroll into view (see below). |
-| `js/main.js` | Mouse, touch and keyboard input; panels and buttons; minimap toggle; sound; the game loop |
-| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (74 checks). |
+| `js/main.js` | Mouse, touch and keyboard input; panels and buttons; minimap toggle; sound effects; the game loop |
+| `js/music.js` | The soundtrack, composed live with Web Audio (see section 16, "Music") |
+| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (79 checks). |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
 tables), `ROADMAP.md` (planned stages), `ECONOMY_TEST_REPORT.md` (the October
@@ -1098,7 +1143,7 @@ rebuilt.
 
 | Test type | Method | What it checks |
 | --- | --- | --- |
-| **Rules tests** (`tests/rules.js`, 74 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 12 geysers, 20-tile spacing, 6 per half, mirrored geysers and scrap, 20 to 24 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; Hornet quicker, cheaper, lighter than a Tank and fires rockets; Sentry lowers its legs before firing, then fires a rapid stream); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default). |
+| **Rules tests** (`tests/rules.js`, 79 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 12 geysers, 20-tile spacing, 6 per half, mirrored geysers and scrap, 20 to 24 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; Hornet quicker, cheaper, lighter than a Tank and fires rockets; Sentry lowers its legs before firing, then fires a rapid stream); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Formations** (six plus Free; a group arrives where sent and stays together on the way, unlike free movement; Testudo keeps soft units inside the ring; Column puts fast units first and Artillery last). |
 | **AI duels** (`tests/balance/duels.sh`) | The current opponent plays an earlier version of itself (`tests/balance/ai_previous.js`, the first one; `ai_v2.js` with `OPP=v2`, the 18 October one) on many seeds, 4 games at a time, up to 60 minutes each. With `BOTHOLD=1` both sides use the previous version, giving the baseline for the same seeds. | Whether a change to the opponent actually makes it stronger. Each tactic was tried alone, then in combinations; see the results below. |
 | **AI-vs-AI batches** | Run 30 to 120 full games between two computer players on different seeds. | Games end, typical length, and **fairness** by team and by corner. |
 | **AI tech progression** | Log when the AI reaches each milestone at each difficulty. | The AI actually upgrades, researches and fields Mk II units. |
@@ -1454,3 +1499,8 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     factions, with Mk II versions and research; a new start screen (choose
     faction and difficulty; How to play on its own screen); the opponent
     builds Hornets as flankers and Sentries for its front line (section 20).
+22. **Formations and music** (20 October 2026): the Groups menu is replaced
+    by **Formations** (Column, Battle line, Wedge, Testudo, Echelon, Scout
+    screen, or Free), with diagrams; groups march in shape at the slowest
+    vehicle's pace. A live-composed **soundtrack** that follows the
+    fighting, with a sound for each faction, and Music On/Off and volume.

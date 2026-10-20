@@ -48,6 +48,7 @@ function startGame(difficulty, watch = false) {
   $('log').innerHTML = '';
   paused = false; speed = 1; $('speedval').textContent = '×1';
   $('paused').classList.add('hidden'); $('help').classList.add('hidden');
+  Music.play('battle', chosenFaction); Music.duck(false);
   logMessage(watch ? 'Spectating: two AI commanders fight it out.' : 'Drive your Recycler onto the glowing geyser and deploy it to set up your base.', 'info');
   refreshPanel();
 }
@@ -56,6 +57,7 @@ function showEnd() {
   const won = game.winner === view.team;
   $('end-title').textContent = spectating ? `${sideName(game, game.winner)} wins` : won ? 'Victory' : 'Defeat';
   $('end-title').className = won || spectating ? 'win' : 'lose';
+  Music.sting(won || spectating);
   $('end-reason').textContent = game.endReason;
   const s1 = game.teams[1].stats, s2 = game.teams[2].stats;
   const mins = Math.floor(game.time / 60), secs = Math.floor(game.time % 60);
@@ -665,6 +667,7 @@ function idleWorker() {
 
 function togglePause() {
   paused = !paused;
+  Music.duck(paused);
   $('paused').classList.toggle('hidden', !paused);
 }
 
@@ -1008,10 +1011,31 @@ function unlockAudio() {
   try {
     audio = audio || new (window.AudioContext || window.webkitAudioContext)();
     if (audio.state === 'suspended') audio.resume();
+    Music.attach(audio);
   } catch (err) { /* sound is optional */ }
 }
 window.addEventListener('pointerdown', unlockAudio);
-function toggleMute() { muted = !muted; logMessage(muted ? 'Sound off' : 'Sound on', 'info'); }
+// M silences everything: sound effects and music.
+function toggleMute() { muted = !muted; Music.setOn(!muted); updateMusicButtons(); logMessage(muted ? 'Sound and music off' : 'Sound and music on', 'info'); }
+function updateMusicButtons() {
+  for (const b of document.querySelectorAll('.musicbtn')) b.textContent = `Music: ${Music.isOn() ? 'On' : 'Off'}`;
+  const v = $('musicvol'); if (v) v.value = Math.round(Music.getVolume() * 100);
+}
+for (const b of document.querySelectorAll('.musicbtn')) b.addEventListener('click', () => { Music.setOn(!Music.isOn()); unlockAudio(); updateMusicButtons(); });
+$('musicvol').addEventListener('input', e => Music.setVolume(e.target.value / 100));
+updateMusicButtons();
+// How heated the fighting is near your forces (enemy fighters your side can
+// see close to your vehicles or buildings) sets how hard the music drives.
+function musicHeat() {
+  if (!game || spectating && !game.entities.length) return 0;
+  const side = spectating ? 1 : view.team, mine_ = game.entities.filter(e => e.team === side);
+  let n = 0;
+  for (const e of game.entities) {
+    if (e.team === side || e.kind !== 'unit' || e.def.role !== 'combat' || e.hp <= 0 || !isVisibleTo(game, side, e)) continue;
+    if (mine_.some(o => Math.abs(o.x - e.x) < 650 && Math.abs(o.y - e.y) < 650)) n++;
+  }
+  return Math.min(1, n / 6);
+}
 // Tiny synthesised sound effects — no audio files needed.
 function sound(kind, vol = 1) {
   if (muted) return;
@@ -1065,6 +1089,7 @@ function frame(now) {
   lastFrame = now;
   if (!$('menu').classList.contains('hidden')) drawFactionPreviews(now / 1000);
   if (!game) return;
+  if (now - (view.heatAt || 0) > 500 && !game.winner) { view.heatAt = now; Music.intensity(musicHeat()); }
   updateCamera(dt);
   if (!paused && !game.winner) {
     accumulator += dt * speed;
@@ -1098,9 +1123,11 @@ document.querySelectorAll('[data-faction]').forEach(b => {
   b.addEventListener('click', () => {
     chosenFaction = b.dataset.faction;
     document.querySelectorAll('[data-faction]').forEach(x => x.classList.toggle('active', x === b));
+    unlockAudio(); Music.play('menu', chosenFaction);   // hear the faction's sound
     try { localStorage.setItem('scrapline.faction', chosenFaction); } catch (err) { /* optional */ }
   });
 });
+Music.play('menu', chosenFaction);   // starts once the player first touches the page
 // Each faction card shows a line-up of that faction's vehicles, gently animated.
 function drawFactionPreviews(time) {
   for (const b of document.querySelectorAll('[data-faction]')) {
@@ -1121,7 +1148,7 @@ document.querySelectorAll('[data-difficulty]').forEach(b => b.addEventListener('
 $('start').onclick = () => startGame(chosenDifficulty);
 $('howto').onclick = () => openHelp();
 $('watch').onclick = () => startGame(chosenDifficulty, true);
-$('again').onclick = () => { $('end').classList.add('hidden'); $('menu').classList.remove('hidden'); };
+$('again').onclick = () => { $('end').classList.add('hidden'); $('menu').classList.remove('hidden'); Music.play('menu', chosenFaction); };
 // Help lives on the pause screen, so opening it always pauses the battle.
 function openHelp() {
   const fromMenu = !$('menu').classList.contains('hidden');

@@ -52,7 +52,7 @@ Read them in this order:
 | 4 | `docs/README.md` | The player's guide: how to play, controls, unit and building tables | Use it for in-game text and help screens. It must match how your game behaves. |
 | 5 | `docs/UNIT_SPRITES.md` | The art brief for the unit design sheet | How to wire the art into your drawing code. |
 | 6 | `assets/sprites.js`, `assets/sprites_kethra.js` | **The owner's own vehicle and building designs** for Scrapline and the Kethra Concord, as finished vector-drawing code (`docs/KETHRA_SPRITES.md` describes the second) | **Use these files as they are.** Don't redraw or restyle the units. See section 6.4. |
-| 7 | `tests/rules.js` | An automatic test of the game rules (74 checks), run with Node.js | Your version must pass it. See section 7. |
+| 7 | `tests/rules.js` | An automatic test of the game rules (79 checks), run with Node.js | Your version must pass it. See section 7. |
 | 8 | `screenshots/` | 13 pictures of the current game on desktop and phone | What the finished game should look and feel like. Match the layout and feel; you don't have to match it pixel for pixel. |
 | 9 | `docs/ROADMAP.md` | Possible future stages | Background only. **Don't build** anything that is only on the roadmap. |
 
@@ -327,7 +327,7 @@ From the project folder, with Node.js installed:
 node tests/rules.js
 ```
 
-It prints `PASS` or `FAIL` for 74 checks and a final count. It covers:
+It prints `PASS` or `FAIL` for 79 checks and a final count. It covers:
 
 - **Map:** size, corners, symmetry, rock edge, 12 geysers at least 20 tiles
   apart (6 per half), mirroring, 20 to 24 fields, everything reachable.
@@ -341,7 +341,7 @@ It prints `PASS` or `FAIL` for 74 checks and a final count. It covers:
   recycling and all its limits, Guard, Gun Tower upgrades.
 - **Artillery** stabiliser timing.
 
-**Aim for 74 of 74.** If a check fails because you chose a different name or
+**Aim for 79 of 79.** If a check fails because you chose a different name or
 shape, prefer changing your code to match section 6.3. Only adapt the test as
 a last resort, keep every check's meaning, and tell the owner exactly what
 you changed and why.
@@ -408,7 +408,7 @@ they're easy to miss.
 
 ## 9. How to check your work before handing it over
 
-1. `node tests/rules.js`: 74 of 74.
+1. `node tests/rules.js`: 79 of 79.
 2. Open `index.html` from a file (double-click) in a desktop browser. No
    errors in the browser console (F12). Play a full game on Easy.
 3. Use the browser's phone emulator (iPhone, portrait and landscape). Tap
