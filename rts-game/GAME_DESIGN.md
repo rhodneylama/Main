@@ -150,8 +150,8 @@ mirrors them (a tile (x, y) becomes (222 − x, 167 − y); a geyser corner
 | Feature | Positions (bottom-left half) | Notes |
 | --- | --- | --- |
 | Starting position | (10, 157) | Mirrored: (212, 10). Still 10 tiles from the corner edges. A 10-tile radius is cleared. |
-| Scrap geysers | (10, 158) under the start; (42, 145), (62, 140) home; (51, 113), (14, 90) middle distance; (103, 142), (116, 158), (29, 56) forward on the flanks; (96, 91), (66, 40) contested, toward the centre | 10 per half. |
-| Scrap fields | Home (24, 158), (9, 139), (40, 158); near (59, 132), (32, 105), (91, 157), (76, 158), (12, 120); middle (10, 69), (64, 93), (47, 73), (30, 70), (80, 90); contested (118, 127), (124, 140), (69, 39), (86, 69), (100, 60) | 36 fields in total, 18 per half. Each has 5 to 7 piles of 400 scrap within about 3 tiles. |
+| Scrap geysers | (10, 158) under the start; (33, 146), (60, 143) home (the first about 25 tiles out, as on the old map); (51, 113), (14, 90) middle distance; (103, 142), (116, 158), (29, 56) forward on the flanks; (96, 91), (66, 40) contested, toward the centre | 10 per half. |
+| Scrap fields | Home (21, 156), (8, 144), (40, 158) (two within about 13 tiles, as on the old map); near (59, 132), (32, 105), (91, 157), (76, 158), (12, 120); middle (10, 69), (64, 93), (47, 73), (30, 70), (80, 90); contested (118, 127), (124, 140), (69, 39), (86, 69), (100, 60) | 36 fields in total, 18 per half. Each has 5 to 7 piles of 400 scrap within about 3 tiles. |
 | Open clearings | (51, 47), (80, 116), plus the map centre | Terrain cleared to a 4-tile radius. |
 
 **Geysers:** 20 in total, 10 per half (12 on the 182 × 137 map; the map grew
@@ -734,6 +734,8 @@ each decision it runs through these steps in order:
      share of the army is split evenly between Scouts and Hornets (at least
      2 Scouts are kept for raids; Hornets are too slow for raids and fight
      as flankers in assaults).
+   - **Gun Towers:** one at home, then one for every two Extractors (at the
+     least guarded outpost).
    - **Sentries:** after `sentriesAfter` (Normal 15:00, Hard 7:00) it builds
      `sentries` of them (Normal 1, Hard 2) and digs each in as a defence: the
      first just in front of its rally point (the approach to its base), the
@@ -1516,3 +1518,12 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     screen, or Free), with diagrams; groups march in shape at the slowest
     vehicle's pace. A live-composed **soundtrack** that follows the
     fighting, with a sound for each faction, and Music On/Off and volume.
+23. **Defensive Sentries, Hornet and Mk II rebalance, bigger map**
+    (20 October 2026): Sentries are purely defensive (Deploy digs them in;
+    dug in they never move or chase; packed up they can't fire); the Hornet
+    sits between Scout and Tank; every Mk II is about 40–50% better per scrap
+    with a signature edge; the map is half as big again in area (223 × 168)
+    with 20 geysers and 36 scrap fields, home resources kept at their old
+    distances so the opening pace is unchanged; the opponent digs Sentries in
+    at its base approach and outposts and builds one Gun Tower per two
+    Extractors.
