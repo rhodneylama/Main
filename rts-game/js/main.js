@@ -727,7 +727,7 @@ function refreshPanel() {
   // Only rebuild the buttons when something about them actually changed.
   const key = game ? JSON.stringify([sel.map(e => e.id), view.placing, view.placeReady, view.attackMode, view.aim, view.confirmDemolish, spectating,
     view.confirmRecycle, recycleCandidates(sel).map(u => u.id),
-    sel.map(e => !!e.rally),
+    sel.map(e => !!e.rally), sel.map(e => !!e.deployed),
     sel.map(e => [e.level, e.upgrading !== null && e.upgrading !== undefined ? Math.floor(e.upgrading) : -1, e.researching ? e.researching.key + Math.floor(e.researching.t) : 0, e.hp < e.maxHp]),
     Object.keys(game.teams[view.team].research).join(), game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1),
     game.entities.filter(b => b.team === view.team && b.researching).map(b => b.researching.key + Math.floor(b.researching.t / 3)).join(),
@@ -748,6 +748,7 @@ function refreshPanel() {
       (d.canDeploy ? ' · can deploy on geysers' : ' · cannot deploy (needs Scavenger II)');
     if (e.kind === 'unit' && e.def.role === 'builder') extra = d.canRepair ? 'Builds and repairs' : 'Builds only. Repairs need a Constructor II.';
     if (e.kind === 'unit' && d.weapon) extra = `Damage ${d.weapon.damage} · Range ${d.weapon.range} · Speed ${d.speed}`;
+    if (e.kind === 'unit' && d.deployable) extra = e.deployed ? `Deployed: guarding this spot (range ${d.weapon.range}). Pack up to move it.` : 'Packed up: cannot fire. Move it into place, then press Deploy.';
     if (e.kind === 'building' && e.built < 1) extra = `Under construction — ${Math.floor(e.built * 100)}%`;
     if (e.kind === 'building' && d.weapon && e.built >= 1) extra = `Damage ${d.weapon.damage} · Range ${d.weapon.range}`;
     if (e.kind === 'building' && d.income) extra = e.built >= 1
@@ -935,7 +936,13 @@ function refreshPanel() {
     addBtn('Scout solo', null, keys.shift(), () => order('scout', scouts, { pack: false }), { title: 'Each scout explores on its own' });
   } else if (scouts.length) addBtn('Scout', null, keys.shift(), () => order('scout', scouts), { title: 'Explore the map on its own' });
   if (tanks.length) addBtn('Patrol', null, keys.shift(), () => order('patrol', tanks), { title: 'Loop around your buildings, fighting anything met' });
-  if (sel.some(e => e.kind === 'unit' && e.def.weapon)) addBtn('Guard', null, keys.shift(), () => { view.aim = 'guard'; refreshPanel(); },
+  // Sentries are purely defensive: Deploy digs them in where they stand.
+  const sentries = sel.filter(e => e.kind === 'unit' && e.def.deployable);
+  if (sentries.some(u => !u.deployed)) addBtn('Deploy', null, keys.shift(), () => order('dig', sentries.filter(u => !u.deployed)),
+    { primary: true, title: 'Dig in where it stands: it guards this spot and never moves or chases until packed up' });
+  if (sentries.some(u => u.deployed)) addBtn('Pack up', null, keys.shift(), () => order('packup', sentries.filter(u => u.deployed)),
+    { title: 'Fold the legs away so it can move. A packed-up Sentry cannot fire.' });
+  if (sel.some(e => e.kind === 'unit' && e.def.weapon && !e.def.deployable)) addBtn('Guard', null, keys.shift(), () => { view.aim = 'guard'; refreshPanel(); },
     { active: view.aim === 'guard', title: 'Then pick one of your buildings or vehicles to protect' });
   const hurt = sel.filter(e => e.kind === 'unit' && e.hp < e.maxHp);
   if (hurt.length && game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1))
@@ -957,7 +964,7 @@ function refreshPanel() {
     tip.textContent = own_(tip.textContent);
     cmds.appendChild(tip);
   }
-  if (sel.some(e => e.kind === 'unit' && e.def.weapon)) {
+  if (sel.some(e => e.kind === 'unit' && e.def.weapon && !e.def.deployable)) {
     addBtn('Attack-move', null, 'A', () => { view.attackMode = true; refreshPanel(); }, { active: view.attackMode, title: 'Move, but stop to fight anything on the way' });
     if (view.attackMode) addBtn('Cancel', null, 'Esc', () => { view.attackMode = false; refreshPanel(); });
   }

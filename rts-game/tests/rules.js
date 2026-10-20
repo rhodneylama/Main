@@ -71,15 +71,15 @@ section('Map');
     for (let x = 0; x < W; x++) if (tiles[x] !== S.TILE_ROCK || tiles[(H - 1) * W + x] !== S.TILE_ROCK) edge = false;
     for (let y = 0; y < H; y++) if (tiles[y * W] !== S.TILE_ROCK || tiles[y * W + W - 1] !== S.TILE_ROCK) edge = false;
     const gs = m.geysers;
-    if (gs.length !== 12) geyserCount = false;
+    if (gs.length !== 20) geyserCount = false;
     for (let i = 0; i < gs.length; i++) for (let j = i + 1; j < gs.length; j++)
       spacing = Math.min(spacing, Math.hypot(gs[i].tx - gs[j].tx, gs[i].ty - gs[j].ty));
     const b1 = m.bases[1], b2 = m.bases[2];
-    if (gs.filter(p => Math.hypot(p.tx - b1.x, p.ty - b1.y) < Math.hypot(p.tx - b2.x, p.ty - b2.y)).length !== 6) half = false;
+    if (gs.filter(p => Math.hypot(p.tx - b1.x, p.ty - b1.y) < Math.hypot(p.tx - b2.x, p.ty - b2.y)).length !== 10) half = false;
     for (const p of gs) if (!gs.some(q => q.tx === W - p.tx && q.ty === H - p.ty)) mirrorG = false;
     const T = S.CONFIG.TILE;
     for (const p of m.scrap) if (!m.scrap.some(q => Math.abs(q.x - (W * T - p.x)) < 1e-6 && Math.abs(q.y - (H * T - p.y)) < 1e-6)) { mirrorS = false; break; }
-    if (m.fields.length < 20 || m.fields.length > 24) fields = false;
+    if (m.fields.length !== 36) fields = false;
     for (const f of m.fields) if (!m.fields.some(q => q.x === W - 1 - f.x && q.y === H - 1 - f.y)) fields = false;
     // Drive-ability: flood fill from base 1 reaches the enemy base, every geyser and every pile.
     const open = i => tiles[i] !== S.TILE_ROCK && tiles[i] !== S.TILE_WATER;
@@ -93,16 +93,16 @@ section('Map');
     for (const p of m.scrap) { const i = Math.floor(p.y / T) * W + Math.floor(p.x / T); if (open(i) && !seen[i]) reach = false; }
   }
   const m = S.generateMap(42);
-  check('map is 182 x 137 squares', m.W === 182 && m.H === 137, `${m.W} x ${m.H}`);
+  check('map is 223 x 168 squares', m.W === 223 && m.H === 168, `${m.W} x ${m.H}`);
   check('bases sit in opposite corners', m.bases[1].x <= 12 && m.bases[1].y >= m.H - 12 && m.bases[2].x >= m.W - 12 && m.bases[2].y <= 11);
   check('terrain is point-symmetric (10 seeds)', sym);
   check('map edge is rock (10 seeds)', edge);
-  check('12 geysers (10 seeds)', geyserCount);
+  check('20 geysers (10 seeds)', geyserCount);
   check('geysers at least 20 squares apart', spacing >= 20, `closest pair ${spacing.toFixed(1)}`);
-  check('6 geysers on each half', half);
+  check('10 geysers on each half', half);
   check('geysers mirrored exactly', mirrorG);
   check('scrap piles mirrored exactly', mirrorS);
-  check('20 to 24 scrap fields, mirrored', fields, `${S.generateMap(42).fields.length} fields`);
+  check('36 scrap fields, mirrored', fields, `${S.generateMap(42).fields.length} fields`);
   check('bases, geysers and scrap all reachable (10 seeds)', reach);
 }
 
@@ -273,7 +273,7 @@ section('Repair Pad: workers wait, and Recycle');
   g.teams[1].scrap = 0;
   S.issueCommand(g, 1, { type: 'recycle', ids: [tank.id, art2.id, cons.id, away.id] });
   run(g, S, 0.2);
-  const want = 50 + 105 + 40;
+  const want = [tank, art2, cons].reduce((a, u) => a + S.recycleValue(u), 0);
   check('recycling on the pad refunds half the cost', Math.round(g.teams[1].scrap) === want, `${g.teams[1].scrap} of ${want}`);
   check('recycled vehicles are removed', ![tank, art2, cons].some(u => g.entities.includes(u)));
   check('recycled vehicles leave no wreck or salvage', !g.scrap.some(p => p.id === 100000 + tank.id) && !g.effects.some(e => e.kind === 'wreck' && Math.hypot(e.x - tank.x, e.y - tank.y) < 1));
@@ -318,8 +318,8 @@ section('Guard');
   // Guard a building: any armed vehicle, not just Artillery.
   const tower = placeDone(S, g, 1, 'tower', { x: rec.x + 220, y: rec.y - 150 });
   S.issueCommand(g, 1, { type: 'guard', ids: [g1.id], targetId: tower.id });
-  run(g, S, 15);
-  check('a Tank can guard a building', g1.order.type === 'guard' && S.dist(g1, tower) < 140, `${Math.round(S.dist(g1, tower))} px`);
+  run(g, S, 25);
+  check('a Tank can guard a building (takes a post beside it)', g1.order.type === 'guard' && Math.hypot(g1.x - g1.order.px, g1.y - g1.order.py) < 40 && S.dist(g1, tower) < 200, `${Math.round(S.dist(g1, tower))} px from the tower`);
 }
 
 section('Gun Tower upgrades');
@@ -413,21 +413,33 @@ section('Hornet and Sentry');
   const f = placeDone(S, g, 1, 'factory', { x: rec.x + 200, y: rec.y });
   check('a Factory builds Hornets and Sentries', ['hornet', 'sentry'].every(t => f.def.produces.includes(t)));
   const H = S.UNIT_TYPES.hornet, Tk = S.UNIT_TYPES.tank;
-  check('the Hornet is quicker and cheaper than a Tank, with less armour', H.speed > Tk.speed && H.cost < Tk.cost && H.hp < Tk.hp);
+  const Sc = S.UNIT_TYPES.scout;
+  check('the Hornet sits between a Scout and a Tank (cost, armour, speed)', H.cost > Sc.cost && H.cost < Tk.cost && H.hp > Sc.hp && H.hp < Tk.hp && H.speed < Sc.speed && H.speed > Tk.speed);
   let P = null;
   for (let k = 0; k < 4000 && !P; k += 8) {
     const x = rec.x + 150 + (k % 400), y = rec.y - 200 - Math.floor(k / 400) * 40;
     if (open(x, y) && open(x + 180, y)) P = { x, y };
   }
-  // A Sentry with a harmless target in range: legs first, then a rapid stream.
+  // A Sentry with a harmless target in range: packed up it never fires; dug in,
+  // legs first, then a rapid stream; it never moves or gives chase.
   const sen = S.addUnit(g, 'sentry', 1, P.x, P.y);
   const foe = S.addUnit(g, 'tank', 2, P.x + 180, P.y);
   foe.hp = foe.maxHp = 1e6; foe.def = Object.assign({}, foe.def, { weapon: undefined });
+  run(g, S, 2);
+  check('a packed-up Sentry does not fire', sen.lastShot === undefined);
+  S.issueCommand(g, 1, { type: 'dig', ids: [sen.id] });
+  const x0 = sen.x, y0 = sen.y;
   let first = null, shots = 0, last;
   for (let i = 0; i < 90; i++) { S.stepGame(g); if (sen.lastShot !== last) { last = sen.lastShot; if (last !== undefined) { shots++; if (first === null) first = (i + 1) / 30; } } }
-  check('a Sentry lowers its legs before it fires (about 0.6 s)', first !== null && first >= 0.55, first && `${first.toFixed(2)} s`);
+  check('a dug-in Sentry lowers its legs before it fires (about 0.6 s)', first !== null && first >= 0.55, first && `${first.toFixed(2)} s`);
   check('then fires a rapid stream (several shots a second)', shots >= 8, `${shots} shots in 3 s`);
-  const hor = S.addUnit(g, 'hornet', 1, P.x, P.y + 40);
+  foe.x += 200;   // the target backs out of range
+  run(g, S, 3);
+  check('a dug-in Sentry never moves or gives chase', Math.hypot(sen.x - x0, sen.y - y0) < 1 && sen.deployed);
+  S.issueCommand(g, 1, { type: 'move', ids: [sen.id], x: P.x, y: P.y + 120 });
+  run(g, S, 3);
+  check('a move order packs it up and it drives off', !sen.deployed && Math.hypot(sen.x - x0, sen.y - y0) > 20);
+  const hor = S.addUnit(g, 'hornet', 1, foe.x - 150, foe.y);
   let rocket = false;
   for (let i = 0; i < 60; i++) { S.stepGame(g); if (g.projectiles.some(p => p.owner === hor.id && p.kind === 'rocket')) rocket = true; }
   check('a Hornet fires rockets', rocket);

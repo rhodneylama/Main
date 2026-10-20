@@ -144,11 +144,11 @@ silences sound and music together.
 | Constructor | 80 | Builds buildings. Cannot repair. | |
 | Constructor II | 110 | Built by a Recycler II. Builds and repairs buildings. | |
 | Scout | 50 | Fast, sees far. Spots targets for artillery. | **Scout**: explores the map. With several selected, **Scout as pack** keeps them together; **Scout solo** spreads them out. **Guard** (all armed vehicles): press it, then tap one of your buildings or vehicles to protect it. |
-| Hornet | 80 | Light rocket tank: quicker and cheaper than a Tank, less armour, rockets reach a little further. | |
+| Hornet | 75 | Light rocket tank, between a Scout and a Tank: much faster and cheaper than a Tank, less armour, hard-hitting rockets. Fast enough for raids. | |
 | Tank | 100 | Tough all-rounder. | **Patrol**: loops around your buildings and fights anything it meets. |
-| Sentry | 90 | Mobile turret. Must stop and lower its legs (about half a second) to fire, then puts out a rapid stream at short range. Good for holding a spot. | **Guard** a building or an Extractor to hold it. |
+| Sentry | 90 | Purely defensive turret on tracks. It cannot fire while packed up. | **Deploy**: digs in where it stands and guards that spot with a rapid stream of fire; it never moves or chases. **Pack up** (or any move order) to move it again. |
 | Artillery | 140 | Very long range and splash damage, but very slow, and it can only hit what your side can see: keep a Tank or Scout ahead of it to spot, and it fires on its own out to full range. It must stop and lower its legs (about half a second) before it can fire. | **Guard** a building to dig in beside it and shell anything in range. |
-| Scout / Hornet / Tank / Sentry / Artillery Mk II | 75 / 120 / 150 / 135 / 210 | Researched at a Research Lab, built at a Factory II. About +40% armour, +30% damage, +20% speed. Marked with gold chevrons. | As the basic version. |
+| Scout / Hornet / Tank / Sentry / Artillery Mk II | 70 / 110 / 145 / 130 / 200 | Researched at a Research Lab, built at a Factory II. About +50% armour and +40% damage, some extra speed, and one signature edge each: Scout sees further, Hornet fires a third rocket, Tank and dug-in Sentry outrange a basic Tank, Artillery reaches further with a bigger blast. Marked with gold chevrons. | As the basic version. |
 
 | Building | Cost | Role |
 | --- | --- | --- |
@@ -188,10 +188,10 @@ Scrap reaches your bank two ways:
 **Demolish** any building except the Recycler: select it and press Demolish,
 then Confirm. Half of what it cost is left on the ground as loose scrap.
 
-**The battlefield** is 182 × 137 squares, with 12 scrap geysers (6 near each
-side, spread from home out to the contested middle) and 22 fields of loose
-scrap. Expect longer drives than on a small map: a Tank takes over two and a
-half minutes to cross from base to base.
+**The battlefield** is 223 × 168 squares, with 20 scrap geysers (10 near each
+side, spread from home out to the contested middle) and 36 fields of loose
+scrap. Expect long drives: a Tank takes over three minutes to cross from
+base to base.
 
 **Waypoints:** select your Recycler or a Factory and press Set waypoint. Every
 new vehicle from it drives straight there. A Repair Pad's waypoint is where

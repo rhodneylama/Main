@@ -9,8 +9,8 @@
 
 const CONFIG = {
   TILE: 32,            // size of one map square, in pixels
-  MAP_W: 182,          // map width, in squares (was 96 before the map grew 1.9x)
-  MAP_H: 137,          // map height, in squares (was 72)
+  MAP_W: 223,          // map width, in squares (182 before it grew by half again in area; 96 originally)
+  MAP_H: 168,          // map height, in squares (137 before; 72 originally)
   TICK_RATE: 30,       // game updates per second
 
   START_SCRAP: 300,    // scrap each side starts with (the Recycler's storage is full)
@@ -142,54 +142,58 @@ const UNIT_TYPES = {
     deployToFire: true,
     desc: 'Huge range, splash damage, very slow. Needs scouts to see targets. Can dig in to defend a building.',
   },
-  // Light rocket tank: quicker and cheaper than a Tank, less armour, a little more reach.
+  // Light rocket tank: between a Scout and a Tank on cost, armour, speed and punch.
   hornet: {
-    name: 'Hornet', role: 'combat', cost: 80, buildTime: 7,
-    hp: 260, speed: 52, radius: 13, sight: 260,
-    weapon: { range: 230, damage: 20, cooldown: 0.8, projectile: 'rocket', vsBuilding: 1.2 },
-    desc: 'Light rocket tank. Quicker and cheaper than a Tank, with less armour; its rockets reach a little further than a Tank gun.',
+    name: 'Hornet', role: 'combat', cost: 75, buildTime: 7,
+    hp: 250, speed: 68, radius: 13, sight: 280,
+    weapon: { range: 220, damage: 26, cooldown: 0.9, projectile: 'rocket', vsBuilding: 1.2 },
+    desc: 'Light rocket tank, between a Scout and a Tank: cheaper and much faster than a Tank, with less armour, and its rockets hit hard.',
   },
-  // Mobile turret: like Artillery it must stop and lower its legs to fire,
-  // then it puts out a rapid stream of light rounds at short range.
+  // Mobile turret, purely defensive: Deploy it and it digs in where it stands,
+  // fires a rapid stream at anything in range and never moves or gives chase
+  // until it is packed up again. It cannot fire while packed up.
   sentry: {
     name: 'Sentry', role: 'combat', cost: 90, buildTime: 8,
-    hp: 320, speed: 36, radius: 12, sight: 260, deployToFire: true,
-    weapon: { range: 210, damage: 7, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
-    desc: 'Mobile turret. Stops and lowers its legs to fire (about half a second), then fires a rapid stream at short range. Good for holding a spot.',
+    hp: 320, speed: 36, radius: 12, sight: 260, deployToFire: true, deployable: true,
+    weapon: { range: 220, damage: 7, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
+    desc: 'Defensive turret on tracks. Press Deploy and it digs in where it stands, then guards that spot with a rapid stream of fire. It never chases, and cannot fire until deployed.',
   },
   // Mk II versions: researched at a Research Lab, built by a Factory II.
-  // Roughly +40% armour, +30% damage, +20% speed, for +50% cost.
+  // About +50% armour, +40% damage and some speed for +45% cost, so each is
+  // worth more per scrap than its basic version, plus one signature edge:
+  // Scout sees further, Hornet fires a third rocket, Tank and Sentry
+  // outrange the basic Tank, Artillery reaches further with a bigger blast.
   scout2: {
-    name: 'Scout Mk II', base: 'scout', requires: 'scout2', role: 'combat', cost: 75, buildTime: 7,
-    hp: 196, speed: 118, radius: 11, sight: 330,
-    weapon: { range: 170, damage: 10, cooldown: 0.35, projectile: 'bullet', vsBuilding: 0.5 },
-    desc: 'Upgraded scout: tougher, harder-hitting and faster.',
+    name: 'Scout Mk II', base: 'scout', requires: 'scout2', role: 'combat', cost: 70, buildTime: 7,
+    hp: 210, speed: 120, radius: 11, sight: 420,
+    weapon: { range: 170, damage: 11, cooldown: 0.35, projectile: 'bullet', vsBuilding: 0.5 },
+    desc: 'Upgraded Scout: tougher and faster, and it sees much further, so it spots for Artillery from safety.',
   },
   tank2: {
-    name: 'Tank Mk II', base: 'tank', requires: 'tank2', role: 'combat', cost: 150, buildTime: 12,
-    hp: 560, speed: 48, radius: 15, sight: 260,
-    weapon: { range: 200, damage: 44, cooldown: 1.2, projectile: 'shell', vsBuilding: 1 },
-    desc: 'Upgraded tank: heavier armour, bigger gun, faster tracks.',
+    name: 'Tank Mk II', base: 'tank', requires: 'tank2', role: 'combat', cost: 145, buildTime: 12,
+    hp: 620, speed: 46, radius: 15, sight: 260,
+    weapon: { range: 220, damage: 48, cooldown: 1.2, projectile: 'shell', vsBuilding: 1 },
+    desc: 'Upgraded Tank: much heavier armour and a bigger gun that outranges a basic Tank.',
   },
   artillery2: {
-    name: 'Artillery Mk II', base: 'artillery', requires: 'artillery2', role: 'combat', cost: 210, buildTime: 16,
-    hp: 280, speed: 38, radius: 15, sight: 220,
-    weapon: { range: 440, minRange: 110, damage: 78, cooldown: 3.5, projectile: 'artillery',
-              splash: 55, vsBuilding: 1.6 },
+    name: 'Artillery Mk II', base: 'artillery', requires: 'artillery2', role: 'combat', cost: 200, buildTime: 16,
+    hp: 300, speed: 36, radius: 15, sight: 220,
+    weapon: { range: 500, minRange: 110, damage: 80, cooldown: 3.5, projectile: 'artillery',
+              splash: 70, vsBuilding: 1.6 },
     deployToFire: true,
-    desc: 'Upgraded artillery: tougher, harder-hitting, a little quicker.',
+    desc: 'Upgraded Artillery: tougher, reaches further and has a bigger blast.',
   },
   hornet2: {
-    name: 'Hornet Mk II', base: 'hornet', requires: 'hornet2', role: 'combat', cost: 120, buildTime: 9,
-    hp: 364, speed: 62, radius: 13, sight: 260,
-    weapon: { range: 230, damage: 26, cooldown: 0.8, projectile: 'rocket', vsBuilding: 1.2 },
-    desc: 'Upgraded Hornet: a third rocket, tougher and faster.',
+    name: 'Hornet Mk II', base: 'hornet', requires: 'hornet2', role: 'combat', cost: 110, buildTime: 9,
+    hp: 380, speed: 80, radius: 13, sight: 280,
+    weapon: { range: 240, damage: 36, cooldown: 0.9, projectile: 'rocket', vsBuilding: 1.2 },
+    desc: 'Upgraded Hornet: a third rocket, more armour and more speed.',
   },
   sentry2: {
-    name: 'Sentry Mk II', base: 'sentry', requires: 'sentry2', role: 'combat', cost: 135, buildTime: 11,
-    hp: 448, speed: 43, radius: 12, sight: 260, deployToFire: true,
-    weapon: { range: 210, damage: 9, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
-    desc: 'Upgraded Sentry: tougher and harder-hitting.',
+    name: 'Sentry Mk II', base: 'sentry', requires: 'sentry2', role: 'combat', cost: 130, buildTime: 11,
+    hp: 500, speed: 40, radius: 12, sight: 280, deployToFire: true, deployable: true,
+    weapon: { range: 250, damage: 10, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
+    desc: 'Upgraded Sentry: heavier armour, harder-hitting, and once dug in it outranges a Tank.',
   },
 };
 
@@ -323,26 +327,25 @@ const HOTKEYS = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I'];
 //                    its way home for whatever chases it
 //     hornetsAfter   seconds before Hornets take half of the fast share of the
 //                    army (0 = never); hornetRatio Hornets per Scout (default 1)
-//     sentryMix      after sentriesAfter (seconds), one Sentry for every this
-//                    many Tanks in the army
-//     sentries       how many outlying Extractors (over 600 px from home) get a
-//                    Sentry to guard them (0 everywhere: it cost games in tests)
+//     sentries       how many Sentries it digs in as defences (after
+//                    sentriesAfter seconds): the first covers the approach to its
+//                    base, the rest its outlying Extractors (over 600 px out)
 const DIFFICULTY = {
   easy:   { label: 'Easy',   incomeMult: 0.5,  firstAttack: 600, waveEvery: 240, waveBase: 3, waveGrowth: 0.25,
-            maxArmy: 8,  armyPerMinute: 0.7, maxExtractors: 2, maxBaseSilos: 1, maxScavengers: 3, thinkEvery: 2.5, artilleryAfter: 1200, secondFactory: false,
+            maxArmy: 8,  armyPerMinute: 0.7, maxExtractors: 3, maxBaseSilos: 1, maxScavengers: 3, thinkEvery: 2.5, artilleryAfter: 1200, secondFactory: false,
             upgradeBaseAfter: 300, labAfter: 0, radarAfter: 0, towerUpgradeAfter: 0, tactics: null },
   normal: { label: 'Normal', incomeMult: 1.0,  firstAttack: 300, waveEvery: 150, waveBase: 5, waveGrowth: 0.8,
-            maxArmy: 25, armyPerMinute: 3, maxExtractors: 4, maxBaseSilos: 2, maxScavengers: 6, thinkEvery: 1.0, artilleryAfter: 240, secondFactory: true,
+            maxArmy: 25, armyPerMinute: 3, maxExtractors: 6, maxBaseSilos: 2, maxScavengers: 6, thinkEvery: 1.0, artilleryAfter: 240, secondFactory: true,
             upgradeBaseAfter: 120, labAfter: 360, radarAfter: 480, towerUpgradeAfter: 900,
             tactics: { hold: 600, holdArmy: 2, counter: 0.6, allIn: true, flank: 0.7, feint: 0.4, retreatAt: 0.5, focus: true,
                        raid: true, raidAfter: 420, raidEvery: 240, raidSize: 3, raidWithWave: true, raidRetreat: 1, cautious: 0.5, repair: 0,
                        combined: true, flankers: 0.5, adapt: 0.5, trap: true,
-                       hornetsAfter: 900, sentryMix: 4, sentriesAfter: 900 } },
+                       hornetsAfter: 900, sentries: 1, sentriesAfter: 900 } },
   hard:   { label: 'Hard',   incomeMult: 1.35, firstAttack: 180, waveEvery: 100, waveBase: 6, waveGrowth: 1.5,
-            maxArmy: 40, armyPerMinute: 0, maxExtractors: 5, maxBaseSilos: 3, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true,
+            maxArmy: 40, armyPerMinute: 0, maxExtractors: 7, maxBaseSilos: 3, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true,
             upgradeBaseAfter: 90, labAfter: 240, radarAfter: 360, towerUpgradeAfter: 600,
             tactics: { hold: 360, holdArmy: 1.2, counter: 0.6, allIn: true, flank: 0.7, feint: 0, retreatAt: 0.5, focus: true,
                        raid: true, raidAfter: 240, raidEvery: 150, raidSize: 4, raidWithWave: true, raidRetreat: 1.2, cautious: 1, repair: 0,
                        combined: true, flankers: 1, adapt: 1, trap: true,
-                       hornetsAfter: 300, sentryMix: 4, sentriesAfter: 420 } },
+                       hornetsAfter: 300, sentries: 2, sentriesAfter: 420 } },
 };

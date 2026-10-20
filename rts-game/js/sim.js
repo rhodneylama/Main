@@ -228,9 +228,25 @@ function inTerritory(game, team, cx, cy) {
 function issueCommand(game, team, cmd) {
   if (game.winner) return;
   const own = id => { const e = game.byId.get(id); return e && e.team === team && e.hp > 0 ? e : null; };
-  const units = (cmd.ids || []).map(own).filter(e => e && e.kind === 'unit');
+  let units = (cmd.ids || []).map(own).filter(e => e && e.kind === 'unit');
   // Any new order ends a trip to the Repair Pad (Go repair sets it again below).
   for (const u of units) u.repairTrip = 0;
+  // Sentries: Dig in stays put; any order that moves it packs it up first.
+  if (cmd.type === 'dig' || cmd.type === 'packup') {
+    for (const u of units) if (u.def.deployable) {
+      u.deployed = cmd.type === 'dig';
+      u.order = { type: 'idle', gx: u.x, gy: u.y }; u.path = []; u.target = null;
+    }
+    return;
+  }
+  if (['move', 'attack', 'patrol', 'guard', 'scout', 'gorepair'].includes(cmd.type)) {
+    // A dug-in Sentry ignores attack orders it can't reach and stays dug in.
+    if (cmd.type === 'attack') {
+      const t = game.byId.get(cmd.targetId);
+      for (const u of units) if (u.def.deployable && u.deployed && t && edgeDist(u, t) <= u.def.weapon.range) u.target = t;
+      units = units.filter(u => !(u.def.deployable && u.deployed));
+    } else for (const u of units) if (u.def.deployable) u.deployed = false;
+  }
 
   switch (cmd.type) {
     case 'move': {
@@ -336,7 +352,7 @@ function issueCommand(game, team, cmd) {
     case 'guard': {
       const b = own(cmd.targetId);
       if (!b) return;
-      const guards = units.filter(u => u.def.weapon && u !== b);
+      const guards = units.filter(u => u.def.weapon && !u.def.deployable && u !== b);
       const T = CONFIG.TILE;
       if (b.kind === 'unit') {
         // Escort another vehicle: each guard keeps its own spot around it.
@@ -846,6 +862,7 @@ function updateUnit(game, u, dt) {
     if (u.shieldWait > 0) u.shieldWait -= dt;
     else u.shield = Math.min(u.def.shield, u.shield + u.def.shieldRegen * dt);
   }
+  if (u.def.deployable && u.deployed) { updateDugIn(game, u, dt); return; }
   const o = u.order;
   switch (o.type) {
     case 'idle': {
@@ -1152,7 +1169,10 @@ function separateUnits(game) {
         // A moving vehicle shoulders a parked one aside rather than both
         // stopping: the parked one takes most of the push.
         const am = a.movingTick === game.tick, bm = b.movingTick === game.tick;
-        const ka = am === bm ? 0.3 : am ? 0.1 : 0.5, kb = am === bm ? 0.3 : bm ? 0.1 : 0.5;
+        let ka = am === bm ? 0.3 : am ? 0.1 : 0.5, kb = am === bm ? 0.3 : bm ? 0.1 : 0.5;
+        // A dug-in Sentry doesn't budge; the other vehicle goes round it.
+        if (a.deployed) { kb += ka; ka = 0; }
+        if (b.deployed) { ka += kb; kb = 0; }
         const over = min - d, ux = dx / d, uy = dy / d;
         moveWithCollision(game, a, -ux * over * ka, -uy * over * ka);
         moveWithCollision(game, b, ux * over * kb, uy * over * kb);
@@ -1212,9 +1232,22 @@ function findTarget(game, e, radius) {
   return best;
 }
 
+// A dug-in Sentry: legs down, fires at whatever its side can see in range,
+// never moves and never chases.
+function updateDugIn(game, u, dt) {
+  const w = u.def.weapon;
+  u.path = [];
+  u.retarget -= dt;
+  if (u.target && (u.target.hp <= 0 || edgeDist(u, u.target) > w.range || !isVisibleTo(game, u.team, u.target))) u.target = null;
+  if (u.retarget <= 0) { u.retarget = 0.3; const t = findTarget(game, u, w.range); if (t && (!u.target || edgeDist(u, t) < edgeDist(u, u.target) - 60)) u.target = t; }
+  if (u.target) aimAndFire(game, u, u.target, dt);   // lowers the legs first
+  else if ((u.legE || 0) < 1) u.legE = Math.min(1, (u.legE || 0) + dt / CONFIG.ARTILLERY_DEPLOY);
+}
+
 // Look for, chase and shoot enemies. Returns true if busy fighting.
 function combatThink(game, e, dt, canChase = false) {
   const w = e.def.weapon;
+  if (e.def.deployable && !e.deployed) return false;   // a packed-up Sentry can't fire
   e.retarget -= dt;
   if (e.target && (e.target.hp <= 0 || !isVisibleTo(game, e.team, e.target))) e.target = null;
   // Vehicles look as far as they can see or shoot, whichever is further, so
@@ -1251,6 +1284,7 @@ function engageTarget(game, u, t, dt) {
 
 // While driving, point the gun at anything in range and shoot it.
 function aimAtNearby(game, u, dt) {
+  if (u.def.deployable && !u.deployed) { u.turret = turnToward(u.turret, u.angle, 3 * dt); return; }
   const t = u.target && edgeDist(u, u.target) <= u.def.weapon.range ? u.target : null;
   if (t) aimAndFire(game, u, t, dt);
   else u.turret = turnToward(u.turret, u.angle, 3 * dt);

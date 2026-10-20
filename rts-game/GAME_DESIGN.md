@@ -105,9 +105,9 @@ The Recycler cannot be demolished by its owner.
 
 | Setting | Value |
 | --- | --- |
-| Map size | 182 × 137 squares ("tiles"), 1.9× the original 96 × 72 on each side |
+| Map size | 223 × 168 squares ("tiles"): half as big again in area as the 182 × 137 map (1.22× per side), 2.3× the original 96 × 72 on each side |
 | Tile size | 32 pixels |
-| Map size in pixels | 5,824 × 4,384 |
+| Map size in pixels | 7,136 × 5,376 |
 | Game updates ("ticks") per second | 30 |
 
 ### Terrain
@@ -124,8 +124,9 @@ Each tile is one of four types. Rock and water block all vehicles.
 Terrain has no effect on speed, sight or combat. It only blocks movement.
 The map edge is always rock.
 
-The noise "grain" (how big a hill or lake is) was scaled up 1.9× with the
-map: noise cell sizes 17, 8 and 11 tiles (were 9, 4 and 6). So rock ridges
+The noise "grain" (how big a hill or lake is) grows with the map: noise
+cell sizes 21, 10 and 13 tiles (17, 8 and 11 on the 182 × 137 map; 9, 4 and 6
+originally). So rock ridges
 and lakes are bigger features rather than many more small ones. On average
 about 10% of the map is rock and 5% water (the old map: 11% and 4%).
 
@@ -143,23 +144,24 @@ to 80 repair passes, each mirrored).
 ### Fixed features
 
 Positions are in tiles, given for the bottom-left half. The top-right half
-mirrors them (a tile (x, y) becomes (181 − x, 136 − y); a geyser corner
-(x, y) becomes (182 − x, 137 − y)).
+mirrors them (a tile (x, y) becomes (222 − x, 167 − y); a geyser corner
+(x, y) becomes (223 − x, 168 − y)).
 
 | Feature | Positions (bottom-left half) | Notes |
 | --- | --- | --- |
-| Starting position | (10, 126) | Mirrored: (171, 10). Still 10 tiles from the corner edges. A 10-tile radius is cleared. |
-| Scrap geysers | (10, 127) under the start; (34, 118) home; (42, 92) middle distance; (84, 116) and (24, 46) forward, one on each flank; (78, 74) contested, near the centre | 1, 25, 47, 74, 81 and 86 tiles from the start. |
-| Scrap fields | Home (20, 129), (7, 113); near (48, 108), (26, 86), (74, 128); middle (8, 56), (52, 76), (38, 60); contested (96, 104), (56, 32), (70, 56) | 22 fields in total, 11 per half. Each has 5 to 7 piles of 400 scrap within about 3 tiles. |
-| Open clearings | (42, 38), (65, 95), plus the map centre | Terrain cleared to a 4-tile radius. |
+| Starting position | (10, 157) | Mirrored: (212, 10). Still 10 tiles from the corner edges. A 10-tile radius is cleared. |
+| Scrap geysers | (10, 158) under the start; (42, 145), (62, 140) home; (51, 113), (14, 90) middle distance; (103, 142), (116, 158), (29, 56) forward on the flanks; (96, 91), (66, 40) contested, toward the centre | 10 per half. |
+| Scrap fields | Home (24, 158), (9, 139), (40, 158); near (59, 132), (32, 105), (91, 157), (76, 158), (12, 120); middle (10, 69), (64, 93), (47, 73), (30, 70), (80, 90); contested (118, 127), (124, 140), (69, 39), (86, 69), (100, 60) | 36 fields in total, 18 per half. Each has 5 to 7 piles of 400 scrap within about 3 tiles. |
+| Open clearings | (51, 47), (80, 116), plus the map centre | Terrain cleared to a 4-tile radius. |
 
-**Geysers:** 12 in total, 6 per half (halved from 24 in October 2026),
+**Geysers:** 20 in total, 10 per half (12 on the 182 × 137 map; the map grew
+50% in area and resources grew more, 67%, so scrap is less tight),
 positions are tile corners. No two geysers (on either side) are closer than
 20 tiles. The two map corners away from the bases have scrap fields but no
 geysers.
 
-**Total loose scrap on a fresh map:** about 22 fields × 6 piles × 400 ≈
-52,500, so roughly 26,000 per side (was about 12,000 per side).
+**Total loose scrap on a fresh map:** about 36 fields × 6 piles × 400 ≈
+86,000, so roughly 43,000 per side (26,000 on the 182 × 137 map).
 
 ### Starting corner
 
@@ -269,19 +271,30 @@ to build it.
 | Scout | Combat | 50 | 5 s | 140 | 98 | 330 | 11 | Factory | — |
 | Tank | Combat | 100 | 9 s | 400 | 40 | 260 | 15 | Factory | — |
 | Artillery | Combat | 140 | 12 s | 200 | 32 | 220 | 15 | Factory | — |
-| Hornet (light rocket tank) | Combat | 80 | 7 s | 260 | 52 | 260 | 13 | Factory | — |
-| Sentry (mobile turret) | Combat | 90 | 8 s | 320 | 36 | 260 | 12 | Factory | — |
-| Scout Mk II | Combat | 75 | 7 s | 196 | 118 | 330 | 11 | Factory II | Advanced Scouts |
-| Tank Mk II | Combat | 150 | 12 s | 560 | 48 | 260 | 15 | Factory II | Advanced Tanks |
-| Artillery Mk II | Combat | 210 | 16 s | 280 | 38 | 220 | 15 | Factory II | Advanced Artillery |
-| Hornet Mk II | Combat | 120 | 9 s | 364 | 62 | 260 | 13 | Factory II | Advanced Hornets |
-| Sentry Mk II | Combat | 135 | 11 s | 448 | 43 | 260 | 12 | Factory II | Advanced Sentries |
+| Hornet (light rocket tank) | Combat | 75 | 7 s | 250 | 68 | 280 | 13 | Factory | — |
+| Sentry (defensive turret) | Combat | 90 | 8 s | 320 | 36 | 260 | 12 | Factory | — |
+| Scout Mk II | Combat | 70 | 7 s | 210 | 120 | 420 | 11 | Factory II | Advanced Scouts |
+| Tank Mk II | Combat | 145 | 12 s | 620 | 46 | 260 | 15 | Factory II | Advanced Tanks |
+| Artillery Mk II | Combat | 200 | 16 s | 300 | 36 | 220 | 15 | Factory II | Advanced Artillery |
+| Hornet Mk II | Combat | 110 | 9 s | 380 | 80 | 280 | 13 | Factory II | Advanced Hornets |
+| Sentry Mk II | Combat | 130 | 11 s | 500 | 40 | 280 | 12 | Factory II | Advanced Sentries |
 
 **Speeds:** Scavengers and Constructors 43, Tank 40, Sentry 36, Artillery 32
-(kept the slowest), Hornet 52 (1.3× a Tank), Scout 98. (Transports, removed in October, were 39.)
+(kept the slowest), Hornet 68, Scout 98. (Transports, removed in October, were 39.)
 
-**Mk II rule of thumb:** about +40% HP, +30% damage, +20% speed, for +50%
-cost. A Mk II counts as the same kind of vehicle as its basic version for
+**The Hornet** fills the gap between Scout and Tank on cost, armour and
+speed. Its value per scrap (strength = health ÷ 100 × damage per second, per
+100 scrap) is 96, between the Scout's 64 and the Tank's 113: the Tank stays
+the most cost-effective brawler, the Hornet trades a little of that for
+speed (fast enough to join raids).
+
+**Mk II rule of thumb:** about +50% health, +40% damage and some speed for
+about +45% cost, so each Mk II is worth roughly 40–50% more per scrap than its
+basic version (Tank 113 → 171, Hornet 96 → 138, Scout 64 → 94, Sentry 124 →
+192), plus one **signature edge**: Scout Mk II sees much further (420),
+Hornet Mk II fires a third rocket, Tank Mk II (220) and a dug-in Sentry Mk II
+(250) outrange a basic Tank, Artillery Mk II reaches 500 with a 70 px blast.
+A Mk II counts as the same kind of vehicle as its basic version for
 orders and the Army menu.
 
 ### Weapons
@@ -289,15 +302,15 @@ orders and the Army menu.
 | Unit | Range | Min range | Damage per shot | Seconds between shots | Projectile | Splash | vs buildings |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Scout | 170 | — | 8 | 0.35 | Bullet (900 px/s, homing) | — | ×0.5 |
-| Scout Mk II | 170 | — | 10 | 0.35 | Bullet | — | ×0.5 |
+| Scout Mk II | 170 | — | 11 | 0.35 | Bullet | — | ×0.5 |
 | Tank | 200 | — | 34 | 1.2 | Shell (620 px/s, homing) | — | ×1.0 |
-| Tank Mk II | 200 | — | 44 | 1.2 | Shell | — | ×1.0 |
+| Tank Mk II | 220 | — | 48 | 1.2 | Shell | — | ×1.0 |
 | Artillery | 440 | 110 | 60 | 3.5 | Arcing shell (260 px/s, aimed at a spot) | 55 px radius | ×1.6 |
-| Artillery Mk II | 440 | 110 | 78 | 3.5 | Arcing shell | 55 px radius | ×1.6 |
-| Hornet | 230 | — | 20 | 0.8 | Rocket (520 px/s, homing) | — | ×1.2 |
-| Hornet Mk II | 230 | — | 26 | 0.8 | Rocket | — | ×1.2 |
-| Sentry | 210 | — | 7 | 0.2 | Bullet | — | ×0.6 |
-| Sentry Mk II | 210 | — | 9 | 0.2 | Bullet | — | ×0.6 |
+| Artillery Mk II | 500 | 110 | 80 | 3.5 | Arcing shell | 70 px radius | ×1.6 |
+| Hornet | 220 | — | 26 | 0.9 | Rocket (520 px/s, homing) | — | ×1.2 |
+| Hornet Mk II | 240 | — | 36 | 0.9 | Rocket | — | ×1.2 |
+| Sentry (dug in only) | 220 | — | 7 | 0.2 | Bullet | — | ×0.6 |
+| Sentry Mk II (dug in only) | 250 | — | 10 | 0.2 | Bullet | — | ×0.6 |
 | Recycler (deployed) | 210 | — | 24 | 0.8 | Bullet | — | ×1.0 |
 | Gun Tower | 250 | — | 22 | 0.9 | Shell | — | ×1.0 |
 
@@ -314,7 +327,7 @@ Scavengers, Constructors and the mobile Recycler are unarmed.
 | Constructor II | Builds, and **repairs** damaged buildings at 25 HP per second. |
 | Scout (and Mk II) | **Scout** (alone) or **Scout as pack** / **Scout solo** (groups). |
 | Tank (and Mk II) | **Patrol:** loops around all your buildings. |
-| Sentry (and Mk II) | **Must stop to fire**, like Artillery: lowers four legs (0.6 s) before its first shot and raises them (0.6 s) before it can drive. Then fires five rounds a second. |
+| Sentry (and Mk II) | **Purely defensive.** **Deploy** digs it in where it stands: it lowers four legs (0.6 s) and then fires five rounds a second at anything its side can see in range. Dug in, it never moves, never chases and isn't pushed aside, and an attack order on something out of range is ignored. **Pack up**, or any move, patrol, scout or repair order, folds the legs (0.6 s) so it can drive. Packed up it **cannot fire** at all. It can't take Guard posts. |
 | Any armed vehicle | **Guard:** then pick one of your buildings or vehicles. Guarding a building: take a post beside it and fire at anything in range. Guarding a vehicle: keep a spot beside it, follow it, fight anything in range, go after whoever attacks it (never more than 320 px away), stand down if it is destroyed. |
 | Any damaged vehicle | **Go repair:** drives to the nearest Repair Pad (the button appears once you have one). |
 | Any vehicle parked on your Repair Pad (not the Recycler) | **Recycle:** takes it apart for half its cost. Needs a second press, **Confirm recycle**. |
@@ -721,11 +734,10 @@ each decision it runs through these steps in order:
      share of the army is split evenly between Scouts and Hornets (at least
      2 Scouts are kept for raids; Hornets are too slow for raids and fight
      as flankers in assaults).
-   - **Sentries:** after `sentriesAfter` (Normal 15:00, Hard 7:00) one Sentry
-     for every 4 Tanks; they fight in the army's front line alongside the
-     Tanks. (Posting Sentries to guard outlying Extractors was tried and
-     cost games, as did earlier Hornets and Sentries on Normal, where the
-     army is smaller.)
+   - **Sentries:** after `sentriesAfter` (Normal 15:00, Hard 7:00) it builds
+     `sentries` of them (Normal 1, Hard 2) and digs each in as a defence: the
+     first just in front of its rally point (the approach to its base), the
+     next at an outlying Extractor. They stay out of its army and its waves.
    - It researches Advanced Hornets and Advanced Sentries after the other
      three topics, and only for vehicles it builds (saving for research
      pauses its army production).
@@ -830,7 +842,7 @@ then mirrored, so both corners place buildings identically.
 | Wave growth (extra units per minute) | 0.25 | 0.8 | 1.5 |
 | Most combat vehicles | 8 | 25 | 40 |
 | Army growth limit (units per minute, on top of 3) | 0.7 | 3 | none |
-| Most Extractors | 2 | 4 | 5 |
+| Most Extractors | 3 | 6 | 7 |
 | Upgrades Gun Towers after | never | 15:00 | 10:00 |
 | Battle tactics | none (simple waves) | all (section 13) | all but the opening feint, thinking twice as often |
 | Holds back early until | — | 10:00, an attack beaten off, or 2 waves at home | 6:00, an attack beaten off, or 1.2 waves at home |
@@ -1097,7 +1109,7 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `js/render.js` | Drawing the map, fog, minimap, bars and effects; calls `sprites.js` for units and buildings. The ground is painted in chunks as they scroll into view (see below). |
 | `js/main.js` | Mouse, touch and keyboard input; panels and buttons; minimap toggle; sound effects; the game loop |
 | `js/music.js` | The soundtrack, composed live with Web Audio (see section 16, "Music") |
-| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (79 checks). |
+| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (82 checks). |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
 tables), `ROADMAP.md` (planned stages), `ECONOMY_TEST_REPORT.md` (the October
@@ -1143,7 +1155,7 @@ rebuilt.
 
 | Test type | Method | What it checks |
 | --- | --- | --- |
-| **Rules tests** (`tests/rules.js`, 79 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 12 geysers, 20-tile spacing, 6 per half, mirrored geysers and scrap, 20 to 24 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; Hornet quicker, cheaper, lighter than a Tank and fires rockets; Sentry lowers its legs before firing, then fires a rapid stream); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Formations** (six plus Free; a group arrives where sent and stays together on the way, unlike free movement; Testudo keeps soft units inside the ring; Column puts fast units first and Artillery last). |
+| **Rules tests** (`tests/rules.js`, 82 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Formations** (six plus Free; a group arrives where sent and stays together on the way, unlike free movement; Testudo keeps soft units inside the ring; Column puts fast units first and Artillery last). |
 | **AI duels** (`tests/balance/duels.sh`) | The current opponent plays an earlier version of itself (`tests/balance/ai_previous.js`, the first one; `ai_v2.js` with `OPP=v2`, the 18 October one) on many seeds, 4 games at a time, up to 60 minutes each. With `BOTHOLD=1` both sides use the previous version, giving the baseline for the same seeds. | Whether a change to the opponent actually makes it stronger. Each tactic was tried alone, then in combinations; see the results below. |
 | **AI-vs-AI batches** | Run 30 to 120 full games between two computer players on different seeds. | Games end, typical length, and **fairness** by team and by corner. |
 | **AI tech progression** | Log when the AI reaches each milestone at each difficulty. | The AI actually upgrades, researches and fields Mk II units. |

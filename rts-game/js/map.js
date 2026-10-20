@@ -42,9 +42,9 @@ function makeNoise(rng, cell) {
 function generateMap(seed) {
   const W = CONFIG.MAP_W, H = CONFIG.MAP_H;
   const rng = makeRng(seed);
-  // Noise sizes grow with the map (1.9x since the 96x72 version), so rock
-  // ridges and lakes are larger features rather than more, smaller ones.
-  const n1 = makeNoise(rng, 17), n2 = makeNoise(rng, 8), n3 = makeNoise(rng, 11);
+  // Noise sizes grow with the map (2.3x per side since the 96x72 version), so
+  // rock ridges and lakes are larger features rather than more, smaller ones.
+  const n1 = makeNoise(rng, 21), n2 = makeNoise(rng, 10), n3 = makeNoise(rng, 13);
   const tiles = new Uint8Array(W * H);
   const idx = (x, y) => y * W + x;
   const mirror = (x, y) => [W - 1 - x, H - 1 - y];
@@ -68,19 +68,19 @@ function generateMap(seed) {
   // Everything below is listed for the bottom-left player's half only and
   // mirrored through the centre for the other player.
   // Open clearings: good spots for outposts and battles.
-  const halfClearings = [{ x: 42, y: 38 }, { x: 65, y: 95 }];
+  const halfClearings = [{ x: 51, y: 47 }, { x: 80, y: 116 }];
   // The centre clearing is carved twice, once as its own mirror image, so
   // the middle of the map stays perfectly symmetric.
   const mid = { x: Math.floor(W / 2), y: Math.floor(H / 2) };
   const clearings = [...halfClearings, mid, { x: W - 1 - mid.x, y: H - 1 - mid.y }];
   for (const f of halfClearings) { const [x, y] = mirror(f.x, f.y); clearings.push({ x, y }); }
 
-  // Loose scrap fields: 11 per side, from home out to the contested middle.
+  // Loose scrap fields: 18 per side, from home out to the contested middle.
   const halfFields = [
-    { x: 20, y: H - 8 }, { x: 7, y: H - 24 },                       // home fields
-    { x: 48, y: 108 }, { x: 26, y: 86 }, { x: 74, y: 128 },         // near expansions
-    { x: 8, y: 56 }, { x: 52, y: 76 }, { x: 38, y: 60 },            // middle distance
-    { x: 96, y: 104 }, { x: 56, y: 32 }, { x: 70, y: 56 },          // contested, toward the middle
+    { x: 24, y: H - 10 }, { x: 9, y: H - 29 }, { x: 40, y: 158 },            // home fields
+    { x: 59, y: 132 }, { x: 32, y: 105 }, { x: 91, y: 157 }, { x: 76, y: 158 }, { x: 12, y: 120 },  // near expansions
+    { x: 10, y: 69 }, { x: 64, y: 93 }, { x: 47, y: 73 }, { x: 30, y: 70 }, { x: 80, y: 90 },      // middle distance
+    { x: 118, y: 127 }, { x: 124, y: 140 }, { x: 69, y: 39 }, { x: 86, y: 69 }, { x: 100, y: 60 }, // contested
   ];
   const fieldTiles = [];
   for (const f of halfFields) {
@@ -91,15 +91,15 @@ function generateMap(seed) {
 
   // Scrap geysers: fixed spots where a Scavenger can deploy as an Extractor.
   // Given as tile corners; the Extractor sits on the 2x2 tiles around each.
-  // 6 per side, at least 20 squares from any other geyser (including the
-  // other side's): one under the start, one near home, one in the middle
-  // distance, two forward on the flanks and one contested near the centre.
+  // 10 per side, at least 20 squares from any other geyser (including the
+  // other side's): one under the start, two near home, two in the middle
+  // distance, three forward on the flanks and two contested near the centre.
   const halfGeysers = [
     { x: bases[1].x, y: bases[1].y + 1 },  // under the starting Recycler
-    { x: 34, y: 118 },                     // home
-    { x: 42, y: 92 },                      // middle distance
-    { x: 84, y: 116 }, { x: 24, y: 46 },   // forward, one on each flank
-    { x: 78, y: 74 },                      // contested, near the centre
+    { x: 42, y: 145 }, { x: 62, y: 140 },  // home
+    { x: 51, y: 113 }, { x: 14, y: 90 },   // middle distance
+    { x: 103, y: 142 }, { x: 116, y: 158 }, { x: 29, y: 56 },  // forward, on the flanks
+    { x: 96, y: 91 }, { x: 66, y: 40 },    // contested, toward the centre
   ];
   const geyserTiles = [];
   for (const g of halfGeysers) { geyserTiles.push(g); geyserTiles.push({ x: W - g.x, y: H - g.y }); }

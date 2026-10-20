@@ -117,7 +117,7 @@ function aiUpdate(game, team) {
     // research pauses army production, so a wasted topic costs a lot).
     const topics = ['tank2', 'scout2', 'artillery2'];
     if (tac.hornetsAfter) topics.push('hornet2');
-    if (tac.sentries || tac.sentryMix) topics.push('sentry2');
+    if (tac.sentries) topics.push('sentry2');
     const next = topics.find(k => !tm.research[k] &&
       !buildings.some(b => b.researching && b.researching.key === k));
     // Save up for it: army production pauses until it can be afforded.
@@ -144,16 +144,21 @@ function aiUpdate(game, team) {
   }
 
   // --- Army production -----------------------------------------------------
-  const army = units.filter(u => u.def.role === 'combat');
+  // Sentries are dug-in defences, not part of the army that attacks.
+  const army = units.filter(u => u.def.role === 'combat' && !u.def.deployable);
   if (diff.tactics && diff.tactics.adapt) updateIntel(game, team, ai);
-  // Outlying Extractors that should get a Sentry, and idle Sentries sent to guard them.
-  const guarded = new Set(army.filter(u => baseType(u) === 'sentry' && u.order.type === 'guard').map(u => u.order.targetId));
-  const sentryPosts = tac.sentries ? extractors.filter(x => dist(x, hq) > 600).slice(0, tac.sentries) : [];
-  for (const u of army.filter(u => baseType(u) === 'sentry' && u.order.type === 'idle' && !u.target)) {
-    const post = sentryPosts.find(x => !guarded.has(x.id));
-    if (!post) break;
-    cmd({ type: 'guard', ids: [u.id], targetId: post.id }); guarded.add(post.id);
-  }
+  // Sentry posts: the approach to the base first, then outlying Extractors.
+  // Each Sentry drives to its post and digs in there.
+  const sentryUnits = units.filter(u => u.def.deployable);
+  const posts = tac.sentries ? [rally, ...extractors.filter(x => dist(x, hq) > 600)].slice(0, tac.sentries) : [];
+  sentryUnits.sort((a, b) => a.id - b.id).forEach((u, i) => {
+    const post = posts[i];
+    if (!post || u.deployed || u.order.type !== 'idle') return;
+    // Dig in a little in front of the post, toward the map centre.
+    const spot = { x: post.x + Math.cos(toCenter) * 90, y: post.y + Math.sin(toCenter) * 90 };
+    if (dist(u, spot) > 60) cmd({ type: 'move', ids: [u.id], x: spot.x, y: spot.y });
+    else cmd({ type: 'dig', ids: [u.id] });
+  });
   // Lower difficulties grow their army slowly, so you have time to prepare.
   const armyCap = diff.armyPerMinute ? Math.min(diff.maxArmy, 3 + Math.floor(game.time / 60 * diff.armyPerMinute)) : diff.maxArmy;
   for (const f of buildings.filter(b => b.type === 'factory' && b.built >= 1)) {
@@ -161,10 +166,8 @@ function aiUpdate(game, team) {
     if (f.queue.length >= 2 || scouts + tanks + arty + hornets + sentries >= armyCap) continue;
     if (units.length >= CONFIG.UNIT_CAP - 2) continue;
     let pick = 'tank';
-    // A Sentry to guard each outlying Extractor (Normal and Hard).
-    if (sentryPosts.length > sentries && game.time > tac.sentriesAfter) pick = 'sentry';
-    // Or Sentries in the army itself, one for every `sentryMix` Tanks.
-    else if (tac.sentryMix && game.time > tac.sentriesAfter && sentries * tac.sentryMix < tanks) pick = 'sentry';
+    // A Sentry for each defensive post (Normal and Hard).
+    if (posts.length > sentries && game.time > tac.sentriesAfter) pick = 'sentry';
     else if (diff.tactics && diff.tactics.adapt && ai.intel) pick = adaptiveMix(ai.intel, diff, scouts, tanks, arty, hornets, army.length, game.time);
     else if (scouts < 2 || scouts * 4 < army.length) pick = 'scout';
     else if (arty * 4 < tanks && game.time > diff.artilleryAfter) pick = 'artillery';
@@ -388,7 +391,7 @@ function adaptiveMix(I, diff, scouts, tanks, arty, hornets, army, time) {
 // In an assault each vehicle has a job: Tanks are the wall that takes the
 // hits, Artillery sets up behind them and shells what they reveal, and the fast
 // Scouts swing round to strike somewhere else at the same moment.
-const roleOf = u => { const b = baseType(u); return b === 'tank' || b === 'sentry' ? 'wall' : b === 'artillery' ? 'guns' : 'fast'; };
+const roleOf = u => { const b = baseType(u); return b === 'tank' ? 'wall' : b === 'artillery' ? 'guns' : 'fast'; };
 
 // A point `d` from `target`, back toward `from`, on open ground.
 function standOff(game, target, from, d) {
