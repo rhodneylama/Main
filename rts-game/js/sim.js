@@ -43,6 +43,7 @@ function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams
     occupied: new Uint8Array(map.W * map.H),
     scrap: map.scrap, geysers: map.geysers,
     packs: {}, nextPackId: 1,
+    formations: [], nextFormationId: 1,
     teams: {},
     winner: 0,
     ai: {},
@@ -233,6 +234,8 @@ function issueCommand(game, team, cmd) {
 
   switch (cmd.type) {
     case 'move': {
+      // With a formation chosen, the group marches together in that shape.
+      if (cmd.formation && cmd.formation !== 'free' && units.length > 1 && startFormation(game, team, units, cmd)) break;
       const slots = formationSlots(game, cmd.x, cmd.y, units);
       units.forEach((u, i) => {
         u.order = { type: 'move', gx: slots[i].x, gy: slots[i].y, attackMove: !!cmd.attackMove };
@@ -484,6 +487,141 @@ function formationSlotsOn(game, x, y, units) {
   return out;
 }
 
+// -----------------------------------------------------------------------------
+// Formations (player group moves). The shape: where each vehicle stands,
+// as f (metres forward of the centre) and r (to the right), by type.
+// -----------------------------------------------------------------------------
+
+const formRole = u => { const b = baseType(u); return b === 'tank' || b === 'sentry' || b === 'mobileRecycler' ? 'heavy' : b === 'scout' || b === 'hornet' ? 'light' : 'soft'; };
+
+function formationOffsets(key, units) {
+  const D = 38, by = { heavy: [], light: [], soft: [] }, out = [];
+  for (const u of units.slice().sort((a, b) => a.id - b.id)) by[formRole(u)].push(u);
+  const H = by.heavy, L = by.light, S = by.soft, put = (u, f, r) => out.push({ u, f, r });
+  const grid = (list, cols, f0, gap = D) => list.forEach((u, i) => {
+    const row = Math.floor(i / cols), inRow = Math.min(cols, list.length - row * cols);
+    put(u, f0 - row * gap, ((i % cols) - (inRow - 1) / 2) * gap);
+  });
+  switch (key) {
+    case 'column': {  // two abreast: fast units first, armour, then guns and workers
+      const all = [...L, ...H, ...S];
+      all.forEach((u, i) => put(u, -Math.floor(i / 2) * D, i === all.length - 1 && i % 2 === 0 ? 0 : (i % 2 ? 0.5 : -0.5) * D));
+      break;
+    }
+    case 'line': {  // armour abreast, fast units on the wings, guns in a row behind
+      const row = [...H];
+      L.forEach((u, i) => (i % 2 ? row.push(u) : row.unshift(u)));
+      grid(row, row.length, 0);
+      grid(S, Math.max(1, S.length), -D * 1.2);
+      break;
+    }
+    case 'wedge': {  // armour at the point and along the edges, fast units further out, guns inside
+      [...H, ...L].forEach((u, i) => { const k = Math.ceil(i / 2); put(u, -k * D * 0.8, i === 0 ? 0 : (i % 2 ? 1 : -1) * k * D * 0.8); });
+      S.forEach((u, i) => { const m = Math.floor(i / 2); put(u, -(1.4 + m) * D * 0.8, i === S.length - 1 && i % 2 === 0 ? 0 : (i % 2 ? 0.4 : -0.4) * D * (1 + m)); });
+      break;
+    }
+    case 'box': {  // testudo: guns and workers in the middle, a ring of armour (front first), fast units fill the rear
+      const c = Math.max(1, Math.ceil(Math.sqrt(S.length)));
+      grid(S, c, (Math.ceil(S.length / c) - 1) / 2 * D * 0.9, D * 0.9);
+      const ring = [...H, ...L], n = ring.length;
+      const R = Math.max(D * 1.3, n * D / (2 * Math.PI), (c / 2 + 0.9) * D);
+      const angles = ring.map((_, i) => i * 2 * Math.PI / n).sort((a, b) => Math.cos(b) - Math.cos(a) || a - b);
+      ring.forEach((u, i) => put(u, Math.cos(angles[i]) * R, Math.sin(angles[i]) * R));
+      break;
+    }
+    case 'echelon': {  // a diagonal stepping back to the right, guns behind it
+      [...H, ...L].forEach((u, i) => put(u, -i * D * 0.65, i * D * 0.75));
+      S.forEach((u, i) => put(u, -(i + 1.6) * D * 0.65, (i - 0.6) * D * 0.75));
+      break;
+    }
+    case 'screen': {  // fast units spread out in front, armour in a block, guns at the back
+      L.forEach((u, i) => put(u, 2.6 * D, (i - (L.length - 1) / 2) * D * 1.6));
+      const c = Math.max(1, Math.ceil(Math.sqrt(H.length)));
+      grid(H, c, 0);
+      grid(S, 3, -Math.max(1, Math.ceil(H.length / c)) * D);
+      break;
+    }
+    default: return null;
+  }
+  // Centre the shape on its middle, so the spot you pick is its centre.
+  const fs = out.map(o => o.f), rs = out.map(o => o.r);
+  const mf = (Math.max(...fs) + Math.min(...fs)) / 2, mr = (Math.max(...rs) + Math.min(...rs)) / 2;
+  for (const o of out) { o.f -= mf; o.r -= mr; }
+  return out;
+}
+
+// Start a formation march: form up where the group is, facing the way it's
+// going, then move the whole shape along one route at the slowest member's pace.
+function startFormation(game, team, units, cmd) {
+  const layout = formationOffsets(cmd.formation, units);
+  if (!layout) return false;
+  const cx = units.reduce((a, u) => a + u.x, 0) / units.length, cy = units.reduce((a, u) => a + u.y, 0) / units.length;
+  const path = findPath(game, cx, cy, cmd.x, cmd.y);
+  if (!path.length) return false;
+  const ahead = path.find(p => Math.hypot(p.x - cx, p.y - cy) > 60);
+  const F = {
+    id: game.nextFormationId++, team, key: cmd.formation, ids: units.map(u => u.id), offsets: {},
+    // Facing the way it's going (or, forming up on the spot, cmd.heading).
+    ax: cx, ay: cy, heading: ahead ? Math.atan2(ahead.y - cy, ahead.x - cx) : cmd.heading || 0, path, wp: 0,
+    speed: Math.min(...units.map(u => u.def.speed)) * 0.9, phase: 'form', t0: game.time, waited: 0, attackMove: !!cmd.attackMove,
+  };
+  for (const o of layout) F.offsets[o.u.id] = { f: o.f, r: o.r };
+  game.formations.push(F);
+  for (const u of units) { u.order = { type: 'formation', fid: F.id, attackMove: F.attackMove }; u.target = null; u.path = []; u.fgoal = null; }
+  return F;
+}
+
+function updateFormations(game, dt) {
+  for (const F of game.formations) {
+    const m = F.ids.map(id => game.byId.get(id)).filter(u => u && u.hp > 0 && u.order.type === 'formation' && u.order.fid === F.id);
+    if (!m.length) { F.done = true; continue; }
+    // Each member's spot: the shape turned to the heading, around the anchor.
+    const c = Math.cos(F.heading), s = Math.sin(F.heading);
+    let lag = 0;
+    for (const u of m) {
+      const o = F.offsets[u.id], gx = F.ax + o.f * c - o.r * s, gy = F.ay + o.f * s + o.r * c;
+      u.fgoal = isBlockedAt(game, gx, gy) ? { x: F.ax, y: F.ay } : { x: gx, y: gy };
+      if (!(F.attackMove && u.target)) lag = Math.max(lag, dist(u, u.fgoal));
+    }
+    if (F.phase === 'form') {
+      if (lag < 45 || game.time - F.t0 > 6) F.phase = 'march';
+    } else if (F.phase === 'march') {
+      // Wait for stragglers (up to 4 s at a time), otherwise advance.
+      if (lag < 60) F.waited = 0;
+      if (lag > 110 && F.waited < 4) { F.waited += dt; continue; }
+      let step = F.speed * dt;
+      while (step > 0 && F.wp < F.path.length) {
+        const p = F.path[F.wp], d = Math.hypot(p.x - F.ax, p.y - F.ay);
+        if (d <= step) { F.ax = p.x; F.ay = p.y; F.wp++; step -= d; } else { F.ax += (p.x - F.ax) / d * step; F.ay += (p.y - F.ay) / d * step; step = 0; }
+      }
+      const next = F.path[F.wp];
+      if (next && Math.hypot(next.x - F.ax, next.y - F.ay) > 20) F.heading = turnToward(F.heading, Math.atan2(next.y - F.ay, next.x - F.ax), 0.8 * dt);
+      if (F.wp >= F.path.length) { F.phase = 'arrive'; F.arriveT = game.time; }
+    } else if (lag < 14 || game.time - F.arriveT > 12) {
+      // Arrived: everyone holds their place in the shape.
+      for (const u of m) { u.order = { type: 'idle', gx: u.fgoal.x, gy: u.fgoal.y }; u.path = []; }
+      F.done = true;
+    }
+  }
+  game.formations = game.formations.filter(F => !F.done);
+}
+
+// A vehicle in a formation drives to its spot in the shape (fighting on the
+// way if it was an attack-move).
+function updateFormationMember(game, u, dt) {
+  let engaged = false;
+  if (u.order.attackMove && u.def.weapon) engaged = combatThink(game, u, dt, true);
+  const g = u.fgoal;
+  if (engaged || !g) return;
+  if (dist(u, g) < 10) u.path = [];
+  else {
+    if (hasClearLine(game, u.x, u.y, g.x, g.y)) u.path = [g];
+    else if (!u.path.length || game.tick % 15 === u.id % 15) planPath(game, u, g.x, g.y);
+    followPath(game, u, dt, 8);
+  }
+  if (u.def.weapon) aimAtNearby(game, u, dt);
+}
+
 function planPath(game, u, x, y) {
   // Don't search again straight away for the same spot: many orders ask for a
   // new route every tick while they have none, and on the big map a route
@@ -518,6 +656,7 @@ function stepGame(game) {
 
   // Shuffle the update order every tick so neither side can get a steady
   // head start from always acting first (or last) on some kind of tick.
+  updateFormations(game, dt);
   const order = shuffled(game, game.entities);
   for (const e of order) {
     if (e.hp <= 0) continue;
@@ -749,6 +888,7 @@ function updateUnit(game, u, dt) {
     case 'scout': updateScout(game, u, dt); break;
     case 'patrol': updatePatrol(game, u, dt); break;
     case 'guard': updateGuard(game, u, dt); break;
+    case 'formation': updateFormationMember(game, u, dt); break;
     case 'deploy': updateDeploy(game, u, dt); break;
   }
 }

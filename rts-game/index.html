@@ -102,15 +102,15 @@
   #armymenu button { background: #1d2a1d; border-color: #5a7a56; min-height: 38px; }
   #armymenu button:disabled { opacity: .4; cursor: default; }
   #armymenu .n { color: var(--dim); margin-left: 4px; font-variant-numeric: tabular-nums; }
-  /* Groups menu: one row per group, select it or save the selection into it. */
-  #groupmenu { position: fixed; top: calc(var(--top-h) + 6px); z-index: 6; display: flex; flex-direction: column; gap: 5px;
-    background: var(--panel); border: 1px solid var(--edge); border-radius: 6px; padding: 6px; min-width: 220px; }
-  #groupmenu .grow { display: flex; gap: 5px; }
-  #groupmenu .gsel { flex: 1; text-align: left; min-height: 38px; background: #1d2a1d; border-color: #5a7a56; }
-  #groupmenu .gsel:disabled { opacity: .45; cursor: default; }
-  #groupmenu .gset { min-height: 38px; min-width: 56px; }
-  #groupmenu .gnum { display: inline-block; min-width: 18px; font-weight: 700; color: var(--accent); }
-  #groupmenu .note { font-size: 11px; color: var(--dim); padding: 2px 2px 0; }
+  /* Formation menu: a card per formation, with a little diagram. */
+  #formmenu { position: fixed; top: calc(var(--top-h) + 6px); z-index: 6; display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+    background: var(--panel); border: 1px solid var(--edge); border-radius: 6px; padding: 6px; width: min(560px, calc(100vw - 12px));
+    max-height: calc(100vh - var(--top-h) - 20px); overflow-y: auto; }
+  #formmenu .fopt { display: flex; gap: 8px; align-items: center; text-align: left; padding: 5px 8px; background: #1d2a1d; border-color: #5a7a56; }
+  #formmenu .fopt.active { border-color: var(--accent); background: #24402a; box-shadow: 0 0 0 1px var(--accent) inset; }
+  #formmenu .fopt canvas { flex: none; width: 64px; height: 56px; background: #0d120d; border-radius: 4px; }
+  #formmenu .fopt div { display: flex; flex-direction: column; gap: 2px; line-height: 1.25; }
+  #formmenu .note { grid-column: 1 / -1; font-size: 11px; color: var(--dim); padding: 2px 2px 0; }
 
   /* Messages */
   #log { position: fixed; top: calc(var(--top-h) + 10px); left: calc(14px + var(--safe-l)); max-width: 60vw; z-index: 4; pointer-events: none; display: flex; flex-direction: column; gap: 3px; }
@@ -214,10 +214,9 @@
     #clock { display: none; }
     #pausebtn .ptext { display: none; }
     #pausebtn .picon { display: inline-block; }
-    /* Groups menu in two columns so it fits the short screen. */
-    #groupmenu { display: grid; grid-template-columns: 1fr 1fr; min-width: 0; width: min(520px, calc(100vw - 20px)); }
-    #groupmenu .gsel, #groupmenu .gset { min-height: 32px; padding: 3px 8px; }
-    #groupmenu .note { grid-column: 1 / -1; }
+    /* Formation menu: three columns, short descriptions, to fit the short screen. */
+    #formmenu { grid-template-columns: 1fr 1fr 1fr; width: min(720px, calc(100vw - 12px)); }
+    #formmenu .fopt .small { display: none; }
     /* Sideways there's room for the quick buttons on the top bar's one row. */
     #quickbar { order: 0; flex-basis: auto; }
     #quickbar button { flex: none; min-height: 32px; padding: 4px 9px; font-size: 12px; }
@@ -243,6 +242,7 @@
     /* Narrow phones: Pause shrinks to a symbol so it stays on the first row. */
     #pausebtn .ptext { display: none; }
     #pausebtn .picon { display: inline-block; }
+    #formmenu { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -261,7 +261,7 @@
   </div>
   <div id="quickbar">
     <button id="q-army" title="Select your combat vehicles: all, or one kind">Army ▾</button>
-    <button id="q-groups" title="Unit groups: save a selection, pick it again later (Ctrl+1–9 / 1–9)">Groups ▾</button>
+    <button id="q-form" title="Formation: how your vehicles line up when you move them together">Formation ▾</button>
     <button id="q-base" title="Jump to your Recycler (H)">Base</button>
     <button id="q-idle" title="Find an idle worker (X)">Idle<span class="wide"> worker</span></button>
     <button id="q-clear" title="Deselect (Esc)">Deselect</button>
@@ -287,7 +287,7 @@
   <div id="selinfo"></div>
   <div id="commands"></div>
 </div>
-<div id="groupmenu" class="hidden"></div>
+<div id="formmenu" class="hidden"></div>
 <div id="armymenu" class="hidden">
   <button data-army="all">All combat <span class="n">0</span></button>
   <button data-army="scout"><span class="lbl" data-plural="Scouts">Scouts</span> <span class="n">0</span></button>
@@ -368,7 +368,8 @@
       <tr><td><b>One-finger drag</b></td><td>Scroll the map</td></tr>
       <tr><td><b>Pinch</b></td><td>Zoom in and out</td></tr>
       <tr><td><b>Attack-move</b></td><td>Press the button, then tap: vehicles travel there and fight anything on the way</td></tr>
-      <tr><td><b>Army · Groups · Base · Idle · Deselect</b></td><td>Quick buttons in the top bar. Army selects all fighters, or one kind. Groups: <b>Set</b> saves the selected vehicles as a group (1–6), tap a group to select it, twice to jump to it</td></tr>
+      <tr><td><b>Army · Groups · Base · Idle · Deselect</b></td><td>Quick buttons in the top bar. Army selects all fighters, or one kind. <b>Formation</b> picks how your vehicles line up when you move them together</td></tr>
+      <tr><td><b>Formations</b></td><td>Column, Battle line, Wedge, Testudo (armour around guns and workers), Echelon or Scout screen. The group forms up, marches at its slowest vehicle's pace and waits for stragglers, then arrives in shape. Picking one with vehicles selected forms them up on the spot. Free turns it off.</td></tr>
       <tr><td><b>Building</b></td><td>Pick a building, tap where it should go, then press <b>Build here</b></td></tr>
           <tr><td><b>Scout</b></td><td>Scouts explore on their own. With several selected, <b>Scout as pack</b> keeps them together; <b>Scout solo</b> spreads them out.</td></tr>
       <tr><td><b>Patrol</b></td><td>Tanks loop around your buildings and fight anything they meet.</td></tr>
@@ -388,7 +389,8 @@
       <tr><td><kbd>A</kbd> then click</td><td>Attack-move: travel there, fighting anything met on the way</td></tr>
       <tr><td><kbd>S</kbd></td><td>Stop</td></tr>
       <tr><td><kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd></td><td>The command buttons in the bottom panel</td></tr>
-      <tr><td><kbd>Ctrl</kbd>+<kbd>1</kbd>–<kbd>9</kbd></td><td>Save the selection as a group (the same groups as the Groups button). Press the number to reselect; press twice to jump to it.</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>1</kbd>–<kbd>9</kbd></td><td>Save the selection as a group. Press the number to reselect; press twice to jump to it.</td></tr>
+      <tr><td><b>Formation ▾</b></td><td>Pick how your vehicles line up when you move them together: Column, Battle line, Wedge, Testudo (armour around guns and workers), Echelon or Scout screen. The group marches at its slowest vehicle's pace and arrives in shape. Free turns it off.</td></tr>
       <tr><td><kbd>H</kbd> / <kbd>Space</kbd></td><td>Jump to your base / to the selection</td></tr>
       <tr><td><kbd>X</kbd></td><td>Find an idle worker</td></tr>
       <tr><td>Arrows · edge · middle-drag</td><td>Scroll the map. Mouse wheel zooms.</td></tr>

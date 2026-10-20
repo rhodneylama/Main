@@ -19,7 +19,7 @@ function load() {
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
     'createGame, generateMap, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
-    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS });', ctx);
+    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, FORMATIONS, nearestOpenTile, formRole });', ctx);
   return ctx;
 }
 
@@ -452,6 +452,40 @@ section('Factions');
   check('both factions use the same unit numbers (only names differ)', same && t1.def === S.UNIT_TYPES.tank2);
   const g2 = S.createGame({ seed: 5, difficulty: 'normal', aiTeams: [] });
   check('a side with no faction chosen is Scrapline', g2.teams[1].faction === 'scrapline' && g2.teams[2].faction === 'scrapline');
+}
+
+section('Formations');
+{
+  const S = load();
+  const march = key => {
+    const g = S.createGame({ seed: 42, difficulty: 'normal', aiTeams: [] });
+    const m = mine(g, 1, 'mobileRecycler')[0], T = S.CONFIG.TILE, base = { x: m.x + 200, y: m.y - 200 };
+    const us = ['tank', 'tank', 'tank', 'sentry', 'scout', 'scout', 'hornet', 'artillery', 'artillery', 'scavenger'].map((t, i) => {
+      const o = S.nearestOpenTile(g, Math.floor((base.x + (i % 4) * 40) / T), Math.floor((base.y + Math.floor(i / 4) * 40) / T), 8);
+      return S.addUnit(g, t, 1, (o.x + 0.5) * T, (o.y + 0.5) * T);
+    });
+    const dest = { x: base.x + 1600, y: base.y - 900 };
+    S.issueCommand(g, 1, { type: 'move', ids: us.map(u => u.id), x: dest.x, y: dest.y, formation: key });
+    let spread = 0, done = false;
+    for (let i = 0; i < 30 * 240 && !done; i++) {
+      S.stepGame(g);
+      if (i % 30 === 0 && i > 30 * 15) { const c = centre(us); spread = Math.max(spread, ...us.map(u => S.dist(u, c))); }
+      done = us.every(u => u.order.type === 'idle' && !u.path.length);
+    }
+    const c = centre(us), a = Math.atan2(dest.y - base.y, dest.x - base.x);
+    const avg = (role, f) => { const l = us.filter(u => S.formRole(u) === role).map(f); return l.reduce((x, y) => x + y, 0) / l.length; };
+    const fwd = u => (u.x - c.x) * Math.cos(a) + (u.y - c.y) * Math.sin(a);
+    return { done, spread, toDest: S.dist(c, dest), fwd: role => avg(role, fwd), out: role => avg(role, u => S.dist(u, c)) };
+  };
+  const centre = us => ({ x: us.reduce((a, u) => a + u.x, 0) / us.length, y: us.reduce((a, u) => a + u.y, 0) / us.length });
+  check('six formations to choose from, plus Free', S.FORMATIONS.length === 7 && S.FORMATIONS[0].key === 'free');
+  const free = march('free'), box = march('box'), col = march('column');
+  check('a group in formation arrives where it was sent', box.done && box.toDest < 40 && col.done, `${Math.round(box.toDest)} px off`);
+  check('and stays together on the way (free movement strings out)', box.spread < 220 && col.spread < 220 && free.spread > box.spread * 2,
+    `formation ${Math.round(box.spread)} px, free ${Math.round(free.spread)} px`);
+  check('Testudo keeps Artillery and workers inside the ring of armour', box.out('soft') < box.out('heavy'),
+    `${Math.round(box.out('soft'))} vs ${Math.round(box.out('heavy'))} px from the centre`);
+  check('Column puts fast units in front and Artillery at the back', col.fwd('light') > col.fwd('heavy') && col.fwd('heavy') > col.fwd('soft'));
 }
 
 console.log(`\n${passes} passed, ${fails} failed`);

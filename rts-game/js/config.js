@@ -71,6 +71,20 @@ const factionText = (() => {
   };
 })();
 
+// Formations for group moves (the Formation menu). Vehicles are placed by
+// type: heavy (Tanks, Sentries), light (Scouts, Hornets) and soft
+// (Artillery and workers). The shapes themselves are in sim.js
+// (formationOffsets). 'free' is no formation.
+const FORMATIONS = [
+  { key: 'free',    name: 'Free',         desc: 'No formation: each vehicle takes the nearest spot and drives at its own speed.' },
+  { key: 'column',  name: 'Column',       desc: 'Two abreast: fast units lead, armour in the middle, Artillery and workers at the back. For narrow passes.' },
+  { key: 'line',    name: 'Battle line',  desc: 'A wide front: armour shoulder to shoulder, fast units on the wings, Artillery in a row behind.' },
+  { key: 'wedge',   name: 'Wedge',        desc: 'A spearhead: armour forms the point and edges, fast units trail the wings, Artillery rides inside the V.' },
+  { key: 'box',     name: 'Testudo',      desc: 'A shield ring: armour all round the outside, Artillery and workers safe in the middle.' },
+  { key: 'echelon', name: 'Echelon',      desc: 'A staggered diagonal that covers the right flank as it advances, with the guns tucked behind.' },
+  { key: 'screen',  name: 'Scout screen', desc: 'Fast units spread wide out front to spot ambushes; armour follows in a block, guns at the rear.' },
+];
+
 // role: 'harvester' collects scrap, 'builder' constructs buildings,
 //       'combat' fights. Weapons: range and sight are in pixels.
 // Speeds (pixels per second): Scavengers and Constructors 43, Tanks 40,
