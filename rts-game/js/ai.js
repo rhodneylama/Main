@@ -97,7 +97,7 @@ function aiUpdate(game, team) {
     else if (diff.secondFactory && has('factory') < 2 && game.time > 300) want = 'factory';
     // A Repair Pad, so damaged vehicles can be sent back to it.
     else if (diff.tactics && diff.tactics.repair && !has('repairpad') && game.time > diff.tactics.repair) want = 'repairpad';
-    else if (has('tower') < 1 + Math.floor(has('extractor') / 2) && game.time > 200) {   // one per two Extractors
+    else if (has('tower') < 1 + Math.floor(has('extractor') / (diff.towerEvery || 1)) && game.time > 200) {   // one per towerEvery Extractors
       // Guard the outpost that has the fewest towers nearby.
       want = 'tower';
       const outposts = buildings.filter(b => b.type === 'extractor' && b.built >= 1);
