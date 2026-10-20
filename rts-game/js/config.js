@@ -295,8 +295,8 @@ const HOTKEYS = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I'];
 //   radarAfter       seconds before it builds a Radar (0 = never)
 //   towerUpgradeAfter seconds before it upgrades Gun Towers (0 = never)
 //   towerEvery       one Gun Tower at home, then one per this many Extractors
-//                    (2: one per Extractor sank too much scrap into towers on
-//                    the bigger map and lost far more games)
+//                    (one per Extractor sank too much scrap into towers on the
+//                    bigger map and lost far more games; one per three won most)
 //   tactics          battle tactics (null = simple waves, as on Easy). Each was
 //                    tested on its own against the previous opponent:
 //     hold           seconds during which it holds back and lets the enemy's waves
@@ -339,7 +339,7 @@ const DIFFICULTY = {
             upgradeBaseAfter: 300, labAfter: 0, radarAfter: 0, towerUpgradeAfter: 0, towerEvery: 2, tactics: null },
   normal: { label: 'Normal', incomeMult: 1.0,  firstAttack: 300, waveEvery: 150, waveBase: 5, waveGrowth: 0.8,
             maxArmy: 25, armyPerMinute: 3, maxExtractors: 6, maxBaseSilos: 2, maxScavengers: 6, thinkEvery: 1.0, artilleryAfter: 240, secondFactory: true,
-            upgradeBaseAfter: 120, labAfter: 360, radarAfter: 480, towerUpgradeAfter: 900, towerEvery: 2,
+            upgradeBaseAfter: 120, labAfter: 360, radarAfter: 480, towerUpgradeAfter: 900, towerEvery: 3,
             tactics: { hold: 600, holdArmy: 2, counter: 0.6, allIn: true, flank: 0.7, feint: 0.4, retreatAt: 0.5, focus: true,
                        raid: true, raidAfter: 420, raidEvery: 240, raidSize: 3, raidWithWave: true, raidRetreat: 1, cautious: 0.5, repair: 0,
                        combined: true, flankers: 0.5, adapt: 0.5, trap: true,

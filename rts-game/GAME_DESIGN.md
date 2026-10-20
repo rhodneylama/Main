@@ -734,12 +734,12 @@ each decision it runs through these steps in order:
      share of the army is split evenly between Scouts and Hornets (at least
      2 Scouts are kept for raids; Hornets are too slow for raids and fight
      as flankers in assaults).
-   - **Gun Towers:** one at home, then one for every two Extractors (at the
-     least guarded outpost).
-   - **Sentries:** after `sentriesAfter` (Normal 15:00, Hard 7:00) it builds
-     `sentries` of them (Normal 1, Hard 2) and digs each in as a defence: the
-     first just in front of its rally point (the approach to its base), the
-     next at an outlying Extractor. They stay out of its army and its waves.
+   - **Gun Towers:** one at home, then one for every `towerEvery` Extractors
+     (Easy 2, Normal and Hard 3), at the least guarded outpost.
+   - **Sentries:** after `sentriesAfter` (15:00 on Normal and Hard) it builds
+     one Sentry and digs it in just in front of its rally point, the approach
+     to its base. It stays out of its army and its waves. (More Sentries,
+     earlier, cost games in testing.)
    - It researches Advanced Hornets and Advanced Sentries after the other
      three topics, and only for vehicles it builds (saving for research
      pauses its army production).
@@ -1238,6 +1238,25 @@ most fighting strength for the scrap), but the shipped mix still beats the
 bringing them in at 5–10 minutes lost (12 of 32, baseline 15); from 15:00
 it wins **17** (the opponent without them won 18).
 
+### AI duel results: the bigger map (20 October 2026)
+
+Against the 18 October opponent on the 223 × 168 map. Baselines (that
+opponent on both sides): Hard seeds 1–32 15, seeds 33–64 18; Normal 1–32 17.
+
+| Variant | Wins |
+| --- | --- |
+| Hard, as first shipped (one tower per two Extractors, 2 Sentries from 7:00) | 13 of 32 (25 of 64) |
+| Hard, one tower per Extractor (as before) | 8 of 32 |
+| Hard, one per two, no Sentries | 17 of 32, then **20** on seeds 33–64 |
+| Hard, one per two, no Hornets | 16 of 32 |
+| Hard, one per Extractor, no Sentries or Hornets | 9 of 32 |
+| **Hard, one per three, 1 Sentry from 15:00 (shipped)** | **19** on seeds 33–64 (baseline 18) |
+| Normal, one per two, 1 Sentry from 15:00 | 14 of 32 |
+| **Normal, one per three (shipped)** | **22** of 32 (baseline 17) |
+
+On the bigger map, with more Extractors, a Gun Tower for each one sank too
+much scrap into towers.
+
 ### Bugs these tests have caught (for reference)
 
 - **Combat:** gun towers never reloaded; building guns were outranged by
@@ -1525,5 +1544,5 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     with a signature edge; the map is half as big again in area (223 × 168)
     with 20 geysers and 36 scrap fields, home resources kept at their old
     distances so the opening pace is unchanged; the opponent digs Sentries in
-    at its base approach and outposts and builds one Gun Tower per two
-    Extractors.
+    at its base approach (one, from 15:00) and builds one Gun Tower per
+    three Extractors (section 20).
