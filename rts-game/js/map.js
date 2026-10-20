@@ -77,7 +77,7 @@ function generateMap(seed) {
 
   // Loose scrap fields: 18 per side, from home out to the contested middle.
   const halfFields = [
-    { x: 24, y: H - 10 }, { x: 9, y: H - 29 }, { x: 40, y: 158 },            // home fields
+    { x: 21, y: 156 }, { x: 8, y: 144 }, { x: 40, y: 158 },                  // home fields (two close, as on the old map)
     { x: 59, y: 132 }, { x: 32, y: 105 }, { x: 91, y: 157 }, { x: 76, y: 158 }, { x: 12, y: 120 },  // near expansions
     { x: 10, y: 69 }, { x: 64, y: 93 }, { x: 47, y: 73 }, { x: 30, y: 70 }, { x: 80, y: 90 },      // middle distance
     { x: 118, y: 127 }, { x: 124, y: 140 }, { x: 69, y: 39 }, { x: 86, y: 69 }, { x: 100, y: 60 }, // contested
@@ -96,7 +96,7 @@ function generateMap(seed) {
   // distance, three forward on the flanks and two contested near the centre.
   const halfGeysers = [
     { x: bases[1].x, y: bases[1].y + 1 },  // under the starting Recycler
-    { x: 42, y: 145 }, { x: 62, y: 140 },  // home
+    { x: 33, y: 146 }, { x: 60, y: 143 },  // home (the first about 25 squares out, as on the old map)
     { x: 51, y: 113 }, { x: 14, y: 90 },   // middle distance
     { x: 103, y: 142 }, { x: 116, y: 158 }, { x: 29, y: 56 },  // forward, on the flanks
     { x: 96, y: 91 }, { x: 66, y: 40 },    // contested, toward the centre
