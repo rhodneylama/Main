@@ -346,9 +346,9 @@ const DIFFICULTY = {
                        hornetsAfter: 900, sentries: 1, sentriesAfter: 900 } },
   hard:   { label: 'Hard',   incomeMult: 1.35, firstAttack: 180, waveEvery: 100, waveBase: 6, waveGrowth: 1.5,
             maxArmy: 40, armyPerMinute: 0, maxExtractors: 7, maxBaseSilos: 3, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true,
-            upgradeBaseAfter: 90, labAfter: 240, radarAfter: 360, towerUpgradeAfter: 600, towerEvery: 2,
+            upgradeBaseAfter: 90, labAfter: 240, radarAfter: 360, towerUpgradeAfter: 600, towerEvery: 3,
             tactics: { hold: 360, holdArmy: 1.2, counter: 0.6, allIn: true, flank: 0.7, feint: 0, retreatAt: 0.5, focus: true,
                        raid: true, raidAfter: 240, raidEvery: 150, raidSize: 4, raidWithWave: true, raidRetreat: 1.2, cautious: 1, repair: 0,
                        combined: true, flankers: 1, adapt: 1, trap: true,
-                       hornetsAfter: 300, sentries: 2, sentriesAfter: 420 } },
+                       hornetsAfter: 300, sentries: 1, sentriesAfter: 900 } },
 };
