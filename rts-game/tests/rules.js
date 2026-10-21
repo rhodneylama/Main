@@ -15,11 +15,11 @@ const code = ['config', 'map', 'sim', 'ai'].map(f => fs.readFileSync(path.join(d
 
 // A fresh copy of the game code for each test, so tests can't affect each other.
 function load() {
-  const ctx = { console, Math, performance: { now: () => Date.now() } };
+  const ctx = { console, Math, performance: { now: () => Date.now() }, btoa, atob };
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
     'createGame, generateMap, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
-    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, FORMATIONS, nearestOpenTile, formRole });', ctx);
+    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, FORMATIONS, nearestOpenTile, formRole, saveGame, loadGame });', ctx);
   return ctx;
 }
 
@@ -498,6 +498,23 @@ section('Formations');
   check('Testudo keeps Artillery and workers inside the ring of armour', box.out('soft') < box.out('heavy'),
     `${Math.round(box.out('soft'))} vs ${Math.round(box.out('heavy'))} px from the centre`);
   check('Column puts fast units in front and Artillery at the back', col.fwd('light') > col.fwd('heavy') && col.fwd('heavy') > col.fwd('soft'));
+}
+
+section('Saving and loading');
+{
+  const S = load();
+  const g = S.createGame({ seed: 9, difficulty: 'hard', aiTeams: [1, 2] });
+  const step = x => { if (x.rng() < 0.5) { S.aiUpdate(x, 1); S.aiUpdate(x, 2); } else { S.aiUpdate(x, 2); S.aiUpdate(x, 1); } S.stepGame(x); x.events.length = 0; };
+  for (let i = 0; i < 30 * 420; i++) step(g);
+  const text = S.saveGame(g, { note: 'hi' });
+  const { game: h, extra } = S.loadGame(text);
+  check('a battle saves and loads (with the screen\'s own notes)', h.entities.length === g.entities.length && extra.note === 'hi', `${Math.round(text.length / 1024)} KB`);
+  for (let i = 0; i < 30 * 180; i++) { step(g); step(h); }
+  const sig = x => x.entities.map(e => `${e.id}:${e.x.toFixed(3)},${e.y.toFixed(3)},${e.hp.toFixed(2)}`).join('|') + `#${x.teams[1].scrap.toFixed(3)}#${x.teams[2].scrap.toFixed(3)}#${x.tick}`;
+  check('a loaded battle plays on exactly as the original (3 more minutes, two computer players)', sig(g) === sig(h));
+  let bad = false;
+  try { S.loadGame('{"hello":1}'); } catch (err) { bad = true; }
+  check('something that is not a save is refused', bad);
 }
 
 console.log(`\n${passes} passed, ${fails} failed`);

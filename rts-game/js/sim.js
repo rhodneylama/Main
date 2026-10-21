@@ -1572,3 +1572,90 @@ function checkVictory(game) {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Saving and loading. A save is the whole game object as text: everything
+// in it is plain data except the random-number generator (saved as its
+// position in the sequence) and links between objects (a vehicle's target,
+// a squad's objective, a route point), which are saved as references so a
+// loaded game is the same web of objects and plays on exactly as it would
+// have. Unit and building definitions are saved by name; typed arrays
+// (terrain, fog) as base64 text.
+// ---------------------------------------------------------------------------
+
+const SAVE_VERSION = 1;
+
+function saveDefs() {
+  const m = new Map();
+  for (const [k, d] of Object.entries(UNIT_TYPES)) m.set(d, 'u:' + k);
+  for (const [k, d] of Object.entries(BUILDING_TYPES)) {
+    m.set(d, 'b:' + k);
+    if (d.upgrade) m.set(d.upgrade, 'bu:' + k);
+    (d.upgrades || []).forEach((o, i) => m.set(o, 'bo:' + k + ':' + i));
+  }
+  for (const [k, d] of Object.entries(RESEARCH)) m.set(d, 'r:' + k);
+  return m;
+}
+
+function bytesToB64(v) {
+  const u8 = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+  let s = '';
+  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function b64ToBytes(text) {
+  const s = atob(text), u8 = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) u8[i] = s.charCodeAt(i);
+  return u8;
+}
+
+// The game as text. `extra` is anything the screen wants back (camera, ...).
+function saveGame(game, extra = {}) {
+  const defs = saveDefs(), ids = new Map();
+  let next = 1;
+  const enc = v => {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : { $n: String(v) };
+    if (v === null || typeof v !== 'object') return typeof v === 'function' ? undefined : v;
+    if (defs.has(v)) return { $s: defs.get(v) };
+    if (ids.has(v)) return { $r: ids.get(v) };
+    const id = next++; ids.set(v, id);
+    if (ArrayBuffer.isView(v)) return { $id: id, $t: v.constructor.name, d: bytesToB64(v) };
+    if (v instanceof Map) return { $id: id, $m: [...v.entries()].map(([k, x]) => [enc(k), enc(x)]) };
+    if (Array.isArray(v)) return { $id: id, $a: v.map(enc) };
+    const o = { $id: id };
+    for (const k in v) { const x = enc(v[k]); if (x !== undefined) o[k] = x; }
+    return o;
+  };
+  const { rng, byId, events, ...rest } = game;
+  return JSON.stringify({ v: SAVE_VERSION, rng: rng.state(), game: enc(rest), extra });
+}
+
+// Back from text to a game. Returns { game, extra }; throws on a bad file.
+function loadGame(text) {
+  const snap = JSON.parse(text);
+  if (!snap || snap.v !== SAVE_VERSION || !snap.game) throw new Error('Not a Scrapline save (or from a different version)');
+  const defs = new Map([...saveDefs()].map(([d, k]) => [k, d])), objs = new Map();
+  const dec = v => {
+    if (v === null || typeof v !== 'object') return v;
+    if ('$n' in v) return Number(v.$n);
+    if ('$s' in v) return defs.get(v.$s);
+    if ('$r' in v) return objs.get(v.$r);
+    if ('$t' in v) {
+      const bytes = b64ToBytes(v.d), T = globalThis[v.$t];
+      const out = T === Uint8Array ? bytes : new T(bytes.buffer, 0, bytes.byteLength / T.BYTES_PER_ELEMENT);
+      objs.set(v.$id, out); return out;
+    }
+    if ('$m' in v) { const m = new Map(); objs.set(v.$id, m); for (const [k, x] of v.$m) m.set(dec(k), dec(x)); return m; }
+    if ('$a' in v) { const a = []; objs.set(v.$id, a); for (const x of v.$a) a.push(dec(x)); return a; }
+    const o = {};
+    objs.set(v.$id, o);
+    for (const k in v) if (k !== '$id') o[k] = dec(v[k]);
+    return o;
+  };
+  const game = dec(snap.game);
+  game.rng = makeRng(0); game.rng.setState(snap.rng);
+  game.byId = new Map(game.entities.map(e => [e.id, e]));
+  game.events = [];
+  return { game, extra: snap.extra || {} };
+}
+

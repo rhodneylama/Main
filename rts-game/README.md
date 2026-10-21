@@ -126,6 +126,17 @@ In a formation the group forms up, then marches at its slowest vehicle's
 pace, waiting for stragglers, and arrives in shape. With Attack-move it
 fights on the way.
 
+## Saving your game
+
+Pause, then **Save game**: pick Slot 1, 2 or 3. There's also an **Autosave**,
+updated every 3 minutes of battle and whenever you leave the page or switch
+apps. **Load game** is on the pause screen and the start screen; a loaded
+battle starts paused, exactly where you left it. **Download this game**
+keeps a copy as a small file, and **Load from a file…** brings it back, on
+any device. On claude.ai your saves are kept with your account, so they're
+there on your phone and your computer; elsewhere they're kept in the
+browser.
+
 ## Music
 
 The music is composed live in the game: calm on the start screen, steady

@@ -21,6 +21,9 @@ function makeRng(seed) {
   };
   rng.range = (a, b) => a + rng() * (b - a);
   rng.int = (a, b) => Math.floor(a + rng() * (b - a + 1));
+  // Saved games store where the sequence had got to.
+  rng.state = () => s;
+  rng.setState = v => { s = v >>> 0; };
   return rng;
 }
 

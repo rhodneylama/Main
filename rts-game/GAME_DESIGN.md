@@ -947,6 +947,28 @@ The game speed button cycles through ×1, ×2 and ×4.
   from the start screen or the pause screen), pause, end (Victory / Defeat
   with stats; sides are named by faction).
 
+### Saving
+
+**Save game** and **Load game** are on the pause screen; **Load game** is
+also on the start screen. There are four slots: **Autosave** (written every
+3 minutes of battle time and whenever the page is hidden, for example when a
+phone switches apps) and **Slots 1–3**. Each shows faction, difficulty,
+battle time and when it was saved; **Delete** asks twice. A loaded battle
+starts **paused**, with the camera, formation choice and keyboard groups as
+they were. **Download this game** saves the battle as a small `.json` file
+(about 20–40 KB), and **Load from a file…** loads one back, on any device.
+
+A save is the whole game state (`saveGame` / `loadGame` in `sim.js`): every
+object, with links between objects (a vehicle's target, a squad's objective,
+route points) kept as references, unit and building definitions by name,
+terrain and fog as base64, and the random-number generator's position. So a
+loaded battle continues exactly as the original would have (a rules test
+plays both on for 3 minutes and compares them). Saves are about 350 KB as
+text and are gzip-compressed to about 30–40 KB for storage. On the published
+page they go to the page's private per-person store (`data/users/<you>/`,
+so they work on your other devices too); anywhere else to this browser's
+local storage.
+
 ### Music
 
 Composed live by `js/music.js` with Web Audio (no audio files): a four-bar
@@ -1111,7 +1133,8 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `js/render.js` | Drawing the map, fog, minimap, bars and effects; calls `sprites.js` for units and buildings. The ground is painted in chunks as they scroll into view (see below). |
 | `js/main.js` | Mouse, touch and keyboard input; panels and buttons; minimap toggle; sound effects; the game loop |
 | `js/music.js` | The soundtrack, composed live with Web Audio (see section 16, "Music") |
-| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (82 checks). |
+| `js/saves.js` | Where saved games are kept: the published page's private per-person store, or this browser (see section 16, "Saving") |
+| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (85 checks). |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
 tables), `ROADMAP.md` (planned stages), `ECONOMY_TEST_REPORT.md` (the October
@@ -1157,7 +1180,7 @@ rebuilt.
 
 | Test type | Method | What it checks |
 | --- | --- | --- |
-| **Rules tests** (`tests/rules.js`, 82 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Formations** (six plus Free; a group arrives where sent and stays together on the way, unlike free movement; Testudo keeps soft units inside the ring; Column puts fast units first and Artillery last). |
+| **Rules tests** (`tests/rules.js`, 85 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Formations** (six plus Free; a group arrives where sent and stays together on the way, unlike free movement; Testudo keeps soft units inside the ring; Column puts fast units first and Artillery last); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused). |
 | **AI duels** (`tests/balance/duels.sh`) | The current opponent plays an earlier version of itself (`tests/balance/ai_previous.js`, the first one; `ai_v2.js` with `OPP=v2`, the 18 October one) on many seeds, 4 games at a time, up to 60 minutes each. With `BOTHOLD=1` both sides use the previous version, giving the baseline for the same seeds. | Whether a change to the opponent actually makes it stronger. Each tactic was tried alone, then in combinations; see the results below. |
 | **AI-vs-AI batches** | Run 30 to 120 full games between two computer players on different seeds. | Games end, typical length, and **fairness** by team and by corner. |
 | **AI tech progression** | Log when the AI reaches each milestone at each difficulty. | The AI actually upgrades, researches and fields Mk II units. |
@@ -1546,3 +1569,7 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     distances so the opening pace is unchanged; the opponent digs Sentries in
     at its base approach (one, from 15:00) and builds one Gun Tower per
     three Extractors (section 20).
+24. **Save game** (21 October 2026): Autosave plus three slots, on the
+    pause and start screens; download a save as a file and load it back;
+    a loaded battle continues exactly as the original. Saves follow you
+    between devices when playing on claude.ai.

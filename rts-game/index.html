@@ -141,6 +141,13 @@
   .card ul { margin: 4px 0; padding-left: 20px; }
   /* Start screen: the two faction cards side by side. */
   .card.menu { max-width: 640px; }
+  /* Save / load: a row per slot. */
+  .card.saves { max-width: 560px; }
+  #saves-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .slot { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--edge); border-radius: 6px; background: #182018; }
+  .slot .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .slot .info b { font-size: 15px; }
+  .slot button { min-height: 38px; }
   .factions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .faction { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 8px 10px 10px; text-align: left; }
   .faction canvas { width: 100%; height: auto; aspect-ratio: 300 / 110; border-radius: 5px; background: #0d120d; }
@@ -282,6 +289,10 @@
       <button id="resumebtn" class="big">Resume</button>
       <button id="helpbtn">Help<span class="only-mouse"> (F1)</span></button>
     </div>
+    <div class="row" style="justify-content:center">
+      <button id="savebtn">Save game</button>
+      <button class="loadbtn">Load game</button>
+    </div>
     <div class="row music-row">
       <button class="musicbtn">Music: On</button>
       <label class="dim small">Volume <input id="musicvol" type="range" min="0" max="100" value="50"></label>
@@ -332,9 +343,25 @@
     </div>
     <div class="row" style="margin-top:20px">
       <button id="start" class="big">Start battle</button>
+      <button class="loadbtn">Load game</button>
       <button id="howto">How to play</button>
       <button id="watch">Watch AI vs AI</button>
       <button class="musicbtn">Music: On</button>
+    </div>
+  </div>
+</div>
+
+<!-- Save and load -->
+<div id="saves" class="overlay hidden">
+  <div class="card saves">
+    <h1 id="saves-title">Save <span>game</span></h1>
+    <div id="saves-where" class="dim small"></div>
+    <div id="saves-list"></div>
+    <div class="row" style="margin-top:14px">
+      <button id="save-file">Download this game</button>
+      <button id="load-file">Load from a file…</button>
+      <input id="load-file-input" type="file" accept=".json,application/json" hidden>
+      <button id="saves-close" class="big">Back</button>
     </div>
   </div>
 </div>
@@ -425,6 +452,7 @@
       <li>The scrap counter shows what you hold and how much room you have. When it turns yellow you're full, and scrap waits outside until you spend some or build a Base Silo.</li>
       <li>The enemy attacks in waves. Towers and a few tanks at home keep your Recycler safe while your army is away.</li>
       <li>Constructors can repair damaged buildings: select one and tap or right-click the building.</li>
+      <li><b>Save</b> from the pause screen (three slots, plus an autosave every 3 minutes and whenever you leave the page). <b>Load game</b> is on the pause and start screens. You can also download a save as a file.</li>
       <li><b>Music</b> follows the battle: it builds up when fighting breaks out near your forces. Turn it on or off on the start or pause screen.</li>
     </ul>
     <div class="row"><button id="helpclose" class="big">Back</button></div>
@@ -449,6 +477,7 @@
 <script src="js/sprites.js"></script>
 <script src="js/sprites_kethra.js"></script>
 <script src="js/render.js"></script>
+<script src="js/saves.js"></script>
 <script src="js/music.js"></script>
 <script src="js/main.js"></script>
 </body>

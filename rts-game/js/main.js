@@ -25,32 +25,113 @@ let paused = false, speed = 1, accumulator = 0, lastFrame = 0, spectating = fals
 // -----------------------------------------------------------------------------
 
 function startGame(difficulty, watch = false) {
-  spectating = watch;
   const seed = Number(new URLSearchParams(location.search).get('seed')) || Math.floor(Math.random() * 99999);
   // You play the faction you picked; the enemy fields the other one.
   const other = chosenFaction === 'kethra' ? 'scrapline' : 'kethra';
   game = createGame({ seed, difficulty, aiTeams: watch ? [1, 2] : [2], factions: { 1: chosenFaction, 2: other } });
+  enterBattle(watch);
+  input.groups = {}; view.groupOf = new Map();
+  // Small screens start zoomed out so more of the battlefield fits.
+  view.cam.zoom = Math.max(0.55, Math.min(1, Math.min(view.screenW, view.screenH) / 700));
+  const hq0 = findHQ(watch ? 1 : view.team); centerOn(hq0); if (!watch) select([hq0]);
+  logMessage(watch ? 'Spectating: two AI commanders fight it out.' : 'Drive your Recycler onto the glowing geyser and deploy it to set up your base.', 'info');
+  refreshPanel();
+}
+
+// Everything that sets the screen up for the battle in `game` (new or loaded).
+function enterBattle(watch) {
+  spectating = watch;
+  const mine_ = game.teams[watch ? 1 : view.team].faction;
   // The Army menu in your faction's words (Shards, Bulwarks...).
   for (const l of document.querySelectorAll('#armymenu .lbl')) {
     const type = l.parentElement.dataset.army;
-    l.textContent = chosenFaction === 'scrapline' ? l.dataset.plural : factionName(chosenFaction, UNIT_TYPES[type].name) + 's';
+    l.textContent = mine_ === 'scrapline' ? l.dataset.plural : factionName(mine_, UNIT_TYPES[type].name) + 's';
   }
   buildTerrain(game);
   minimapBase = null;
   view.selected = []; view.placing = null; view.revealAll = watch; view.pings = []; view.alerts = [];
-  input.groups = {}; view.groupOf = new Map();
+  view.lastAutosave = game.time;
   resize();
-  // Small screens start zoomed out so more of the battlefield fits.
-  view.cam.zoom = Math.max(0.55, Math.min(1, Math.min(view.screenW, view.screenH) / 700));
-  const hq0 = findHQ(watch ? 1 : view.team); centerOn(hq0); if (!watch) select([hq0]);
-  $('menu').classList.add('hidden');
-  $('end').classList.add('hidden');
+  for (const id of ['menu', 'end', 'saves', 'paused', 'help']) $(id).classList.add('hidden');
   $('log').innerHTML = '';
   paused = false; speed = 1; $('speedval').textContent = '×1';
-  $('paused').classList.add('hidden'); $('help').classList.add('hidden');
-  Music.play('battle', chosenFaction); Music.duck(false);
-  logMessage(watch ? 'Spectating: two AI commanders fight it out.' : 'Drive your Recycler onto the glowing geyser and deploy it to set up your base.', 'info');
+  Music.play('battle', mine_); Music.duck(false);
+}
+
+// -----------------------------------------------------------------------------
+// Saving and loading (storage is in saves.js, the save itself in sim.js)
+// -----------------------------------------------------------------------------
+
+function saveMeta() {
+  return { at: Date.now(), time: Math.floor(game.time), difficulty: game.difficulty,
+    faction: game.teams[spectating ? 1 : view.team].faction, spectating };
+}
+function saveExtra() {
+  return { spectating, cam: { x: view.cam.x, y: view.cam.y, zoom: view.cam.zoom }, formation: view.formation, groups: input.groups };
+}
+async function saveTo(slot, quiet = false) {
+  if (!game || game.winner) return;
+  try {
+    await Saves.put(slot, saveGame(game, saveExtra()), saveMeta());
+    if (!quiet) { logMessage(slot === 'auto' ? 'Autosaved' : `Saved to slot ${slot}`, 'good'); sound('ack'); }
+  } catch (err) {
+    if (quiet) return;
+    const full = err && (err.code === 'quota_exceeded' || err.name === 'QuotaExceededError');
+    logMessage(full ? 'No room to save: delete an old save, or download this game to a file' : 'Could not save: ' + ((err && err.message) || 'unknown error'), 'warn');
+    sound('error');
+  }
+}
+// Pick up a saved battle exactly where it was left, paused.
+function resumeFrom(text) {
+  const { game: g, extra } = loadGame(text);
+  game = g;
+  enterBattle(!!extra.spectating);
+  if (extra.cam) Object.assign(view.cam, extra.cam);
+  if (extra.formation) { view.formation = extra.formation; updateFormationButton(); }
+  input.groups = extra.groups || {}; view.groupOf = new Map();
+  for (const [k, ids] of Object.entries(input.groups)) for (const id of ids) view.groupOf.set(id, k);
+  logMessage(`Game loaded: ${Math.floor(game.time / 60)}:${String(Math.floor(game.time % 60)).padStart(2, '0')} into the battle`, 'good');
+  togglePause();   // starts paused, so you can get your bearings
   refreshPanel();
+}
+
+// The save / load screen. mode: 'save' or 'load'.
+async function openSaves(mode) {
+  const box = $('saves'), list = $('saves-list'), inGame = game && !game.winner;
+  $('saves-title').innerHTML = mode === 'save' ? 'Save <span>game</span>' : 'Load <span>game</span>';
+  $('save-file').classList.toggle('hidden', mode !== 'save' || !inGame);
+  list.innerHTML = '<div class="dim">Looking for saved games…</div>';
+  box.classList.remove('hidden');
+  let saved;
+  try { saved = await Saves.list(); } catch (err) { list.innerHTML = '<div class="dim">Saved games could not be read right now.</div>'; return; }
+  $('saves-where').textContent = Saves.where() === 'cloud'
+    ? 'Saves are kept with your Claude account, so they work on your other devices too.'
+    : 'Saves are kept in this browser. Download a game to keep a copy somewhere safe.';
+  list.innerHTML = '';
+  for (const [slot, label] of Saves.SLOTS) {
+    const m = saved[slot], row = document.createElement('div'); row.className = 'slot';
+    const info = document.createElement('div'); info.className = 'info';
+    info.innerHTML = `<b>${label}</b><span class="dim small">${m ? describeSave(m) : 'Empty'}</span>`;
+    row.appendChild(info);
+    const btn = (text, fn, primary) => { const b = document.createElement('button'); b.textContent = text; if (primary) b.className = 'primary'; b.onclick = fn; row.appendChild(b); return b; };
+    if (mode === 'save' && slot !== 'auto') btn(m ? 'Overwrite' : 'Save here', async () => { await saveTo(slot); openSaves('save'); }, true);
+    if (mode === 'load' && m) btn('Load', async () => {
+      try { resumeFrom(await Saves.get(slot)); } catch (err) { logMessage('Could not load that save: ' + err.message, 'warn'); sound('error'); }
+    }, true);
+    if (m) btn('Delete', async e => {
+      // A second press confirms.
+      if (e.target.dataset.sure !== '1') { e.target.dataset.sure = '1'; e.target.textContent = 'Sure?'; return; }
+      try { await Saves.del(slot); } catch (err) { /* it just stays listed */ }
+      openSaves(mode);
+    });
+    list.appendChild(row);
+  }
+}
+function describeSave(m) {
+  const f = FACTIONS[m.faction] ? FACTIONS[m.faction].name : '', d = { easy: 'Easy', normal: 'Normal', hard: 'Hard' }[m.difficulty] || '';
+  const t = `${Math.floor(m.time / 60)}:${String(m.time % 60).padStart(2, '0')}`;
+  const when = new Date(m.at).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return `${m.spectating ? 'Watching AI vs AI' : f} · ${d} · ${t} into the battle · saved ${when}`;
 }
 
 function showEnd() {
@@ -1097,6 +1178,7 @@ function frame(now) {
   if (!$('menu').classList.contains('hidden')) drawFactionPreviews(now / 1000);
   if (!game) return;
   if (now - (view.heatAt || 0) > 500 && !game.winner) { view.heatAt = now; Music.intensity(musicHeat()); }
+  if (!game.winner && game.time - (view.lastAutosave || 0) >= 180) { view.lastAutosave = game.time; saveTo('auto', true); }
   updateCamera(dt);
   if (!paused && !game.winner) {
     accumulator += dt * speed;
@@ -1154,6 +1236,24 @@ document.querySelectorAll('[data-difficulty]').forEach(b => b.addEventListener('
 }));
 $('start').onclick = () => startGame(chosenDifficulty);
 $('howto').onclick = () => openHelp();
+$('savebtn').onclick = () => openSaves('save');
+for (const b of document.querySelectorAll('.loadbtn')) b.onclick = () => openSaves('load');
+$('saves-close').onclick = () => $('saves').classList.add('hidden');
+$('save-file').onclick = async () => {
+  if (!game) return;
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-');
+  try { await Saves.download(`scrapline-${stamp}.json`, await Saves.toFile(saveGame(game, saveExtra()), saveMeta())); }
+  catch (err) { if (!err || err.code !== 'declined') logMessage('Could not download the save', 'warn'); }
+};
+$('load-file').onclick = () => $('load-file-input').click();
+$('load-file-input').onchange = async e => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  try { resumeFrom(await Saves.fromFile(await file.text())); }
+  catch (err) { logMessage('That file is not a Scrapline save', 'warn'); sound('error'); }
+};
+// Autosave when the page is hidden (phones close background tabs).
+document.addEventListener('visibilitychange', () => { if (document.hidden && game && !game.winner) saveTo('auto', true); });
 $('watch').onclick = () => startGame(chosenDifficulty, true);
 $('again').onclick = () => { $('end').classList.add('hidden'); $('menu').classList.remove('hidden'); Music.play('menu', chosenFaction); };
 // Help lives on the pause screen, so opening it always pauses the battle.
