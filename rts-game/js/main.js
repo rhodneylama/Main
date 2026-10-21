@@ -1,0 +1,1294 @@
+// =============================================================================
+// main.js — CONTROLS, SCREEN PANELS AND THE GAME LOOP
+//
+// Turns your mouse and keyboard into commands, keeps the panels at the top
+// and bottom of the screen up to date, and runs the game clock.
+// =============================================================================
+
+const $ = id => document.getElementById(id);
+// Phones and tablets get touch controls and touch wording in the help text.
+const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+document.body.classList.toggle('touch', isTouch);
+const canvas = $('game'), ctx = canvas.getContext('2d');
+const mini = $('minimap'), miniCtx = mini.getContext('2d');
+
+let game = null;
+const view = {
+  team: 1, cam: { x: 0, y: 0, zoom: 1 }, selected: [], placing: null, mouseWorld: null,
+  drag: null, pings: [], alerts: [], revealAll: false, screenW: 0, screenH: 0, attackMode: false, aim: null,
+};
+const input = { keys: new Set(), mouseX: 0, mouseY: 0, inside: false, groups: {}, lastClick: 0, panning: null };
+let paused = false, speed = 1, accumulator = 0, lastFrame = 0, spectating = false;
+
+// -----------------------------------------------------------------------------
+// Starting and ending a battle
+// -----------------------------------------------------------------------------
+
+function startGame(difficulty, watch = false) {
+  const seed = Number(new URLSearchParams(location.search).get('seed')) || Math.floor(Math.random() * 99999);
+  // You play the faction you picked; the enemy fields the other one.
+  const other = chosenFaction === 'kethra' ? 'scrapline' : 'kethra';
+  game = createGame({ seed, difficulty, aiTeams: watch ? [1, 2] : [2], factions: { 1: chosenFaction, 2: other } });
+  enterBattle(watch);
+  input.groups = {}; view.groupOf = new Map();
+  // Small screens start zoomed out so more of the battlefield fits.
+  view.cam.zoom = Math.max(0.55, Math.min(1, Math.min(view.screenW, view.screenH) / 700));
+  const hq0 = findHQ(watch ? 1 : view.team); centerOn(hq0); if (!watch) select([hq0]);
+  logMessage(watch ? 'Spectating: two AI commanders fight it out.' : 'Drive your Recycler onto the glowing geyser and deploy it to set up your base.', 'info');
+  refreshPanel();
+}
+
+// Everything that sets the screen up for the battle in `game` (new or loaded).
+function enterBattle(watch) {
+  spectating = watch;
+  const mine_ = game.teams[watch ? 1 : view.team].faction;
+  // The Army menu in your faction's words (Shards, Bulwarks...).
+  for (const l of document.querySelectorAll('#armymenu .lbl')) {
+    const type = l.parentElement.dataset.army;
+    l.textContent = mine_ === 'scrapline' ? l.dataset.plural : factionName(mine_, UNIT_TYPES[type].name) + 's';
+  }
+  buildTerrain(game);
+  minimapBase = null;
+  view.selected = []; view.placing = null; view.revealAll = watch; view.pings = []; view.alerts = [];
+  view.lastAutosave = game.time;
+  resize();
+  for (const id of ['menu', 'end', 'saves', 'paused', 'help']) $(id).classList.add('hidden');
+  $('log').innerHTML = '';
+  paused = false; speed = 1; $('speedval').textContent = '×1';
+  Music.play('battle', mine_); Music.duck(false);
+}
+
+// -----------------------------------------------------------------------------
+// Saving and loading (storage is in saves.js, the save itself in sim.js)
+// -----------------------------------------------------------------------------
+
+function saveMeta() {
+  return { at: Date.now(), time: Math.floor(game.time), difficulty: game.difficulty,
+    faction: game.teams[spectating ? 1 : view.team].faction, spectating };
+}
+function saveExtra() {
+  return { spectating, cam: { x: view.cam.x, y: view.cam.y, zoom: view.cam.zoom }, formation: view.formation, groups: input.groups };
+}
+async function saveTo(slot, quiet = false) {
+  if (!game || game.winner) return;
+  try {
+    await Saves.put(slot, saveGame(game, saveExtra()), saveMeta());
+    if (!quiet) { logMessage(slot === 'auto' ? 'Autosaved' : `Saved to slot ${slot}`, 'good'); sound('ack'); }
+  } catch (err) {
+    if (quiet) return;
+    const full = err && (err.code === 'quota_exceeded' || err.name === 'QuotaExceededError');
+    logMessage(full ? 'No room to save: delete an old save, or download this game to a file' : 'Could not save: ' + ((err && err.message) || 'unknown error'), 'warn');
+    sound('error');
+  }
+}
+// Pick up a saved battle exactly where it was left, paused.
+function resumeFrom(text) {
+  const { game: g, extra } = loadGame(text);
+  game = g;
+  enterBattle(!!extra.spectating);
+  if (extra.cam) Object.assign(view.cam, extra.cam);
+  if (extra.formation) { view.formation = extra.formation; updateFormationButton(); }
+  input.groups = extra.groups || {}; view.groupOf = new Map();
+  for (const [k, ids] of Object.entries(input.groups)) for (const id of ids) view.groupOf.set(id, k);
+  logMessage(`Game loaded: ${Math.floor(game.time / 60)}:${String(Math.floor(game.time % 60)).padStart(2, '0')} into the battle`, 'good');
+  togglePause();   // starts paused, so you can get your bearings
+  refreshPanel();
+}
+
+// The save / load screen. mode: 'save' or 'load'.
+async function openSaves(mode) {
+  const box = $('saves'), list = $('saves-list'), inGame = game && !game.winner;
+  $('saves-title').innerHTML = mode === 'save' ? 'Save <span>game</span>' : 'Load <span>game</span>';
+  $('save-file').classList.toggle('hidden', mode !== 'save' || !inGame);
+  list.innerHTML = '<div class="dim">Looking for saved games…</div>';
+  box.classList.remove('hidden');
+  let saved;
+  try { saved = await Saves.list(); } catch (err) { list.innerHTML = '<div class="dim">Saved games could not be read right now.</div>'; return; }
+  $('saves-where').textContent = Saves.where() === 'cloud'
+    ? 'Saves are kept with your Claude account, so they work on your other devices too.'
+    : 'Saves are kept in this browser. Download a game to keep a copy somewhere safe.';
+  list.innerHTML = '';
+  for (const [slot, label] of Saves.SLOTS) {
+    const m = saved[slot], row = document.createElement('div'); row.className = 'slot';
+    const info = document.createElement('div'); info.className = 'info';
+    info.innerHTML = `<b>${label}</b><span class="dim small">${m ? describeSave(m) : 'Empty'}</span>`;
+    row.appendChild(info);
+    const btn = (text, fn, primary) => { const b = document.createElement('button'); b.textContent = text; if (primary) b.className = 'primary'; b.onclick = fn; row.appendChild(b); return b; };
+    if (mode === 'save' && slot !== 'auto') btn(m ? 'Overwrite' : 'Save here', async () => { await saveTo(slot); openSaves('save'); }, true);
+    if (mode === 'load' && m) btn('Load', async () => {
+      try { resumeFrom(await Saves.get(slot)); } catch (err) { logMessage('Could not load that save: ' + err.message, 'warn'); sound('error'); }
+    }, true);
+    if (m) btn('Delete', async e => {
+      // A second press confirms.
+      if (e.target.dataset.sure !== '1') { e.target.dataset.sure = '1'; e.target.textContent = 'Sure?'; return; }
+      try { await Saves.del(slot); } catch (err) { /* it just stays listed */ }
+      openSaves(mode);
+    });
+    list.appendChild(row);
+  }
+}
+function describeSave(m) {
+  const f = FACTIONS[m.faction] ? FACTIONS[m.faction].name : '', d = { easy: 'Easy', normal: 'Normal', hard: 'Hard' }[m.difficulty] || '';
+  const t = `${Math.floor(m.time / 60)}:${String(m.time % 60).padStart(2, '0')}`;
+  const when = new Date(m.at).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return `${m.spectating ? 'Watching AI vs AI' : f} · ${d} · ${t} into the battle · saved ${when}`;
+}
+
+function showEnd() {
+  const won = game.winner === view.team;
+  $('end-title').textContent = spectating ? `${sideName(game, game.winner)} wins` : won ? 'Victory' : 'Defeat';
+  $('end-title').className = won || spectating ? 'win' : 'lose';
+  Music.sting(won || spectating);
+  $('end-reason').textContent = game.endReason;
+  const s1 = game.teams[1].stats, s2 = game.teams[2].stats;
+  const mins = Math.floor(game.time / 60), secs = Math.floor(game.time % 60);
+  $('end-stats').innerHTML = `
+    <tr><th></th><th style="color:${TEAMS[1].color}">${sideName(game, 1)}</th><th style="color:${TEAMS[2].color}">${sideName(game, 2)}</th></tr>
+    <tr><td>Vehicles built</td><td>${s1.built}</td><td>${s2.built}</td></tr>
+    <tr><td>Enemies destroyed</td><td>${s1.killed}</td><td>${s2.killed}</td></tr>
+    <tr><td>Vehicles lost</td><td>${s1.lost}</td><td>${s2.lost}</td></tr>
+    <tr><td>Scrap gathered</td><td>${Math.round(s1.scrapGathered)}</td><td>${Math.round(s2.scrapGathered)}</td></tr>
+    <tr><td colspan="3" class="dim">Battle length ${mins}:${String(secs).padStart(2, '0')}</td></tr>`;
+  $('end').classList.remove('hidden');
+}
+
+// -----------------------------------------------------------------------------
+// Camera
+// -----------------------------------------------------------------------------
+
+function resize() {
+  const dpr = 1;
+  canvas.width = window.innerWidth * dpr; canvas.height = window.innerHeight * dpr;
+  view.screenW = canvas.width; view.screenH = canvas.height;
+  const root = document.documentElement.style;
+  root.setProperty('--top-h', `${$('topbar').offsetHeight}px`);
+  root.setProperty('--panel-h', `${$('panel').offsetHeight}px`);
+  clampCamera();
+}
+
+function clampCamera() {
+  if (!game) return;
+  const c = view.cam, T = CONFIG.TILE;
+  const ww = game.map.W * T, wh = game.map.H * T;
+  const vw = view.screenW / c.zoom, vh = view.screenH / c.zoom;
+  // Let the map's edges scroll clear of the top bar and bottom panel.
+  const top = $('topbar').offsetHeight / c.zoom, bottom = $('panel').offsetHeight / c.zoom;
+  c.x = Math.max(-100, Math.min(ww - vw + 100, c.x));
+  c.y = Math.max(-40 - top, Math.min(wh - vh + bottom + 40, c.y));
+}
+
+// Put a point in the middle of the part of the map you can actually see,
+// between the top bar and the bottom panel.
+function centerOn(p) {
+  if (!p) return;
+  const top = $('topbar').offsetHeight, bottom = view.screenH - $('panel').offsetHeight;
+  view.cam.x = p.x - view.screenW / view.cam.zoom / 2;
+  view.cam.y = p.y - (top + bottom) / 2 / view.cam.zoom;
+  clampCamera();
+}
+
+const toWorld = (sx, sy) => ({ x: view.cam.x + sx / view.cam.zoom, y: view.cam.y + sy / view.cam.zoom });
+const toScreen = (wx, wy) => ({ x: (wx - view.cam.x) * view.cam.zoom, y: (wy - view.cam.y) * view.cam.zoom });
+
+function updateCamera(dt) {
+  const k = input.keys, pan = 700 * dt / view.cam.zoom;
+  if (k.has('ArrowLeft')) view.cam.x -= pan;
+  if (k.has('ArrowRight')) view.cam.x += pan;
+  if (k.has('ArrowUp')) view.cam.y -= pan;
+  if (k.has('ArrowDown')) view.cam.y += pan;
+  if (input.inside && !input.panning && document.hasFocus()) {
+    const m = 14;
+    if (input.mouseX < m) view.cam.x -= pan;
+    if (input.mouseX > view.screenW - m) view.cam.x += pan;
+    if (input.mouseY < m) view.cam.y -= pan;
+    if (input.mouseY > view.screenH - m) view.cam.y += pan;
+  }
+  clampCamera();
+}
+
+// -----------------------------------------------------------------------------
+// Mouse
+// -----------------------------------------------------------------------------
+
+function entityAt(wx, wy, pad = 0, allow = null) {
+  let best = null, bd = Infinity;
+  for (const e of game.entities) {
+    if (allow && !allow(e)) continue;
+    if (e.team !== view.team && !view.revealAll && !isVisibleTo(game, view.team, e)) continue;
+    const d = Math.hypot(e.x - wx, e.y - wy);
+    const r = (e.kind === 'building' ? e.radius : e.radius + 6) + pad;
+    if (d < r && d < bd) { bd = d; best = e; }
+  }
+  return best;
+}
+
+function scrapAt(wx, wy, pad = 0) {
+  return game.scrap.find(s => Math.hypot(s.x - wx, s.y - wy) < 18 + pad);
+}
+
+function mine(ents) { return ents.filter(e => e.team === view.team && e.hp > 0); }
+
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('mousedown', e => {
+  if (!game) return;
+  const w = toWorld(e.offsetX, e.offsetY);
+  if (e.button === 1) { input.panning = { x: e.offsetX, y: e.offsetY, cx: view.cam.x, cy: view.cam.y }; e.preventDefault(); return; }
+  if (e.button === 2) {
+    if (view.placing || view.attackMode || view.aim) { cancelModes(); return; }
+    rightClick(w);
+    return;
+  }
+  if (e.button !== 0) return;
+  if (view.placing) { placeBuilding(w, e.shiftKey); return; }
+  if (view.attackMode) { attackMoveAt(w); return; }
+  if (view.aim) { aimAt(w, 0); return; }
+  view.drag = { x0: e.offsetX, y0: e.offsetY, x1: e.offsetX, y1: e.offsetY, shift: e.shiftKey };
+});
+
+window.addEventListener('mousemove', e => {
+  if (!game) return;
+  const r = canvas.getBoundingClientRect();
+  input.mouseX = e.clientX - r.left; input.mouseY = e.clientY - r.top;
+  input.inside = e.target === canvas;
+  view.mouseWorld = toWorld(input.mouseX, input.mouseY);
+  if (view.drag) { view.drag.x1 = input.mouseX; view.drag.y1 = input.mouseY; }
+  if (input.panning) {
+    view.cam.x = input.panning.cx - (input.mouseX - input.panning.x) / view.cam.zoom;
+    view.cam.y = input.panning.cy - (input.mouseY - input.panning.y) / view.cam.zoom;
+    clampCamera();
+  }
+  updateCursor();
+});
+
+window.addEventListener('mouseup', e => {
+  if (e.button === 1) input.panning = null;
+  if (e.button !== 0 || !view.drag || !game) return;
+  const d = view.drag; view.drag = null;
+  if (Math.abs(d.x1 - d.x0) < 5 && Math.abs(d.y1 - d.y0) < 5) {
+    const w = toWorld(d.x0, d.y0);
+    const hit = entityAt(w.x, w.y);
+    let picked = hit ? pickWithDoubleTap(hit) : [];
+    if (d.shift) picked = [...new Set([...view.selected, ...picked])].filter(e => e.team === view.team);
+    select(picked);
+  } else boxSelect(d, d.shift);
+});
+
+// Clicking the same kind of unit twice quickly selects every one on screen.
+function pickWithDoubleTap(hit) {
+  const now = performance.now();
+  const double = hit.team === view.team && hit.kind === 'unit' && now - input.lastClick < 350 && input.lastType === hit.type;
+  input.lastClick = now; input.lastType = hit.type;
+  return double ? mine(game.entities).filter(u => u.type === hit.type && onScreen(u)) : [hit];
+}
+
+function boxSelect(d, additive) {
+  const a = toWorld(Math.min(d.x0, d.x1), Math.min(d.y0, d.y1));
+  const b = toWorld(Math.max(d.x0, d.x1), Math.max(d.y0, d.y1));
+  let picked = mine(game.entities).filter(u => u.kind === 'unit' && u.x >= a.x && u.x <= b.x && u.y >= a.y && u.y <= b.y);
+  // Box-selecting prefers fighting units over workers.
+  if (picked.some(u => u.def.role === 'combat')) picked = picked.filter(u => u.def.role === 'combat');
+  if (additive) picked = [...new Set([...view.selected, ...picked])].filter(e => e.team === view.team);
+  select(picked);
+}
+
+function attackMoveAt(w, pad = 0) {
+  const ids = mine(view.selected).filter(u => u.kind === 'unit').map(u => u.id);
+  if (ids.length) {
+    const t = entityAt(w.x, w.y, pad);
+    if (t && t.team !== view.team) issueCommand(game, view.team, { type: 'attack', ids, targetId: t.id });
+    else issueCommand(game, view.team, { type: 'move', ids, x: w.x, y: w.y, attackMove: true, formation: view.formation });
+    ping(w, '#ff7a6a'); sound('ack');
+  }
+  view.attackMode = false; refreshPanel();
+}
+
+function cancelModes() {
+  view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
+  refreshPanel();
+}
+
+function geyserAt(wx, wy, pad = 0) {
+  return game.geysers.find(g => Math.hypot(g.x - wx, g.y - wy) < 30 + pad && !geyserTaken(game, g));
+}
+
+// Your Recycler, whether it is still driving or already deployed.
+const findHQ = team => game.entities.find(e => e.team === team && (e.type === 'recycler' || e.type === 'mobileRecycler'));
+
+// Units of a basic kind: 'tank' includes Tank Mk II, and so on.
+const ofType = (list, type) => mine(list).filter(e => e.kind === 'unit' && baseType(e) === type);
+
+// Second tap/click after pressing Defend or Deploy.
+function aimAt(w, pad) {
+  if (view.aim === 'guard') {
+    const guards = mine(view.selected).filter(u => u.kind === 'unit' && u.def.weapon);
+    const b = entityAt(w.x, w.y, pad, e => !guards.includes(e));
+    if (!b || b.team !== view.team) { logMessage(`${isTouch ? 'Tap' : 'Click'} one of your buildings or vehicles to guard it`, 'warn'); sound('error'); return; }
+    issueCommand(game, view.team, { type: 'guard', ids: guards.map(u => u.id), targetId: b.id });
+    logMessage(`Guarding ${nameOf(b)}`, 'info');
+    ping(b, '#8cc8ff');
+  } else if (view.aim === 'rally') {
+    const b = mine(view.selected).find(e => e.kind === 'building');
+    if (b) issueCommand(game, view.team, { type: 'rally', buildingId: b.id, x: w.x, y: w.y });
+    ping(w, '#8cffa0');
+  } else if (view.aim === 'deploy') {
+    const g = geyserAt(w.x, w.y, pad);
+    if (!g) { logMessage('Tap a free, glowing scrap geyser', 'warn'); sound('error'); return; }
+    const ids = [...ofType(view.selected, 'mobileRecycler'), ...ofType(view.selected, 'scavenger')].map(u => u.id);
+    issueCommand(game, view.team, { type: 'deploy', ids, geyserId: g.id });
+    ping(g, '#f0c040');
+  }
+  sound('ack');
+  view.aim = null; refreshPanel();
+}
+
+// Unit groups, as in Battlezone 2: save the selected vehicles as group 1–9
+// and pick them again with one press. Pressing a group twice quickly jumps
+// the camera to it. Destroyed vehicles drop out of their group.
+function groupMembers(key) {
+  return (input.groups[key] || []).map(id => game.byId.get(id)).filter(u => u && u.hp > 0 && u.team === view.team);
+}
+function setGroup(key) {
+  const units = mine(view.selected).filter(u => u.kind === 'unit');
+  if (!units.length) { logMessage('Select some vehicles first', 'warn'); sound('error'); return; }
+  // A vehicle belongs to one group at a time.
+  for (const k of Object.keys(input.groups)) input.groups[k] = input.groups[k].filter(id => !units.some(u => u.id === id));
+  input.groups[key] = units.map(u => u.id);
+  view.groupOf = new Map();
+  for (const [k, ids] of Object.entries(input.groups)) for (const id of ids) view.groupOf.set(id, k);
+  logMessage(`Group ${key} set: ${units.length} vehicle${units.length > 1 ? 's' : ''}`, 'info');
+  sound('ack');
+}
+function recallGroup(key) {
+  const g = groupMembers(key);
+  if (!g.length) { logMessage(`Group ${key} is empty`, 'info'); return; }
+  const now = performance.now();
+  if (input.lastGroup === key && now - input.lastGroupAt < 400) centerOn(g[0]);
+  input.lastGroup = key; input.lastGroupAt = now;
+  select(g);
+}
+// The Formation menu: how your selected vehicles line up when you send
+// them somewhere together. The choice applies to every group move until you
+// change it, and is remembered on this device.
+view.formation = 'free';
+try { if (FORMATIONS.some(f => f.key === localStorage.getItem('scrapline.formation'))) view.formation = localStorage.getItem('scrapline.formation'); } catch (err) { /* optional */ }
+
+// A little diagram of a formation, pointing up the page: squares are armour
+// (Tanks, Sentries), triangles fast units (Scouts, Hornets), circles guns
+// and workers (Artillery, Scavengers, Constructors).
+const FORM_SAMPLE = ['tank', 'tank', 'tank', 'sentry', 'scout', 'scout', 'hornet', 'artillery', 'artillery'].map((type, i) => ({ id: i + 1, type, def: UNIT_TYPES[type] }));
+function drawFormationIcon(c, key) {
+  const ctx = c.getContext('2d'), W = c.width, H = c.height;
+  ctx.clearRect(0, 0, W, H);
+  let pts = formationOffsets(key, FORM_SAMPLE);
+  if (!pts) pts = FORM_SAMPLE.map((u, i) => ({ u, f: Math.sin(i * 2.3) * 60, r: Math.cos(i * 3.7) * 70 }));  // free: a loose scatter
+  const ext = Math.max(...pts.map(p => Math.max(Math.abs(p.f), Math.abs(p.r)))) || 1;
+  const k = (Math.min(W, H) / 2 - 7) / ext;
+  ctx.strokeStyle = 'rgba(140,255,160,0.35)'; ctx.lineWidth = 1.5;  // direction of travel
+  ctx.beginPath(); ctx.moveTo(W - 7, H - 6); ctx.lineTo(W - 7, 6); ctx.lineTo(W - 10, 10); ctx.moveTo(W - 7, 6); ctx.lineTo(W - 4, 10); ctx.stroke();
+  for (const p of pts) {
+    const x = W / 2 + p.r * k, y = H / 2 - p.f * k, role = formRole(p.u);
+    ctx.beginPath();
+    if (role === 'heavy') { ctx.fillStyle = '#8cffa0'; ctx.rect(x - 3.5, y - 3.5, 7, 7); }
+    else if (role === 'light') { ctx.fillStyle = '#7cc4ff'; ctx.moveTo(x, y - 4.5); ctx.lineTo(x + 4, y + 3.5); ctx.lineTo(x - 4, y + 3.5); ctx.closePath(); }
+    else { ctx.fillStyle = '#f0c040'; ctx.arc(x, y, 3.4, 0, Math.PI * 2); }
+    ctx.fill();
+  }
+}
+
+function setFormation(key) {
+  view.formation = key;
+  try { localStorage.setItem('scrapline.formation', key); } catch (err) { /* optional */ }
+  updateFormationButton();
+  // Selected vehicles standing still form up on the spot, facing the way they face.
+  const units = mine(view.selected).filter(u => u.kind === 'unit');
+  if (key !== 'free' && units.length > 1) {
+    const cx = units.reduce((a, u) => a + u.x, 0) / units.length, cy = units.reduce((a, u) => a + u.y, 0) / units.length;
+    const hx = units.reduce((a, u) => a + Math.cos(u.angle), 0), hy = units.reduce((a, u) => a + Math.sin(u.angle), 0);
+    issueCommand(game, view.team, { type: 'move', ids: units.map(u => u.id), x: cx, y: cy, formation: key, heading: Math.atan2(hy, hx) });
+  }
+  const f = FORMATIONS.find(x => x.key === key);
+  logMessage(key === 'free' ? 'Formation off: vehicles move freely' : `Formation: ${f.name}. Group moves keep this shape.`, 'info');
+  sound('ack');
+}
+function updateFormationButton() {
+  const f = FORMATIONS.find(x => x.key === view.formation);
+  $('q-form').innerHTML = `${view.formation === 'free' ? 'Formation' : f.name} ▾`;
+}
+function toggleFormationMenu() {
+  const menu = $('formmenu');
+  if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
+  $('armymenu').classList.add('hidden');
+  menu.innerHTML = '';
+  for (const f of FORMATIONS) {
+    const b = document.createElement('button'); b.className = 'fopt' + (f.key === view.formation ? ' active' : '');
+    const c = document.createElement('canvas'); c.width = 64; c.height = 56; drawFormationIcon(c, f.key);
+    const t = document.createElement('div'); t.innerHTML = `<b>${f.name}</b><span class="dim small">${f.desc}</span>`;
+    b.append(c, t);
+    onPress(b, () => { menu.classList.add('hidden'); setFormation(f.key); });
+    menu.appendChild(b);
+  }
+  const note = document.createElement('div'); note.className = 'note';
+  note.innerHTML = '<span style="color:#8cffa0">■</span> Tanks, Sentries &nbsp; <span style="color:#7cc4ff">▲</span> Scouts, Hornets &nbsp; <span style="color:#f0c040">●</span> Artillery, workers. ' +
+    'The group marches at its slowest vehicle\'s pace and waits for stragglers.';
+  menu.appendChild(note);
+  const r = $('q-form').getBoundingClientRect();
+  menu.style.top = `${r.bottom + 6}px`;
+  menu.classList.remove('hidden');
+  menu.style.left = `${Math.max(6, Math.min(r.left, window.innerWidth - menu.offsetWidth - 6))}px`;
+}
+
+// The Army button opens a menu: everyone, or just one kind of vehicle.
+function toggleArmyMenu() {
+  const menu = $('armymenu');
+  if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
+  const all = mine(game.entities).filter(u => u.kind === 'unit' && u.def.role === 'combat');
+  for (const b of menu.querySelectorAll('button')) {
+    const t = b.dataset.army;
+    const n = t === 'all' ? all.length : all.filter(u => baseType(u) === t).length;
+    b.querySelector('.n').textContent = n;
+    b.disabled = n === 0;
+  }
+  const r = $('q-army').getBoundingClientRect();
+  menu.style.left = `${Math.max(6, Math.min(r.left, window.innerWidth - 200))}px`;
+  menu.style.top = `${r.bottom + 6}px`;
+  menu.classList.remove('hidden');
+}
+
+function selectArmyType(type) {
+  $('armymenu').classList.add('hidden');
+  if (type === 'all') { selectArmy(); return; }
+  const list = mine(game.entities).filter(u => u.kind === 'unit' && baseType(u) === type);
+  if (!list.length) { logMessage(`You have no ${UNIT_TYPES[type].name}s`, 'info'); return; }
+  select(list);
+}
+
+function selectArmy() {
+  const army = mine(game.entities).filter(u => u.kind === 'unit' && u.def.role === 'combat');
+  if (!army.length) { logMessage('You have no combat vehicles', 'info'); return; }
+  select(army);
+}
+
+// -----------------------------------------------------------------------------
+// Touch screens (phones and tablets)
+//   tap = select your own vehicle, or give selected vehicles an order
+//   one-finger drag = scroll · pinch = zoom · press and hold, then drag = box select
+// -----------------------------------------------------------------------------
+
+const touch = { points: new Map(), mode: null, start: null, pinch: null, holdTimer: null };
+const TOUCH_PAD = 14;  // fingers are less precise than a mouse pointer
+
+function touchPos(t) {
+  const r = canvas.getBoundingClientRect();
+  return { x: t.clientX - r.left, y: t.clientY - r.top };
+}
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  unlockAudio();
+  if (!game) return;
+  for (const t of e.changedTouches) touch.points.set(t.identifier, touchPos(t));
+  clearTimeout(touch.holdTimer);
+  const pts = [...touch.points.values()];
+  if (pts.length === 1) {
+    const p = pts[0];
+    touch.start = { x: p.x, y: p.y, cx: view.cam.x, cy: view.cam.y };
+    touch.mode = 'pending';
+    touch.holdTimer = setTimeout(() => {
+      if (touch.mode !== 'pending') return;
+      touch.mode = 'box';
+      view.drag = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+      try { navigator.vibrate && navigator.vibrate(15); } catch (err) { /* optional */ }
+    }, 450);
+  } else if (pts.length >= 2) {
+    view.drag = null;
+    const [a, b] = pts;
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    touch.mode = 'pinch';
+    touch.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, zoom: view.cam.zoom, world: toWorld(mid.x, mid.y) };
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (!game) return;
+  for (const t of e.changedTouches) if (touch.points.has(t.identifier)) touch.points.set(t.identifier, touchPos(t));
+  const pts = [...touch.points.values()];
+  if (touch.mode === 'pinch' && pts.length >= 2) {
+    const [a, b] = pts;
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    view.cam.zoom = Math.max(0.45, Math.min(1.8, touch.pinch.zoom * d / touch.pinch.d));
+    view.cam.x = touch.pinch.world.x - mid.x / view.cam.zoom;
+    view.cam.y = touch.pinch.world.y - mid.y / view.cam.zoom;
+    clampCamera();
+    return;
+  }
+  if (pts.length !== 1 || !touch.start) return;
+  const p = pts[0];
+  if (touch.mode === 'box') { view.drag.x1 = p.x; view.drag.y1 = p.y; return; }
+  if (touch.mode === 'pending' && Math.hypot(p.x - touch.start.x, p.y - touch.start.y) > 10) {
+    touch.mode = 'pan'; clearTimeout(touch.holdTimer);
+  }
+  if (touch.mode === 'pan') {
+    view.cam.x = touch.start.cx - (p.x - touch.start.x) / view.cam.zoom;
+    view.cam.y = touch.start.cy - (p.y - touch.start.y) / view.cam.zoom;
+    clampCamera();
+  }
+}, { passive: false });
+
+function touchEnd(e) {
+  e.preventDefault();
+  if (!game) return;
+  const ended = [];
+  for (const t of e.changedTouches) { if (touch.points.has(t.identifier)) ended.push(touch.points.get(t.identifier)); touch.points.delete(t.identifier); }
+  clearTimeout(touch.holdTimer);
+  if (touch.points.size > 0) {
+    // Lifting one finger of a pinch: don't let the other one start a scroll jump.
+    if (touch.mode === 'pinch') touch.mode = 'done';
+    return;
+  }
+  if (e.type === 'touchend' && touch.mode === 'pending' && ended.length) handleTap(ended[0]);
+  if (touch.mode === 'box' && view.drag) {
+    const d = view.drag; view.drag = null;
+    if (Math.abs(d.x1 - d.x0) > 12 || Math.abs(d.y1 - d.y0) > 12) boxSelect(d, false);
+  }
+  touch.mode = null; touch.start = null;
+}
+canvas.addEventListener('touchend', touchEnd, { passive: false });
+canvas.addEventListener('touchcancel', touchEnd, { passive: false });
+
+function handleTap(p) {
+  const w = toWorld(p.x, p.y);
+  if (view.placing) {
+    // First tap positions the building; the "Build here" button confirms it.
+    view.placeAt = w; view.placeReady = true; refreshPanel();
+    return;
+  }
+  if (view.attackMode) { attackMoveAt(w, TOUCH_PAD); return; }
+  if (view.aim) { aimAt(w, TOUCH_PAD); return; }
+  const hit = entityAt(w.x, w.y, TOUCH_PAD);
+  const sel = mine(view.selected);
+  const hasBuilder = sel.some(u => u.kind === 'unit' && u.def.role === 'builder');
+  const needsWork = hit && hit.team === view.team && hit.kind === 'building' && (hit.built < 1 || hit.hp < hit.maxHp);
+  const artyDefend = hit && hit.team === view.team && hit.kind === 'building' && !hasBuilder &&
+    sel.some(u => baseType(u) === 'artillery');
+  if (hit && hit.team === view.team && !(hasBuilder && needsWork) && !artyDefend) { select(pickWithDoubleTap(hit)); return; }
+  if (sel.length && !spectating) {
+    // Tap targets are a little bigger for fingers.
+    const node = scrapAt(w.x, w.y, TOUCH_PAD);
+    rightClick(hit ? { x: hit.x, y: hit.y } : node ? { x: node.x, y: node.y } : w, TOUCH_PAD);
+    return;
+  }
+  select(hit ? [hit] : []);
+}
+
+// Minimap works with a finger too: touch or drag to move the camera.
+mini.addEventListener('touchstart', e => { e.preventDefault(); if (game) centerOn(minimapWorld(e.touches[0])); }, { passive: false });
+mini.addEventListener('touchmove', e => { e.preventDefault(); if (game) centerOn(minimapWorld(e.touches[0])); }, { passive: false });
+
+canvas.addEventListener('wheel', e => {
+  if (!game) return;
+  e.preventDefault();
+  const before = toWorld(e.offsetX, e.offsetY);
+  view.cam.zoom = Math.max(0.45, Math.min(1.8, view.cam.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
+  view.cam.x = before.x - e.offsetX / view.cam.zoom;
+  view.cam.y = before.y - e.offsetY / view.cam.zoom;
+  clampCamera();
+}, { passive: false });
+
+canvas.addEventListener('mouseleave', () => { input.inside = false; });
+
+function onScreen(e) {
+  const s = toScreen(e.x, e.y);
+  return s.x >= 0 && s.y >= 0 && s.x <= view.screenW && s.y <= view.screenH;
+}
+
+function rightClick(w, pad = 0) {
+  const sel = mine(view.selected);
+  if (!sel.length) return;
+  const units = sel.filter(e => e.kind === 'unit');
+  const buildings = sel.filter(e => e.kind === 'building');
+  if (!units.length) {
+    for (const b of buildings) if (b.def.produces || b.type === 'repairpad') issueCommand(game, view.team, { type: 'rally', buildingId: b.id, x: w.x, y: w.y });
+    ping(w, '#8cffa0');
+    return;
+  }
+  const ids = units.map(u => u.id);
+  const t = entityAt(w.x, w.y, pad);
+  const node = scrapAt(w.x, w.y, pad);
+  const geyser = geyserAt(w.x, w.y, pad);
+  const arty = units.filter(u => baseType(u) === 'artillery');
+  if (geyser && units.some(u => u.def.role === 'harvester' || u.def.role === 'hq')) {
+    issueCommand(game, view.team, { type: 'deploy', ids, geyserId: geyser.id });
+    ping(geyser, '#f0c040');
+  } else if (t && t.team === view.team && t.kind === 'building' && arty.length && !units.some(u => u.def.role === 'builder')) {
+    // Artillery told to go to one of your buildings digs in to defend it.
+    issueCommand(game, view.team, { type: 'guard', ids: arty.map(u => u.id), targetId: t.id });
+    const rest = ids.filter(id => !arty.some(a => a.id === id));
+    if (rest.length) issueCommand(game, view.team, { type: 'move', ids: rest, x: w.x, y: w.y, formation: view.formation });
+    ping(t, '#8cc8ff');
+  } else if (t && t.team !== view.team && units.some(u => u.def.weapon)) {
+    issueCommand(game, view.team, { type: 'attack', ids, targetId: t.id });
+    ping(t, '#ff7a6a');
+  } else if (t && t.team === view.team && t.kind === 'building' && units.some(u => u.def.role === 'builder') && (t.built < 1 || t.hp < t.maxHp)) {
+    issueCommand(game, view.team, { type: 'repair', ids, targetId: t.id });
+    ping(t, '#f0c040');
+  } else if (node && units.some(u => u.def.role === 'harvester')) {
+    const scavs = units.filter(u => u.def.role === 'harvester').map(u => u.id);
+    issueCommand(game, view.team, { type: 'harvest', ids: scavs, nodeId: node.id });
+    const rest = ids.filter(id => !scavs.includes(id));
+    if (rest.length) issueCommand(game, view.team, { type: 'move', ids: rest, x: w.x, y: w.y, formation: view.formation });
+    ping(node, '#f0c040');
+  } else {
+    issueCommand(game, view.team, { type: 'move', ids, x: w.x, y: w.y, formation: view.formation });
+    ping(w, '#8cffa0');
+  }
+  sound('ack');
+}
+
+function confirmPlacement() {
+  // Use the spot tapped on the map, not wherever the finger is now (the button).
+  if (view.placing && view.placeAt) placeBuilding(view.placeAt, false);
+}
+
+function placeBuilding(w, keepPlacing) {
+  const builder = mine(view.selected).find(u => u.kind === 'unit' && u.def.role === 'builder');
+  const def = BUILDING_TYPES[view.placing];
+  if (!builder || !def) { view.placing = null; return; }
+  const { tx, ty } = placementTile(w, def.size);
+  const check = canPlaceBuilding(game, view.team, view.placing, tx, ty);
+  if (!check.ok) { logMessage(check.why, 'warn'); sound('error'); return; }
+  if (game.teams[view.team].scrap < def.cost) { logMessage('Not enough scrap', 'warn'); sound('error'); return; }
+  issueCommand(game, view.team, { type: 'build', ids: [builder.id], building: view.placing, tx, ty });
+  sound('build');
+  if (!keepPlacing) { view.placing = null; view.placeReady = false; view.placeAt = null; }
+  refreshPanel();
+}
+
+function ping(p, color) { view.pings.push({ x: p.x, y: p.y, color, t: 0 }); }
+
+function updateCursor() {
+  if (!game) return;
+  let c = 'default';
+  if (view.placing) c = 'copy';
+  else if (view.attackMode || view.aim) c = 'crosshair';
+  else if (view.mouseWorld && view.selected.length) {
+    const t = entityAt(view.mouseWorld.x, view.mouseWorld.y);
+    if (t && t.team !== view.team && mine(view.selected).some(u => u.kind === 'unit' && u.def.weapon)) c = 'crosshair';
+    else if (scrapAt(view.mouseWorld.x, view.mouseWorld.y) && mine(view.selected).some(u => u.def && u.def.role === 'harvester')) c = 'cell';
+    else if (t) c = 'pointer';
+  }
+  canvas.style.cursor = c;
+}
+
+// Minimap: left-click jumps the camera, right-click sends selected units.
+function minimapWorld(e) {
+  const r = mini.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / r.width * game.map.W * CONFIG.TILE, y: (e.clientY - r.top) / r.height * game.map.H * CONFIG.TILE };
+}
+mini.addEventListener('contextmenu', e => e.preventDefault());
+mini.addEventListener('mousedown', e => {
+  if (!game) return;
+  const w = minimapWorld(e);
+  if (e.button === 2) { rightClick(w); return; }
+  centerOn(w); input.miniDrag = true;
+});
+mini.addEventListener('mousemove', e => { if (input.miniDrag && game) centerOn(minimapWorld(e)); });
+window.addEventListener('mouseup', () => { input.miniDrag = false; });
+
+// -----------------------------------------------------------------------------
+// Keyboard
+// -----------------------------------------------------------------------------
+
+window.addEventListener('keydown', e => {
+  if (!game || !$('menu').classList.contains('hidden')) return;
+  input.keys.add(e.key);
+  const key = e.key.toUpperCase();
+  if (e.key === 'Escape') {
+    if (view.placing || view.attackMode || view.aim || view.confirmDemolish || view.confirmRecycle) cancelModes();
+    else if (!$('help').classList.contains('hidden')) $('help').classList.add('hidden');
+    else select([]);
+    return;
+  }
+  if (/^[1-9]$/.test(e.key)) {
+    if (e.ctrlKey || e.metaKey) { setGroup(e.key); e.preventDefault(); }
+    else recallGroup(e.key);
+    return;
+  }
+  if (e.key === 'Enter' && view.placing) { confirmPlacement(); return; }
+  if (key === 'P' || e.key === 'Pause') { togglePause(); return; }
+  if (key === 'H') { centerOn(findHQ(view.team)); return; }
+  if (key === 'M') { toggleMute(); return; }
+  if (e.key === ' ') { if (view.selected[0]) centerOn(view.selected[0]); e.preventDefault(); return; }
+  if (e.key === 'F1' || e.key === '?') { if ($('help').classList.contains('hidden')) openHelp(); else $('help').classList.add('hidden'); e.preventDefault(); return; }
+  if (key === 'A' && !view.placing && mine(view.selected).some(u => u.kind === 'unit' && u.def.weapon)) { view.attackMode = true; refreshPanel(); return; }
+  if (key === 'S' && !view.placing) { issueCommand(game, view.team, { type: 'stop', ids: mine(view.selected).map(u => u.id) }); return; }
+  if (key === 'X' && !view.placing) { idleWorker(); return; }
+  const btn = document.querySelector(`#commands button[data-hotkey="${key}"]`);
+  if (btn && !btn.disabled) btn.click();
+});
+window.addEventListener('keyup', e => input.keys.delete(e.key));
+window.addEventListener('blur', () => input.keys.clear());
+window.addEventListener('resize', resize);
+// On small screens the bars change height with their content; keep overlays clear of them.
+const barObserver = window.ResizeObserver && new ResizeObserver(() => {
+  const root = document.documentElement.style;
+  root.setProperty('--top-h', `${$('topbar').offsetHeight}px`);
+  root.setProperty('--panel-h', `${$('panel').offsetHeight}px`);
+});
+if (window.ResizeObserver) for (const el of [$('topbar'), $('panel')]) barObserver.observe(el);
+
+function idleWorker() {
+  const idle = mine(game.entities).filter(u => u.kind === 'unit' && u.def.role !== 'combat' &&
+    (u.order.type === 'idle' || (u.order.type === 'harvest' && u.order.phase === 'wait')));
+  if (!idle.length) { logMessage('No idle workers', 'info'); return; }
+  input.idleIdx = ((input.idleIdx || 0) + 1) % idle.length;
+  select([idle[input.idleIdx]]); centerOn(idle[input.idleIdx]);
+}
+
+function togglePause() {
+  paused = !paused;
+  Music.duck(paused);
+  $('paused').classList.toggle('hidden', !paused);
+}
+
+// -----------------------------------------------------------------------------
+// Selection and the command panel
+// -----------------------------------------------------------------------------
+
+function select(list) {
+  // Buildings can only be selected one at a time.
+  const units = list.filter(e => e.kind === 'unit');
+  view.selected = units.length ? units : list.slice(0, 1);
+  view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
+  $('armymenu').classList.add('hidden'); $('formmenu').classList.add('hidden');
+  if (view.selected.length && view.selected[0].team === view.team) sound('select');
+  refreshPanel();
+}
+
+// Buttons react on mouse-down, so a click still counts if the panel redraws.
+function onPress(el, fn) {
+  el.addEventListener('mousedown', e => { if (e.button === 0) { e.preventDefault(); fn(); } });
+  el.addEventListener('click', e => { if (e.detail === 0) fn(); });  // keyboard hotkeys
+}
+
+// Recycling. For a selected Repair Pad: your vehicles parked on it. For
+// selected vehicles: those of them parked on one of your pads. The mobile
+// Recycler can never be recycled.
+function recycleCandidates(sel) {
+  if (!game || spectating || !sel.length) return [];
+  const pad = sel.length === 1 && sel[0].type === 'repairpad' && sel[0].team === view.team && sel[0].built >= 1 ? sel[0] : null;
+  const pool = pad ? game.entities.filter(u => u.kind === 'unit' && u.team === view.team && onPad(pad, u)) : sel;
+  return pool.filter(u => u.kind === 'unit' && u.team === view.team && u.hp > 0 && u.def.role !== 'hq' && u.def.cost > 0 && padUnder(game, u));
+}
+
+// Recycle needs a second, separate press to confirm, so a stray tap can't
+// throw a vehicle away. The confirm button has no keyboard shortcut.
+function addRecycleButtons(addBtn, list, tip, keys) {
+  const value = list.reduce((a, u) => a + recycleValue(u), 0);
+  const ids = list.map(u => u.id).join(',');
+  const what = list.length === 1 ? nameOf(list[0]) : `${list.length} vehicles`;
+  if (view.confirmRecycle === ids) {
+    addBtn('Confirm recycle', null, '', () => {
+      issueCommand(game, view.team, { type: 'recycle', ids: list.map(u => u.id) });
+      view.confirmRecycle = null; sound('build'); refreshPanel();
+    }, { danger: true, note: `+${value} scrap`, title: `Take ${what} apart for ${value} scrap` });
+    addBtn('Keep', null, 'Esc', () => { view.confirmRecycle = null; refreshPanel(); });
+    tip.textContent = `Recycle ${what} for ${value} scrap (half the cost)? ${list.length === 1 ? 'It' : 'They'} will be gone for good.`;
+  } else {
+    addBtn('Recycle', null, keys.shift(), () => { view.confirmRecycle = ids; refreshPanel(); },
+      { note: `+${value} scrap`, title: `Take ${what} apart on the Repair Pad for half the cost` });
+  }
+}
+
+let panelKey = '';
+function refreshPanel() {
+  const info = $('selinfo'), cmds = $('commands');
+  const sel = view.selected.filter(e => e.hp > 0);
+  // Only rebuild the buttons when something about them actually changed.
+  const key = game ? JSON.stringify([sel.map(e => e.id), view.placing, view.placeReady, view.attackMode, view.aim, view.confirmDemolish, spectating,
+    view.confirmRecycle, recycleCandidates(sel).map(u => u.id),
+    sel.map(e => !!e.rally), sel.map(e => !!e.deployed),
+    sel.map(e => [e.level, e.upgrading !== null && e.upgrading !== undefined ? Math.floor(e.upgrading) : -1, e.researching ? e.researching.key + Math.floor(e.researching.t) : 0, e.hp < e.maxHp]),
+    Object.keys(game.teams[view.team].research).join(), game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1),
+    game.entities.filter(b => b.team === view.team && b.researching).map(b => b.researching.key + Math.floor(b.researching.t / 3)).join(),
+    sel.map(e => [e.built >= 1, e.queue && e.queue.join(), e.blocked, e.waiting]),
+    Object.values(UNIT_TYPES).concat(Object.values(BUILDING_TYPES)).map(d => game.teams[view.team].scrap >= d.cost)]) : '';
+  const rebuild = key !== panelKey;
+  panelKey = key;
+  if (rebuild) cmds.innerHTML = '';
+  if (!game || !sel.length) {
+    info.innerHTML = `<div class="dim">Nothing selected.<br>Left-click or drag a box to select your vehicles.</div>`;
+    return;
+  }
+  const own = sel[0].team === view.team && !spectating;
+  if (sel.length === 1) {
+    const e = sel[0], d = e.def;
+    let extra = '';
+    if (e.kind === 'unit' && e.def.role === 'harvester') extra = `Carrying ${Math.floor(e.carry)} / ${d.carryMax} scrap` +
+      (d.canDeploy ? ' · can deploy on geysers' : ' · cannot deploy (needs Scavenger II)');
+    if (e.kind === 'unit' && e.def.role === 'builder') extra = d.canRepair ? 'Builds and repairs' : 'Builds only. Repairs need a Constructor II.';
+    if (e.kind === 'unit' && d.weapon) extra = `Damage ${d.weapon.damage} · Range ${d.weapon.range} · Speed ${d.speed}`;
+    if (e.kind === 'unit' && d.deployable) extra = e.deployed ? `Deployed: guarding this spot (range ${d.weapon.range}). Pack up to move it.` : 'Packed up: cannot fire. Move it into place, then press Deploy.';
+    if (e.kind === 'building' && e.built < 1) extra = `Under construction — ${Math.floor(e.built * 100)}%`;
+    if (e.kind === 'building' && d.weapon && e.built >= 1) extra = `Damage ${d.weapon.damage} · Range ${d.weapon.range}`;
+    if (e.kind === 'building' && d.income) extra = e.built >= 1
+      ? `Pumping about ${Math.round(d.income * 60)} scrap a minute straight into your total` +
+        (e.stored > 0.5 ? `. Storage full: ${Math.floor(e.stored)} / ${d.store} waiting here${e.stored >= d.store - 1 ? ' (full, so pumping has stopped). Build a Base Silo or spend some scrap.' : '.'}` : '')
+      : `Setting up — ${Math.floor(e.built * 100)}%`;
+    if (e.kind === 'building' && d.capacity && e.built >= 1) extra = `Stores ${d.capacity} scrap`;
+    if (e.type === 'recycler' && e.built >= 1) extra = `Stores ${d.capacity} scrap · pumps its geyser very slowly (${(d.income * 60).toFixed(0)} a minute)`;
+    if (e.type === 'recycler' && e.built < 1) extra = `Deploying — ${Math.floor(e.built * 100)}%`;
+    if (e.type === 'mobileRecycler') extra = e.order.type === 'deploy' ? 'Driving to the geyser to deploy' : 'Not deployed yet. Drive it onto a scrap geyser.';
+    if (e.kind === 'unit' && e.order.type === 'scout') extra = e.order.packId ? 'Scouting with the pack' : 'Scouting alone';
+    if (e.kind === 'unit' && e.order.type === 'patrol') extra = 'On patrol';
+    if (e.kind === 'unit' && e.order.type === 'guard') { const t = game.byId.get(e.order.targetId); extra = t ? `Guarding ${nameOf(t)}` : 'Guarding'; }
+    if (e.kind === 'building' && e.upgrading !== null) { const up = upgradeOf(e); extra = `Upgrading to ${up.name} — ${Math.floor(e.upgrading / up.time * 100)}%${d.produces ? ' (production paused)' : ''}`; }
+    if (e.kind === 'building' && e.researching) extra = `Researching ${RESEARCH[e.researching.key].name} — ${Math.floor(e.researching.t / RESEARCH[e.researching.key].time * 100)}%`;
+    if (e.type === 'radar' && e.built >= 1) extra = `Next radar ping in ${Math.ceil(e.pingTimer)}s`;
+    if (e.type === 'repairpad' && e.built >= 1) extra = 'Drive damaged vehicles onto the pad to repair them.';
+    // In the words of whoever owns it (a Kethra Bulwark, not a Tank).
+    info.innerHTML = `<div class="selname" style="color:${TEAMS[e.team].color}">${nameOf(e)}<span class="hp">Health ${Math.ceil(e.hp)} / ${e.maxHp}</span></div>
+      <div class="dim extra">${factionText(e.faction, extra)}</div><div class="dim small">${factionText(e.faction, d.desc)}</div>`;
+  } else {
+    const counts = Object.create(null);
+    for (const e of sel) counts[nameOf(e)] = (counts[nameOf(e)] || 0) + 1;
+    info.innerHTML = `<div class="selname">${sel.length} vehicles</div>` +
+      `<div class="extra">${Object.entries(counts).map(([n, c]) => `${c} × ${n}`).join(' · ')}</div>`;
+  }
+  // The build progress inside a production button moves every frame without
+  // rebuilding the panel.
+  if (own && !rebuild && sel[0].queue && sel[0].queue.length) {
+    const bar = cmds.querySelector('.prog');
+    if (bar) bar.style.width = `${Math.min(100, sel[0].prodTime / UNIT_TYPES[sel[0].queue[0]].buildTime * 100)}%`;
+  }
+  if (!own || !rebuild) return;
+
+  // Your own buttons, in your faction's words.
+  const own_ = s => s && factionText(game.teams[view.team].faction, s);
+  const addBtn = (label, cost, hotkey, onClick, opts = {}) => {
+    label = own_(label); opts.title = own_(opts.title); opts.note = own_(opts.note);
+    const b = document.createElement('button');
+    b.dataset.hotkey = hotkey;
+    // Production buttons get a second row: price (or a note), how many are
+    // queued, and a − that removes one.
+    const sub = (opts.note ? `<span class="note">${opts.note}</span>` : cost !== null ? `<span class="cost">${cost}</span>` : '') +
+      (opts.badge ? `<span class="badge">×${opts.badge}</span>` : '');
+    b.innerHTML = `<span class="hk">${hotkey || ''}</span><span class="lbl">${label}</span>` +
+      (opts.badge || opts.onCancel ? `<span class="row">${sub}</span>` : sub);
+    if (opts.title) b.title = opts.title;
+    if (opts.active) b.classList.add('active');
+    if (opts.primary) b.classList.add('primary');
+    if (opts.danger) b.classList.add('danger');
+    if ((cost && game.teams[view.team].scrap < cost) || opts.locked) b.classList.add('poor');
+    if (opts.progress !== null && opts.progress !== undefined) {
+      const bar = document.createElement('span'); bar.className = 'prog';
+      bar.style.width = `${Math.min(100, opts.progress * 100)}%`;
+      b.prepend(bar); b.classList.add('making');
+    }
+    if (opts.onCancel) {
+      const x = document.createElement('span'); x.className = 'minus'; x.textContent = '−';
+      x.title = `Remove one ${label} from the queue`;
+      x.addEventListener('mousedown', e => { e.stopPropagation(); e.preventDefault(); if (e.button === 0) { opts.onCancel(); sound('click'); } });
+      b.querySelector('.row').appendChild(x);
+    }
+    onPress(b, () => { onClick(); sound('click'); });
+    cmds.appendChild(b);
+  };
+
+  const first = sel[0];
+  if (first.kind === 'building') {
+    const keys = [...HOTKEYS];
+    const tip = document.createElement('div'); tip.className = 'dim small tip';
+    const tm = game.teams[view.team];
+    // Upgrade (Recycler II, Factory II)
+    if (first.built >= 1 && first.def.upgrade && first.level === 1) {
+      const up = first.def.upgrade;
+      if (first.upgrading !== null) addBtn(`Upgrading ${Math.floor(first.upgrading / up.time * 100)}%`, null, keys.shift(), () => {}, { locked: true });
+      else addBtn(`Upgrade to ${up.name}`, up.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'upgrade', buildingId: first.id }),
+        { title: `${up.cost} scrap, ${up.time}s. Production pauses while upgrading.` });
+    }
+    // Gun Tower: pick one of its upgrades (Artillery Tower, Heavy Gun Tower).
+    if (first.built >= 1 && first.def.upgrades && first.level === 1) {
+      if (first.upgrading !== null) {
+        const up = upgradeOf(first);
+        addBtn(`${up.name} ${Math.floor(first.upgrading / up.time * 100)}%`, null, keys.shift(), () => {}, { locked: true });
+      } else for (const up of first.def.upgrades) {
+        addBtn(`Upgrade: ${up.name}`, up.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'upgrade', buildingId: first.id, option: up.key }),
+          { title: `${up.cost} scrap, ${up.time}s. ${up.desc}` });
+      }
+      if (first.upgrading === null) tip.textContent = 'Upgrade once: an Artillery Tower shells targets far away (your side must see them); a Heavy Gun Tower is tougher and fires faster.';
+    }
+    // Research (Research Lab)
+    if (first.built >= 1 && first.def.researches) {
+      for (const key of first.def.researches) {
+        const r = RESEARCH[key];
+        const elsewhere = game.entities.find(b => b.team === view.team && b.researching && b.researching.key === key);
+        if (tm.research[key]) addBtn(r.name, null, keys.shift(), () => {}, { note: 'Researched ✓', locked: true });
+        else if (elsewhere) addBtn(r.name, null, keys.shift(), () => {}, { note: `Researching ${Math.floor(elsewhere.researching.t / r.time * 100)}%`, locked: true });
+        else addBtn(r.name, r.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'research', buildingId: first.id, key }),
+          { title: `${r.cost} scrap, ${r.time}s. Unlocks ${UNIT_TYPES[key].name} at a Factory II.`, locked: !!first.researching });
+      }
+    }
+    if (first.built >= 1 && first.def.produces) {
+      // Each press queues one more (Shift-click queues five). The button itself
+      // shows how many are queued, the build progress of the one being made,
+      // and a − corner that removes one. (Object.create(null): a plain {} would
+      // already hold "constructor".)
+      const counts = Object.create(null);
+      for (const t of first.queue) counts[t] = (counts[t] || 0) + 1;
+      const now = first.queue[0];
+      // Mk II vehicles only appear once researched (the Lab says what it unlocks).
+      producesOf(first).filter(type => !UNIT_TYPES[type].requires || tm.research[UNIT_TYPES[type].requires]).forEach(type => {
+        const d = UNIT_TYPES[type];
+        const needs = d.requires && !tm.research[d.requires];
+        const building = type === now;
+        const note = needs ? 'Research first' : building && first.waiting ? 'Needs scrap' : building && first.blocked ? 'Unit limit' : null;
+        addBtn(d.name, d.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'produce', buildingId: first.id, unit: type, count: input.keys.has('Shift') ? 5 : 1 }),
+          { title: `${d.name} — ${d.cost} scrap each, ${d.buildTime}s. Paid when it starts building.\n${d.desc}`, locked: needs, note, badge: counts[type],
+            progress: building && !first.waiting && !first.blocked ? first.prodTime / d.buildTime : null,
+            onCancel: counts[type] ? () => { issueCommand(game, view.team, { type: 'cancel', buildingId: first.id, unit: type }); refreshPanel(); } : null });
+      });
+      // Waypoint: where every new vehicle from this building drives to.
+      addBtn(first.rally ? 'Move waypoint' : 'Set waypoint', null, keys.shift(), () => { view.aim = 'rally'; refreshPanel(); },
+        { active: view.aim === 'rally', title: 'New vehicles drive straight to the waypoint' });
+      if (first.rally) addBtn('Clear waypoint', null, keys.shift(), () => issueCommand(game, view.team, { type: 'rally', buildingId: first.id, clear: true }));
+      tip.textContent = view.aim === 'rally' ? `${isTouch ? 'Tap' : 'Click'} the map where new vehicles should go.`
+        : first.rally ? 'New vehicles drive to the waypoint (the green marker).' : 'No waypoint: new vehicles wait beside the building, and workers start work.';
+    }
+    if (first.type === 'repairpad' && first.built >= 1) {
+      const parked = recycleCandidates(sel);
+      if (parked.length) addRecycleButtons(addBtn, parked, tip, keys);
+      // Waypoint: where vehicles sent by Go repair drive once they're fixed.
+      addBtn(first.rally ? 'Move waypoint' : 'Set waypoint', null, keys.shift(), () => { view.aim = 'rally'; refreshPanel(); },
+        { active: view.aim === 'rally', title: 'Repaired vehicles drive to the waypoint' });
+      if (first.rally) addBtn('Clear waypoint', null, keys.shift(), () => issueCommand(game, view.team, { type: 'rally', buildingId: first.id, clear: true }));
+      if (!tip.textContent) tip.textContent = view.aim === 'rally' ? `${isTouch ? 'Tap' : 'Click'} the map where repaired vehicles should go.`
+        : first.rally ? 'Vehicles sent here by Go repair drive to the waypoint (the green marker) once fixed.'
+        : 'Vehicles sent here by Go repair step off beside the pad once fixed. Set a waypoint to send them somewhere. Vehicles parked here can also be recycled for half their cost.';
+    }
+    if (first.def.demolishable !== false) {
+      const refund = Math.round((first.def.salvageValue ?? first.def.cost) * 0.5);
+      if (view.confirmDemolish === first.id) {
+        addBtn('Confirm demolish', null, 'Z', () => { issueCommand(game, view.team, { type: 'demolish', buildingId: first.id }); view.confirmDemolish = null; sound('build'); },
+          { danger: true, title: `Leaves ${refund} scrap on the ground` });
+        addBtn('Keep it', null, 'Esc', () => { view.confirmDemolish = null; refreshPanel(); });
+        tip.textContent = `Demolishing leaves ${refund} scrap on the ground (half its cost). Scavengers can collect it.`;
+      } else {
+        addBtn('Demolish', null, 'Z', () => { view.confirmDemolish = first.id; refreshPanel(); }, { title: `Leaves ${refund} scrap on the ground` });
+      }
+    }
+    if (view.aim === 'rally') addBtn('Cancel', null, 'Esc', cancelModes);
+    tip.textContent = own_(tip.textContent);
+    if (tip.textContent) cmds.appendChild(tip);
+    return;
+  }
+  const builder = sel.find(e => e.kind === 'unit' && e.def.role === 'builder');
+  if (builder && sel.length === 1) {
+    const types = Object.keys(BUILDING_TYPES).filter(t => BUILDING_TYPES[t].buildable !== false);
+    types.forEach((type, i) => {
+      const d = BUILDING_TYPES[type];
+      addBtn(d.name, d.cost, HOTKEYS[i], () => { view.placing = type; refreshPanel(); },
+        { active: view.placing === type, title: `${d.name} — ${d.cost} scrap\n${d.desc}` });
+    });
+    if (view.placing && isTouch && view.placeReady) addBtn('Build here', null, '↵', confirmPlacement, { primary: true });
+    if (view.placing) addBtn('Cancel', null, 'Esc', () => { view.placing = null; view.placeReady = false; refreshPanel(); });
+    // A Constructor can go for repairs, and be recycled on a pad, like any vehicle.
+    if (!view.placing) {
+      if (builder.hp < builder.maxHp && game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1))
+        addBtn('Go repair', null, 'G', () => { issueCommand(game, view.team, { type: 'gorepair', ids: [builder.id] }); sound('ack'); }, { title: 'Drive to the nearest Repair Pad' });
+      const parked = recycleCandidates(sel);
+      if (parked.length) { const rt = document.createElement('div'); rt.className = 'dim small tip'; addRecycleButtons(addBtn, parked, rt, ['Z']); if (rt.textContent) cmds.appendChild(rt); }
+    }
+    const tip = document.createElement('div'); tip.className = 'dim small tip';
+    tip.textContent = !view.placing ? `Pick a building, then ${isTouch ? 'tap' : 'click'} where it should go.`
+      : isTouch ? 'Tap inside the green zone to position it, then press Build here.'
+      : 'Click inside the green zone to build. Shift-click to place several. Right-click cancels.';
+    tip.textContent = own_(tip.textContent);
+    cmds.appendChild(tip);
+    return;
+  }
+  // Special orders for each kind of vehicle in the selection.
+  const keys = [...HOTKEYS];
+  const scouts = ofType(sel, 'scout'), tanks = ofType(sel, 'tank'), arty = ofType(sel, 'artillery'), scavs = ofType(sel, 'scavenger');
+  const order = (type, list, extra = {}) => { issueCommand(game, view.team, { type, ids: list.map(u => u.id), ...extra }); sound('ack'); };
+  if (scouts.length > 1) {
+    addBtn('Scout as pack', null, keys.shift(), () => order('scout', scouts, { pack: true }), { title: 'The scouts roam the map together' });
+    addBtn('Scout solo', null, keys.shift(), () => order('scout', scouts, { pack: false }), { title: 'Each scout explores on its own' });
+  } else if (scouts.length) addBtn('Scout', null, keys.shift(), () => order('scout', scouts), { title: 'Explore the map on its own' });
+  if (tanks.length) addBtn('Patrol', null, keys.shift(), () => order('patrol', tanks), { title: 'Loop around your buildings, fighting anything met' });
+  // Sentries are purely defensive: Deploy digs them in where they stand.
+  const sentries = sel.filter(e => e.kind === 'unit' && e.def.deployable);
+  if (sentries.some(u => !u.deployed)) addBtn('Deploy', null, keys.shift(), () => order('dig', sentries.filter(u => !u.deployed)),
+    { primary: true, title: 'Dig in where it stands: it guards this spot and never moves or chases until packed up' });
+  if (sentries.some(u => u.deployed)) addBtn('Pack up', null, keys.shift(), () => order('packup', sentries.filter(u => u.deployed)),
+    { title: 'Fold the legs away so it can move. A packed-up Sentry cannot fire.' });
+  if (sel.some(e => e.kind === 'unit' && e.def.weapon && !e.def.deployable)) addBtn('Guard', null, keys.shift(), () => { view.aim = 'guard'; refreshPanel(); },
+    { active: view.aim === 'guard', title: 'Then pick one of your buildings or vehicles to protect' });
+  const hurt = sel.filter(e => e.kind === 'unit' && e.hp < e.maxHp);
+  if (hurt.length && game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1))
+    addBtn('Go repair', null, keys.shift(), () => order('gorepair', hurt), { title: 'Drive to the nearest Repair Pad' });
+  const parked = recycleCandidates(sel);
+  const recycleTip = document.createElement('div'); recycleTip.className = 'dim small tip';
+  if (parked.length) addRecycleButtons(addBtn, parked, recycleTip, keys);
+  const mobileHq = ofType(sel, 'mobileRecycler');
+  if (mobileHq.length) addBtn('Deploy base', null, keys.shift(), () => { view.aim = 'deploy'; refreshPanel(); },
+    { active: view.aim === 'deploy', title: 'Drive onto a scrap geyser and set up your base there' });
+  else if (scavs.some(u => u.def.canDeploy)) addBtn('Deploy on geyser', null, keys.shift(), () => { view.aim = 'deploy'; refreshPanel(); },
+    { active: view.aim === 'deploy', title: 'Turn into an Extractor on a scrap geyser' });
+  if (view.aim) {
+    addBtn('Cancel', null, 'Esc', cancelModes);
+    const tip = document.createElement('div'); tip.className = 'dim small tip';
+    tip.textContent = view.aim === 'guard' ? `${isTouch ? 'Tap' : 'Click'} one of your buildings or vehicles. Armed vehicles in the selection will guard it.`
+      : mobileHq.length ? `${isTouch ? 'Tap' : 'Click'} a glowing scrap geyser. Your Recycler drives there and deploys as your base.`
+      : `${isTouch ? 'Tap' : 'Click'} a glowing scrap geyser. The Scavenger drives there and becomes an Extractor.`;
+    tip.textContent = own_(tip.textContent);
+    cmds.appendChild(tip);
+  }
+  if (sel.some(e => e.kind === 'unit' && e.def.weapon && !e.def.deployable)) {
+    addBtn('Attack-move', null, 'A', () => { view.attackMode = true; refreshPanel(); }, { active: view.attackMode, title: 'Move, but stop to fight anything on the way' });
+    if (view.attackMode) addBtn('Cancel', null, 'Esc', () => { view.attackMode = false; refreshPanel(); });
+  }
+  if (sel.some(e => e.kind === 'unit')) addBtn('Stop', null, 'S', () => issueCommand(game, view.team, { type: 'stop', ids: sel.map(e => e.id) }));
+  if (recycleTip.textContent) cmds.appendChild(recycleTip);
+}
+
+// -----------------------------------------------------------------------------
+// Top bar, message log, sound
+// -----------------------------------------------------------------------------
+
+function updateHud() {
+  const me = game.teams[view.team];
+  const units = game.entities.filter(e => e.kind === 'unit' && e.team === view.team).length;
+  const scavs = game.entities.filter(e => baseType(e) === 'scavenger' && e.team === view.team).length;
+  const cap = scrapCapacity(game, view.team);
+  $('scrap').textContent = `${Math.floor(me.scrap)} / ${cap}`;
+  $('scrap').classList.toggle('full', me.scrap >= cap - 1);
+  $('income').textContent = `${scavs} scavenger${scavs === 1 ? '' : 's'}`;
+  $('units').textContent = `${units} / ${CONFIG.UNIT_CAP}`;
+  // Base health bars. You only know the enemy's once you have seen it.
+  const hq = findHQ;
+  const myHq = hq(view.team), theirs = hq(3 - view.team);
+  const pct = e => e ? Math.max(0, e.hp / e.maxHp * 100) : 0;
+  $('hq-me').textContent = `${Math.round(pct(myHq))}%`;
+  $('hq-me-bar').style.width = `${pct(myHq)}%`;
+  const known = theirs && (spectating || (theirs.seen && theirs.seen[view.team]));
+  $('hq-foe').textContent = known ? `${Math.round(pct(theirs))}%` : '?';
+  $('hq-foe-bar').style.width = known ? `${pct(theirs)}%` : '0%';
+  const m = Math.floor(game.time / 60), s = Math.floor(game.time % 60);
+  $('clock').textContent = `${m}:${String(s).padStart(2, '0')}${speed > 1 ? ` ×${speed}` : ''}`;
+}
+
+function logMessage(text, kind = 'info') {
+  if (game && game.teams[view.team]) text = factionText(game.teams[view.team].faction, text);
+  const log = $('log');
+  const last = log.lastElementChild;
+  if (last && last.dataset.text === text && performance.now() - Number(last.dataset.at) < 3000) return;
+  const div = document.createElement('div');
+  div.className = `msg ${kind}`; div.textContent = text;
+  div.dataset.text = text; div.dataset.at = performance.now();
+  log.appendChild(div);
+  while (log.children.length > 6) log.firstChild.remove();
+  setTimeout(() => div.classList.add('fade'), 6000);
+  setTimeout(() => div.remove(), 7000);
+}
+
+let audio = null, muted = false;
+// Phones only allow sound after the player touches the screen.
+function unlockAudio() {
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === 'suspended') audio.resume();
+    Music.attach(audio);
+  } catch (err) { /* sound is optional */ }
+}
+window.addEventListener('pointerdown', unlockAudio);
+// M silences everything: sound effects and music.
+function toggleMute() { muted = !muted; Music.setOn(!muted); updateMusicButtons(); logMessage(muted ? 'Sound and music off' : 'Sound and music on', 'info'); }
+function updateMusicButtons() {
+  for (const b of document.querySelectorAll('.musicbtn')) b.textContent = `Music: ${Music.isOn() ? 'On' : 'Off'}`;
+  const v = $('musicvol'); if (v) v.value = Math.round(Music.getVolume() * 100);
+}
+for (const b of document.querySelectorAll('.musicbtn')) b.addEventListener('click', () => { Music.setOn(!Music.isOn()); unlockAudio(); updateMusicButtons(); });
+$('musicvol').addEventListener('input', e => Music.setVolume(e.target.value / 100));
+updateMusicButtons();
+// How heated the fighting is near your forces (enemy fighters your side can
+// see close to your vehicles or buildings) sets how hard the music drives.
+function musicHeat() {
+  if (!game || spectating && !game.entities.length) return 0;
+  const side = spectating ? 1 : view.team, mine_ = game.entities.filter(e => e.team === side);
+  let n = 0;
+  for (const e of game.entities) {
+    if (e.team === side || e.kind !== 'unit' || e.def.role !== 'combat' || e.hp <= 0 || !isVisibleTo(game, side, e)) continue;
+    if (mine_.some(o => Math.abs(o.x - e.x) < 650 && Math.abs(o.y - e.y) < 650)) n++;
+  }
+  return Math.min(1, n / 6);
+}
+// Tiny synthesised sound effects — no audio files needed.
+function sound(kind, vol = 1) {
+  if (muted) return;
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    const t = audio.currentTime, o = audio.createOscillator(), g = audio.createGain();
+    const presets = {
+      click:  ['square', 660, 660, 0.05, 0.04],
+      select: ['triangle', 520, 700, 0.07, 0.06],
+      ack:    ['triangle', 440, 330, 0.08, 0.06],
+      build:  ['square', 220, 440, 0.15, 0.06],
+      error:  ['sawtooth', 180, 120, 0.15, 0.05],
+      bullet: ['square', 900, 300, 0.04, 0.025],
+      shell:  ['sawtooth', 200, 60, 0.12, 0.05],
+      artillery: ['sawtooth', 140, 40, 0.25, 0.06],
+      boom:   ['sawtooth', 90, 30, 0.35, 0.08],
+      alert:  ['square', 520, 520, 0.25, 0.05],
+    };
+    const [type, f0, f1, dur, v] = presets[kind] || presets.click;
+    o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+    g.gain.setValueAtTime(v * vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(audio.destination); o.start(t); o.stop(t + dur + 0.02);
+  } catch (err) { /* sound is optional */ }
+}
+
+function handleEvents() {
+  let sounds = 0;
+  for (const ev of game.events) {
+    if (ev.sound) {
+      // Only play sounds for fights you can see, and not too many at once.
+      const s = toScreen(ev.x, ev.y);
+      if (sounds < 4 && s.x > -50 && s.y > -50 && s.x < view.screenW + 50 && s.y < view.screenH + 50) { sound(ev.sound, ev.big ? 1.5 : 0.7); sounds++; }
+      continue;
+    }
+    if (spectating ? ev.team !== 1 : ev.team !== view.team) continue;
+    logMessage(ev.text, ev.kind);
+    if (ev.kind === 'bad' && ev.x !== undefined) { view.alerts.push({ x: ev.x, y: ev.y, at: performance.now() }); sound('alert'); }
+  }
+  game.events.length = 0;
+  view.alerts = view.alerts.filter(a => performance.now() - a.at < 2000);
+}
+
+// -----------------------------------------------------------------------------
+// The game loop
+// -----------------------------------------------------------------------------
+
+let panelTimer = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.1, (now - (lastFrame || now)) / 1000);
+  lastFrame = now;
+  if (!$('menu').classList.contains('hidden')) drawFactionPreviews(now / 1000);
+  if (!game) return;
+  if (now - (view.heatAt || 0) > 500 && !game.winner) { view.heatAt = now; Music.intensity(musicHeat()); }
+  if (!game.winner && game.time - (view.lastAutosave || 0) >= 180) { view.lastAutosave = game.time; saveTo('auto', true); }
+  updateCamera(dt);
+  if (!paused && !game.winner) {
+    accumulator += dt * speed;
+    const step = 1 / CONFIG.TICK_RATE;
+    let n = 0;
+    while (accumulator >= step && n < 12) {
+      const ais = game.rng() < 0.5 ? game.aiTeams : game.aiTeams.slice().reverse();
+      for (const t of ais) aiUpdate(game, t);
+      stepGame(game); accumulator -= step; n++;
+    }
+    if (game.winner) setTimeout(showEnd, 1200);
+  }
+  view.selected = view.selected.filter(e => e.hp > 0);
+  for (const p of view.pings) p.t += dt;
+  view.pings = view.pings.filter(p => p.t < 0.5);
+  handleEvents();
+  drawGame(ctx, game, view);
+  if (!minimapCollapsed) drawMinimap(miniCtx, game, view);
+  panelTimer += dt;
+  if (panelTimer > 0.25) { panelTimer = 0; updateHud(); refreshPanel(); }
+}
+
+// -----------------------------------------------------------------------------
+// Menu buttons
+// -----------------------------------------------------------------------------
+
+let chosenDifficulty = 'normal', chosenFaction = 'scrapline';
+try { if (FACTIONS[localStorage.getItem('scrapline.faction')]) chosenFaction = localStorage.getItem('scrapline.faction'); } catch (err) { /* optional */ }
+document.querySelectorAll('[data-faction]').forEach(b => {
+  b.classList.toggle('active', b.dataset.faction === chosenFaction);
+  b.addEventListener('click', () => {
+    chosenFaction = b.dataset.faction;
+    document.querySelectorAll('[data-faction]').forEach(x => x.classList.toggle('active', x === b));
+    unlockAudio(); Music.play('menu', chosenFaction);   // hear the faction's sound
+    try { localStorage.setItem('scrapline.faction', chosenFaction); } catch (err) { /* optional */ }
+  });
+});
+Music.play('menu', chosenFaction);   // starts once the player first touches the page
+// Each faction card shows a line-up of that faction's vehicles, gently animated.
+function drawFactionPreviews(time) {
+  for (const b of document.querySelectorAll('[data-faction]')) {
+    const c = b.querySelector('canvas'), ctx = c.getContext('2d'), f = b.dataset.faction;
+    ctx.clearRect(0, 0, c.width, c.height);
+    const art = artFor(f), line = ['scout', 'hornet', 'tank', 'sentry', 'artillery'];
+    line.forEach((type, i) => {
+      const x = 32 + i * 59, y = 58 + (i % 2 ? 10 : -10);
+      art.drawSprite(ctx, artId(f, type), { x, y, heading: -Math.PI / 2, turret: 0.4 * Math.sin(time * 0.8 + i), team: 'blue',
+        t: time, thrust: true, legE: type === 'sentry' || type === 'artillery' ? 1 : 0, scale: 1.25 });
+    });
+  }
+}
+document.querySelectorAll('[data-difficulty]').forEach(b => b.addEventListener('click', () => {
+  chosenDifficulty = b.dataset.difficulty;
+  document.querySelectorAll('[data-difficulty]').forEach(x => x.classList.toggle('active', x === b));
+}));
+$('start').onclick = () => startGame(chosenDifficulty);
+$('howto').onclick = () => openHelp();
+$('savebtn').onclick = () => openSaves('save');
+for (const b of document.querySelectorAll('.loadbtn')) b.onclick = () => openSaves('load');
+$('saves-close').onclick = () => $('saves').classList.add('hidden');
+$('save-file').onclick = async () => {
+  if (!game) return;
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-');
+  try { await Saves.download(`scrapline-${stamp}.json`, await Saves.toFile(saveGame(game, saveExtra()), saveMeta())); }
+  catch (err) { if (!err || err.code !== 'declined') logMessage('Could not download the save', 'warn'); }
+};
+$('load-file').onclick = () => $('load-file-input').click();
+$('load-file-input').onchange = async e => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  try { resumeFrom(await Saves.fromFile(await file.text())); }
+  catch (err) { logMessage('That file is not a Scrapline save', 'warn'); sound('error'); }
+};
+// Autosave when the page is hidden (phones close background tabs).
+document.addEventListener('visibilitychange', () => { if (document.hidden && game && !game.winner) saveTo('auto', true); });
+$('watch').onclick = () => startGame(chosenDifficulty, true);
+$('again').onclick = () => { $('end').classList.add('hidden'); $('menu').classList.remove('hidden'); Music.play('menu', chosenFaction); };
+// Help lives on the pause screen, so opening it always pauses the battle.
+function openHelp() {
+  const fromMenu = !$('menu').classList.contains('hidden');
+  if (game && !paused && !fromMenu) togglePause();
+  $('helpclose').textContent = fromMenu ? 'Back' : 'Back to battle';
+  $('help').classList.remove('hidden');
+}
+$('helpbtn').onclick = openHelp;
+$('helpclose').onclick = () => $('help').classList.add('hidden');
+$('pausebtn').onclick = togglePause;
+$('resumebtn').onclick = () => { if (paused) togglePause(); };
+
+// The minimap can be folded away to free up screen space. The choice is
+// remembered on this device.
+let minimapCollapsed = false;
+function setMinimapCollapsed(on) {
+  minimapCollapsed = on;
+  $('minimap-wrap').classList.toggle('collapsed', on);
+  $('maptoggle').textContent = on ? 'Map ▸' : 'Map ▾';
+  $('maptoggle').setAttribute('aria-expanded', String(!on));
+  try { localStorage.setItem('scrapline.minimapCollapsed', on ? '1' : '0'); } catch (err) { /* storage is optional */ }
+}
+try { setMinimapCollapsed(localStorage.getItem('scrapline.minimapCollapsed') === '1'); } catch (err) { setMinimapCollapsed(false); }
+onPress($('maptoggle'), () => setMinimapCollapsed(!minimapCollapsed));
+onPress($('q-army'), () => { if (!game) return; $('formmenu').classList.add('hidden'); toggleArmyMenu(); });
+onPress($('q-form'), () => game && toggleFormationMenu());
+updateFormationButton();
+for (const b of document.querySelectorAll('#armymenu button')) onPress(b, () => game && selectArmyType(b.dataset.army));
+onPress($('q-base'), () => game && centerOn(findHQ(view.team)));
+onPress($('q-idle'), () => game && idleWorker());
+onPress($('q-clear'), () => game && select([]));
+$('speedbtn').onclick = () => { speed = speed === 1 ? 2 : speed === 2 ? 4 : 1; $('speedval').textContent = `×${speed}`; };
+
+resize();
+requestAnimationFrame(frame);
+if (new URLSearchParams(location.search).has('watch')) startGame('normal', true);

@@ -1,0 +1,1575 @@
+# Scrapline Command: Game Design Reference
+
+A complete description of the game as it exists today: how it plays, every
+rule, every number, how the computer opponent thinks, what has been tested,
+and what is known to be wrong. It is written so that someone (or an AI
+assistant) who has never seen the code can reason about the game and plan
+improvements.
+
+**Last updated:** 11 October 2026. It covers everything up to and including
+the tech tree (upgrades, research, Radar, Repair Pad), the sprite art, the
+1.9× bigger map, recycling at the Repair Pad, the October economy retune,
+and the October gameplay round: no Transports or Extractor Silos (Extractors
+pay straight into storage), Repair Pad waypoint, Guard, unit groups, an
+unlimited production queue, Gun Tower upgrades, less traffic jamming, and a
+new tactical opponent on Normal and Hard.
+
+All values below are copied from the code. The balance numbers live in
+`js/config.js`; a few rules are fixed inside the other files and are named
+with their file so they can be found.
+
+---
+
+## Contents
+
+1. [The game in one page](#1-the-game-in-one-page)
+2. [Win and loss](#2-win-and-loss)
+3. [The battlefield](#3-the-battlefield)
+4. [Starting position](#4-starting-position)
+5. [Economy: scrap, storage and income](#5-economy-scrap-storage-and-income)
+6. [Units](#6-units)
+7. [Buildings](#7-buildings)
+8. [Tech tree: upgrades and research](#8-tech-tree-upgrades-and-research)
+9. [Combat rules](#9-combat-rules)
+10. [Unit orders and behaviour](#10-unit-orders-and-behaviour)
+11. [Building rules: territory and placement](#11-building-rules-territory-and-placement)
+12. [Vision, fog of war and radar](#12-vision-fog-of-war-and-radar)
+13. [The computer opponent](#13-the-computer-opponent)
+14. [Difficulty levels](#14-difficulty-levels)
+15. [Controls](#15-controls)
+16. [Screen layout](#16-screen-layout)
+17. [Art: how things are drawn, and sprite sizes](#17-art-how-things-are-drawn-and-sprite-sizes)
+18. [Derived numbers (for balancing)](#18-derived-numbers-for-balancing)
+19. [How the code is organised](#19-how-the-code-is-organised)
+20. [What has been tested, and how](#20-what-has-been-tested-and-how)
+21. [Known problems and open questions](#21-known-problems-and-open-questions)
+22. [Design decisions already made](#22-design-decisions-already-made)
+23. [A framework for systematic improvement](#23-a-framework-for-systematic-improvement)
+24. [Change log](#24-change-log)
+
+---
+
+## 1. The game in one page
+
+**Genre:** real-time strategy, viewed from directly above, in a web browser.
+Plays on desktop (mouse and keyboard) and on phones and tablets (touch).
+
+**Inspirations:** Battlezone 2 (scrap economy, Recycler, Scavengers deploying
+onto geysers, Constructors), Battlefield 2 (a battlefield of vehicles with
+distinct roles), and 4X / RTS games (gather, build, expand, research, conquer).
+
+**Factions:** two, chosen on the start screen. **Scrapline** (tracked steel
+war machines) and the **Kethra Concord** (hovering alien constructs). They
+fight by exactly the same rules and numbers; only the art and the names
+differ (section 6, "Factions"). The computer opponent fields the other one.
+
+**The loop:**
+
+1. Drive your mobile Recycler onto a scrap geyser and deploy it. It becomes
+   your headquarters.
+2. Scavengers collect loose scrap from the ground and bring it home.
+3. Build a Factory, then combat vehicles and Gun Towers.
+4. Upgrade the Recycler to **Recycler II**. Only then can you build
+   Scavenger IIs, which can claim scrap geysers as Extractors, and
+   Constructor IIs, which can repair.
+5. Expand onto geysers for steady income. Build silos to store more scrap.
+6. Research Mk II vehicles at a Research Lab and upgrade a Factory to
+   **Factory II** to build them. Add a Radar and a Repair Pad.
+7. Defend against the enemy's attack waves.
+8. Destroy the enemy Recycler.
+
+**Players:** one human (Blue Command) against one computer opponent (Red
+Legion). A spectator mode lets two computer players fight.
+
+**Match length:** roughly 8 to 50+ minutes, depending on difficulty and play; the bigger map made games longer (see Known problems).
+
+---
+
+## 2. Win and loss
+
+- **You win** when the enemy has no Recycler, whether deployed or still a
+  vehicle.
+- **You lose** when you have no Recycler.
+- Nothing else ends the game: there are no tickets, flags, timers or score
+  limits.
+- The end screen shows, for both sides: vehicles built, enemies destroyed,
+  vehicles lost, scrap gathered, and battle length.
+
+The Recycler cannot be demolished by its owner.
+
+---
+
+## 3. The battlefield
+
+### Size and grid
+
+| Setting | Value |
+| --- | --- |
+| Map size | 223 × 168 squares ("tiles"): half as big again in area as the 182 × 137 map (1.22× per side), 2.3× the original 96 × 72 on each side |
+| Tile size | 32 pixels |
+| Map size in pixels | 7,136 × 5,376 |
+| Game updates ("ticks") per second | 30 |
+
+### Terrain
+
+Each tile is one of four types. Rock and water block all vehicles.
+
+| Terrain | Passable | How it is generated |
+| --- | --- | --- |
+| Grass | Yes | Default |
+| Dirt | Yes | Patches from a second noise layer (cosmetic only) |
+| Rock | No | Where the height noise is above 0.74 |
+| Water | No | Where the height noise is below 0.24 |
+
+Terrain has no effect on speed, sight or combat. It only blocks movement.
+The map edge is always rock.
+
+The noise "grain" (how big a hill or lake is) grows with the map: noise
+cell sizes 21, 10 and 13 tiles (17, 8 and 11 on the 182 × 137 map; 9, 4 and 6
+originally). So rock ridges
+and lakes are bigger features rather than many more small ones. On average
+about 10% of the map is rock and 5% water (the old map: 11% and 4%).
+
+### Symmetry
+
+Every map is **point-symmetric**: rotating it half a turn about its centre
+gives the same map. Whatever is near one base is also near the other. Maps
+come from a number called the **seed**. The same seed always gives the same
+map, and adding `?seed=42` to the address picks one.
+
+After generation the map is checked and repaired: roads are dug so both
+bases, every geyser, every scrap field and every clearing can be reached (up
+to 80 repair passes, each mirrored).
+
+### Fixed features
+
+Positions are in tiles, given for the bottom-left half. The top-right half
+mirrors them (a tile (x, y) becomes (222 − x, 167 − y); a geyser corner
+(x, y) becomes (223 − x, 168 − y)).
+
+| Feature | Positions (bottom-left half) | Notes |
+| --- | --- | --- |
+| Starting position | (10, 157) | Mirrored: (212, 10). Still 10 tiles from the corner edges. A 10-tile radius is cleared. |
+| Scrap geysers | (10, 158) under the start; (33, 146), (60, 143) home (the first about 25 tiles out, as on the old map); (51, 113), (14, 90) middle distance; (103, 142), (116, 158), (29, 56) forward on the flanks; (96, 91), (66, 40) contested, toward the centre | 10 per half. |
+| Scrap fields | Home (21, 156), (8, 144), (40, 158) (two within about 13 tiles, as on the old map); near (59, 132), (32, 105), (91, 157), (76, 158), (12, 120); middle (10, 69), (64, 93), (47, 73), (30, 70), (80, 90); contested (118, 127), (124, 140), (69, 39), (86, 69), (100, 60) | 36 fields in total, 18 per half. Each has 5 to 7 piles of 400 scrap within about 3 tiles. |
+| Open clearings | (51, 47), (80, 116), plus the map centre | Terrain cleared to a 4-tile radius. |
+
+**Geysers:** 20 in total, 10 per half (12 on the 182 × 137 map; the map grew
+50% in area and resources grew more, 67%, so scrap is less tight),
+positions are tile corners. No two geysers (on either side) are closer than
+20 tiles. The two map corners away from the bases have scrap fields but no
+geysers.
+
+**Total loose scrap on a fresh map:** about 36 fields × 6 piles × 400 ≈
+86,000, so roughly 43,000 per side (26,000 on the 182 × 137 map).
+
+### Starting corner
+
+Which side starts in which corner is **chosen at random every game** (seeded,
+so replays match). This is a workaround for a corner advantage; see
+[Known problems](#21-known-problems-and-open-questions).
+
+---
+
+## 4. Starting position
+
+Each side begins with:
+
+| Asset | Amount |
+| --- | --- |
+| Scrap | 300 (storage is full) |
+| Storage capacity | 300 (held by the mobile Recycler) |
+| Recycler (mobile) | 1, not deployed. Starts selected, with a **Deploy base** button. |
+| Scavengers | 2, basic (start collecting loose scrap automatically; cannot deploy on geysers) |
+| Constructor | 1, basic (can build; cannot repair) |
+| Scouts | 2 |
+| Tank | 1 |
+| Buildings | None |
+| Research | None |
+
+A geyser sits about 66 pixels from the starting Recycler. The next is about
+25 tiles (800 pixels) away; it needs a Scavenger II.
+
+---
+
+## 5. Economy: scrap, storage and income
+
+Scrap is the only resource. It pays for every unit, building, upgrade and
+research.
+
+### Storage (the cap)
+
+You can only hold as much scrap as your storage allows. Income that would go
+over the cap is not lost; it waits:
+
+- Scavengers wait at the base with their load, retrying once a second.
+- Extractors hold up to 120 each, then stop pumping; it flows in as soon as
+  there is room.
+- The Recycler's own trickle is simply not added.
+
+| Source of storage | Adds |
+| --- | --- |
+| Recycler (mobile, deploying, deployed, or upgraded) | 300 |
+| Base Silo | 300 |
+
+If a silo is destroyed and storage drops below what you hold, the excess is
+lost. The top bar shows `held / capacity` and turns yellow when full. A
+"storage full" warning appears at most every 20 seconds.
+
+### Ways to earn scrap
+
+| Source | Rate | Delivered how | Runs out? |
+| --- | --- | --- | --- |
+| Scavenger (either tier) collecting loose scrap | Gathers 4 per second, carries 25 per trip. Real income depends on distance: roughly 40 to 70 a minute per Scavenger near home. | Drives it to the Recycler, a Base Silo or an Extractor Silo | Yes. Each pile holds 400, and fields empty over time. |
+| Extractor on a geyser (needs a **Scavenger II** to create) | 0.7 per second (42 a minute) | Straight into storage. When storage is full, up to 120 waits in the Extractor until there is room. | No |
+| Deployed Recycler | 0.035 per second (2.1 a minute), a twentieth of an Extractor | Straight into storage | No |
+| Salvage from destroyed vehicles | 30% of the vehicle's cost, left as a pile on the ground | Collected by Scavengers | Yes |
+| Demolishing your own building | 50% of its cost, left as piles of at most 40 on the ground | Collected by Scavengers | Yes |
+| Cancelling the vehicle being built | 100% of its cost, straight to storage (if there is room). Vehicles still waiting in the queue haven't been paid for. | Immediate | n/a |
+
+The computer opponent's income is multiplied by its difficulty's
+`incomeMult` (see [Difficulty levels](#14-difficulty-levels)). The human
+player always has ×1.
+
+### Spending
+
+Buildings, upgrades and research are paid for in full when started. **Vehicles
+are paid for when their turn comes** in a building's queue: you can queue as
+many as you like (up to 99 per building); if there isn't enough scrap when a
+vehicle's turn comes, the queue waits (its button says "Needs scrap"). Each
+vehicle button shows the number queued (×N), a fill for the build progress of
+the one being made, and a red − that removes one; there is no separate queue
+line. Removing a
+waiting vehicle refunds nothing (it wasn't paid for); cancelling the one
+being built refunds it. Buildings can be demolished (see section 7).
+
+### The flow in words
+
+```
+loose scrap ──Scavenger──▶ Recycler / Base Silo ──▶ STORAGE
+geyser ──Extractor (from a Scavenger II)──▶ STORAGE (when full, up to 120 waits in the Extractor)
+Recycler's own geyser ──(2.1/min)──▶ STORAGE
+```
+
+---
+
+## 6. Units
+
+### Full stats
+
+Speed is in pixels per second (a tile is 32 pixels). Sight and range are in
+pixels. "Radius" is the unit's collision size. "Tier" shows what is needed
+to build it.
+
+| Unit | Role | Cost | Build time | HP | Speed | Sight | Radius | Built at | Needs |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Recycler (mobile) | Headquarters | — | — | 2,500 | 30 | 300 | 22 | Starts on map | — |
+| Scavenger | Harvester | 60 | 6 s | 180 | 43 | 200 | 13 | Recycler | — |
+| Scavenger II | Harvester | 80 | 7 s | 180 | 43 | 200 | 13 | Recycler II | Recycler upgrade |
+| Constructor | Builder | 80 | 8 s | 160 | 43 | 220 | 13 | Recycler | — |
+| Constructor II | Builder | 110 | 9 s | 200 | 43 | 220 | 13 | Recycler II | Recycler upgrade |
+| Scout | Combat | 50 | 5 s | 140 | 98 | 330 | 11 | Factory | — |
+| Tank | Combat | 100 | 9 s | 400 | 40 | 260 | 15 | Factory | — |
+| Artillery | Combat | 140 | 12 s | 200 | 32 | 220 | 15 | Factory | — |
+| Hornet (light rocket tank) | Combat | 75 | 7 s | 250 | 68 | 280 | 13 | Factory | — |
+| Sentry (defensive turret) | Combat | 90 | 8 s | 320 | 36 | 260 | 12 | Factory | — |
+| Scout Mk II | Combat | 70 | 7 s | 210 | 120 | 420 | 11 | Factory II | Advanced Scouts |
+| Tank Mk II | Combat | 145 | 12 s | 620 | 46 | 260 | 15 | Factory II | Advanced Tanks |
+| Artillery Mk II | Combat | 200 | 16 s | 300 | 36 | 220 | 15 | Factory II | Advanced Artillery |
+| Hornet Mk II | Combat | 110 | 9 s | 380 | 80 | 280 | 13 | Factory II | Advanced Hornets |
+| Sentry Mk II | Combat | 130 | 11 s | 500 | 40 | 280 | 12 | Factory II | Advanced Sentries |
+
+**Speeds:** Scavengers and Constructors 43, Tank 40, Sentry 36, Artillery 32
+(kept the slowest), Hornet 68, Scout 98. (Transports, removed in October, were 39.)
+
+**The Hornet** fills the gap between Scout and Tank on cost, armour and
+speed. Its value per scrap (strength = health ÷ 100 × damage per second, per
+100 scrap) is 96, between the Scout's 64 and the Tank's 113: the Tank stays
+the most cost-effective brawler, the Hornet trades a little of that for
+speed (fast enough to join raids).
+
+**Mk II rule of thumb:** about +50% health, +40% damage and some speed for
+about +45% cost, so each Mk II is worth roughly 40–50% more per scrap than its
+basic version (Tank 113 → 171, Hornet 96 → 138, Scout 64 → 94, Sentry 124 →
+192), plus one **signature edge**: Scout Mk II sees much further (420),
+Hornet Mk II fires a third rocket, Tank Mk II (220) and a dug-in Sentry Mk II
+(250) outrange a basic Tank, Artillery Mk II reaches 500 with a 70 px blast.
+A Mk II counts as the same kind of vehicle as its basic version for
+orders and the Army menu.
+
+### Weapons
+
+| Unit | Range | Min range | Damage per shot | Seconds between shots | Projectile | Splash | vs buildings |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Scout | 170 | — | 8 | 0.35 | Bullet (900 px/s, homing) | — | ×0.5 |
+| Scout Mk II | 170 | — | 11 | 0.35 | Bullet | — | ×0.5 |
+| Tank | 200 | — | 34 | 1.2 | Shell (620 px/s, homing) | — | ×1.0 |
+| Tank Mk II | 220 | — | 48 | 1.2 | Shell | — | ×1.0 |
+| Artillery | 440 | 110 | 60 | 3.5 | Arcing shell (260 px/s, aimed at a spot) | 55 px radius | ×1.6 |
+| Artillery Mk II | 500 | 110 | 80 | 3.5 | Arcing shell | 70 px radius | ×1.6 |
+| Hornet | 220 | — | 26 | 0.9 | Rocket (520 px/s, homing) | — | ×1.2 |
+| Hornet Mk II | 240 | — | 36 | 0.9 | Rocket | — | ×1.2 |
+| Sentry (dug in only) | 220 | — | 7 | 0.2 | Bullet | — | ×0.6 |
+| Sentry Mk II (dug in only) | 250 | — | 10 | 0.2 | Bullet | — | ×0.6 |
+| Recycler (deployed) | 210 | — | 24 | 0.8 | Bullet | — | ×1.0 |
+| Gun Tower | 250 | — | 22 | 0.9 | Shell | — | ×1.0 |
+
+Scavengers, Constructors and the mobile Recycler are unarmed.
+
+### Special abilities
+
+| Unit | Ability |
+| --- | --- |
+| Recycler (mobile) | **Deploy base:** drives onto a free geyser and becomes the Recycler building (10 s to set up). Holds 300 storage while mobile. |
+| Scavenger | Collects loose scrap automatically. Carries 25. **Cannot** deploy on geysers. |
+| Scavenger II | As Scavenger, plus **Deploy on geyser:** becomes an Extractor (8 s to set up). |
+| Constructor | Builds buildings and finishes construction sites. **Cannot** repair. |
+| Constructor II | Builds, and **repairs** damaged buildings at 25 HP per second. |
+| Scout (and Mk II) | **Scout** (alone) or **Scout as pack** / **Scout solo** (groups). |
+| Tank (and Mk II) | **Patrol:** loops around all your buildings. |
+| Sentry (and Mk II) | **Purely defensive.** **Deploy** digs it in where it stands: it lowers four legs (0.6 s) and then fires five rounds a second at anything its side can see in range. Dug in, it never moves, never chases and isn't pushed aside, and an attack order on something out of range is ignored. **Pack up**, or any move, patrol, scout or repair order, folds the legs (0.6 s) so it can drive. Packed up it **cannot fire** at all. It can't take Guard posts. |
+| Any armed vehicle | **Guard:** then pick one of your buildings or vehicles. Guarding a building: take a post beside it and fire at anything in range. Guarding a vehicle: keep a spot beside it, follow it, fight anything in range, go after whoever attacks it (never more than 320 px away), stand down if it is destroyed. |
+| Any damaged vehicle | **Go repair:** drives to the nearest Repair Pad (the button appears once you have one). |
+| Any vehicle parked on your Repair Pad (not the Recycler) | **Recycle:** takes it apart for half its cost. Needs a second press, **Confirm recycle**. |
+
+### Factions
+
+Each side plays one faction, chosen on the start screen (the computer takes
+the other; in Watch mode Blue is the chosen faction). Every unit and building
+has the same numbers for both; the game stores a `faction` on each side and
+on everything it owns, draws it with that faction's designs
+(`js/sprites.js` for Scrapline, `js/sprites_kethra.js` for the Kethra
+Concord) and shows its names in that faction's words, in buttons, the
+selection panel and messages (`FACTIONS` in `js/config.js`).
+
+| Scrapline | Kethra Concord | | Scrapline | Kethra Concord |
+| --- | --- | --- | --- | --- |
+| Recycler (mobile) | Monad | | Recycler / Recycler II | Nexus / Nexus II |
+| Scavenger (II) | Skimmer (II) | | Factory / Factory II | Assembler / Assembler II |
+| Constructor (II) | Loom (II) | | Extractor | Siphon |
+| Scout | Shard | | Base Silo | Vault Orb |
+| Hornet | Talon | | Gun Tower | Prism Tower |
+| Tank | Bulwark | | Artillery Tower / Heavy Gun Tower | Prism Lancer / Heavy Prism |
+| Sentry | Pylon | | Research Lab | Archive |
+| Artillery | Spire | | Radar | Sensor Array |
+| (Mk II: "… Mk II") | | | Repair Pad | Mending Lattice |
+
+Kethra vehicles hover: a dashed gravity ring glows under each one, brighter
+with an exhaust flare while it moves. The Kethra have one tower design;
+upgraded Prism Towers carry gold markings.
+
+---
+
+## 7. Buildings
+
+| Building | Cost | Build time | HP | Size (tiles) | Sight | Storage | Territory radius (tiles) | Built by |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Recycler | — | 10 s (deploy) | 4,000 (5,000 as Recycler II) | 3×3 | 300 | 300 | 14 | Deploying the mobile Recycler on a geyser |
+| Factory | 150 | 18 s | 1,400 (1,800 as Factory II) | 3×3 | 220 | — | 10 | Constructor |
+| Extractor | — | 8 s (deploy) | 900 | 2×2 | 240 | tank of 120 | 9 | Deploying a Scavenger II on a geyser |
+| Base Silo | 250 | 14 s | 1,100 | 2×2 | 200 | 300 | 8 | Constructor |
+| Gun Tower | 110 | 14 s | 1,000 | 2×2 | 300 | — | — | Constructor |
+| Research Lab | 200 | 20 s | 900 | 2×2 | 200 | — | 6 | Constructor |
+| Radar | 150 | 16 s | 600 | 2×2 | 220 | — | 6 | Constructor |
+| Repair Pad | 150 | 12 s | 800 | 3×3, flat | 180 | — | — | Constructor |
+
+### What each building does
+
+| Building | Produces / offers | Other functions |
+| --- | --- | --- |
+| Recycler | Scavenger, Constructor. **Upgrade to Recycler II.** | Headquarters. Defence gun (fires from the centre drum; no visible barrel). Drop-off point. Pumps its own geyser at 2.1 a minute. Cannot be demolished. |
+| Recycler II | Scavenger II, Constructor II (replace the basic workers) | As Recycler, with 5,000 HP. |
+| Factory | Scout, Tank, Artillery. **Upgrade to Factory II.** | — |
+| Factory II | Scout, Tank, Artillery, plus Scout / Tank / Artillery **Mk II** (each once researched; otherwise shown as "Research first") | 1,800 HP. |
+| Extractor | — | Pumps 42 a minute from its geyser into a 120 tank. Salvage value counts as 60 (the Scavenger it came from). |
+| Base Silo | — | Adds 300 storage. Drop-off point. Must be within 7 tiles of your Recycler's edge. |
+| Gun Tower | **Upgrade once:** Artillery Tower or Heavy Gun Tower (section 8) | Defensive gun (see Weapons). |
+| Research Lab | Research: Advanced Scouts, Advanced Tanks, Advanced Artillery (see section 8) | One topic at a time. The glass dome pulses while researching. |
+| Radar | — | Pings every 30 s, revealing a 750 px circle for 4 s (see section 12). |
+| Repair Pad | Recycle (vehicles parked on it); Set / Clear waypoint | Vehicles drive over it (it doesn't block movement). Every kind of vehicle of yours parked on it regains 30 HP per second, and Transport shields refill at the same rate. Nothing can be built on top of it. Vehicles parked on it can be **recycled** (below). |
+
+### Building lifecycle
+
+- **Placing:** the full cost is paid immediately and the building appears
+  as a construction site at 10% HP.
+- **Construction:** a Constructor (either tier) must stand next to it.
+  Progress runs from 0 to 100% over the build time, and HP rises with it.
+- **Deploying** (Recycler, Extractor): no Constructor needed; it sets
+  itself up.
+- **Repair:** only a **Constructor II** can repair a finished building, at
+  25 HP per second. A basic Constructor gets the message "Only a Constructor
+  II can repair buildings".
+- **Upgrading** (Recycler, Factory): see section 8. Production pauses until
+  the upgrade finishes.
+- **Waypoint** (Recycler, Factory, Repair Pad): for the Repair Pad, it's
+  where vehicles sent by Go repair drive once fixed. For the others, every new vehicle drives straight to
+  it. Without one, combat units wait beside the building, Scavengers start
+  harvesting.
+- **Demolish:** asks for confirmation, then removes the building and leaves
+  half its cost on the ground as scrap piles. Frees a geyser if it was an
+  Extractor.
+- **Destroyed:** removed with an explosion; frees its geyser; no salvage.
+
+---
+
+## 8. Tech tree: upgrades and research
+
+### What unlocks what
+
+```
+Recycler ──(upgrade 250, 40 s)──▶ Recycler II ──▶ Scavenger II ──▶ Extractors on geysers
+                                              └─▶ Constructor II ──▶ building repairs
+
+Research Lab ──▶ Advanced Scouts / Tanks / Artillery ──┐
+Factory ──(upgrade 200, 30 s)──▶ Factory II ───────────┴─▶ Scout / Tank / Artillery Mk II
+```
+
+Radar and Repair Pad have no prerequisites beyond territory and scrap.
+
+### Building upgrades
+
+| Upgrade | Cost | Time | New HP | Unlocks |
+| --- | --- | --- | --- | --- |
+| Recycler → Recycler II | 250 | 40 s | 5,000 | Builds Scavenger II and Constructor II (replace the basic workers) |
+| Factory → Factory II | 200 | 30 s | 1,800 | Also builds Scout, Tank and Artillery Mk II, once each is researched |
+
+- Only one upgrade level exists for each.
+- Production pauses while a building upgrades; queued units wait.
+
+**Gun Tower upgrades** (once per tower; it keeps firing its old gun while upgrading):
+
+| Upgrade | Cost | Time | HP | Weapon |
+| --- | --- | --- | --- | --- |
+| Artillery Tower | 180 | 30 s | 1,200 | Shells with 60 px splash: range 520, minimum range 120, damage 70 every 4.5 s, ×1.6 vs buildings. Only hits what your side can see. |
+| Heavy Gun Tower | 150 | 25 s | 1,600 | Twin cannon: range 280, damage 30 every 0.6 s. |
+- Upgraded buildings show gold chevrons.
+- A Factory II can be built without any research, but its Mk II buttons say
+  "Research first" until researched.
+
+### Research
+
+| Research | Cost | Time | Unlocks |
+| --- | --- | --- | --- |
+| Advanced Scouts | 150 | 45 s | Scout Mk II |
+| Advanced Tanks | 200 | 60 s | Tank Mk II |
+| Advanced Artillery | 250 | 75 s | Artillery Mk II |
+| Advanced Hornets | 175 | 50 s | Hornet Mk II |
+| Advanced Sentries | 175 | 50 s | Sentry Mk II |
+
+- A lab researches one topic at a time.
+- The same topic can't be researched twice, or in two labs at once.
+- Research is permanent for the rest of the game, even if the lab is later
+  destroyed.
+- The lab shows each topic's state: cost, "Researching 40%", or
+  "Researched ✓".
+- A Factory II only shows a Mk II vehicle's button once it is researched.
+
+---
+
+## 9. Combat rules
+
+### Targeting
+
+- Units look for targets every 0.4 to 0.6 seconds (randomised).
+- They only target enemies their side can currently **see** (fog of war;
+  radar pings count).
+- Scoring (lower is preferred): distance, plus 40 for an armed building,
+  plus 200 for an unarmed building, plus 120 for an unarmed unit, minus 150
+  for whoever last shot this unit. In short, units prefer nearby armed
+  enemies and retaliate against their attacker.
+- A unit switches to a new target only if it is at least 60 pixels closer
+  than the current one.
+- Artillery cannot fire at anything closer than 110 pixels.
+- **Artillery must be parked to fire.** It stops, lowers four stabiliser
+  legs (0.6 s), and only then can shoot. Given a move order, it first raises
+  its legs (0.6 s) before it can drive. It never fires while moving. The
+  timings are `ARTILLERY_DEPLOY` and `ARTILLERY_RETRACT` in `config.js`.
+
+### Firing
+
+- The turret turns at 4 radians per second, and a unit fires once its aim
+  is within about 14 degrees.
+- Bullets and tank shells home in and always hit if the target is alive.
+- Artillery shells fly to a spot near the target (random scatter of
+  20 + 6% of the distance) and damage everything in a 55-pixel radius.
+  Damage falls off to 40% at the edge. Artillery does not hurt its own
+  side.
+- Distances to buildings are measured from the building's edge, so building
+  guns reach as far beyond their walls as vehicle guns do.
+
+### Damage
+
+- Damage is multiplied by the weapon's "vs buildings" factor when hitting
+  a building.
+- Shields absorb damage before HP.
+- Units hit while standing idle turn and fight their attacker.
+- Unarmed units and buildings under attack raise an alert, at most once
+  every 12 seconds per side.
+
+### Death
+
+- Vehicles explode (1.2 s), then leave a burnt-out wreck (cosmetic, fades
+  after 20 seconds) and a salvage pile worth 30% of their cost.
+- Buildings explode and leave a scorched crater (cosmetic, fades after
+  90 seconds) but no scrap (unless demolished by their owner).
+
+---
+
+## 10. Unit orders and behaviour
+
+### Orders available to the player
+
+| Order | Who | What it does |
+| --- | --- | --- |
+| Move | Any vehicle | Drives to the point. Groups spread into a grid about 34 pixels apart, or, with a formation chosen, march in that formation (section 10, "Formations"). |
+| Attack-move | Armed vehicles | Moves, but stops to fight anything seen on the way. |
+| Attack | Armed vehicles | Chases and fires at one target until it dies or is lost from sight. |
+| Stop | Any vehicle | Stops and stands guard. |
+| Gather | Scavengers | Collects a chosen scrap pile, then carries on automatically. |
+| Deploy | Scavenger II or mobile Recycler | Drives onto a geyser and becomes an Extractor or the Recycler. A basic Scavenger gets a message explaining it needs to be a Scavenger II. |
+| Build | Constructor (either tier) | Places a building or finishes a construction site. |
+| Repair | Constructor II | Restores a damaged building. |
+| Scout | Scouts | Explores: unexplored ground first, then areas under fog. Fires at enemies passed without stopping. Picks a new destination on arrival or after 45 seconds. |
+| Scout as pack | 2+ Scouts | As Scout, but the group travels together in a loose ring of about 34 pixels and picks a new destination when any of them arrives (or after 40 seconds). |
+| Patrol | Tanks | Loops around the outside of all your finished buildings, fighting anything met. |
+| Guard | Any armed vehicle | See Special abilities: protect one of your buildings or vehicles. |
+| Go repair | Damaged vehicles (Constructors too) | Drives to the nearest Repair Pad. Once fixed, it drives to the pad's waypoint, or to its own spot just beside the pad (facing the map centre) so the pad stays clear. Workers go back to work. |
+| Recycle | Vehicles parked on one of your Repair Pads | Two steps: **Recycle**, then **Confirm recycle** (or **Keep** / `Esc` to back out). The confirm button has no keyboard shortcut, so a double key press can't recycle anything. Shown on a selected vehicle that is parked on a pad, and on the selected pad itself (recycling every vehicle parked on it). |
+
+### Formations
+
+Group moves can use a formation, picked on the **Formation ▾** menu (the
+default is **Free**: the old grid). Vehicles are placed by type: **heavy**
+(Tanks, Sentries, the mobile Recycler), **light** (Scouts, Hornets) and
+**soft** (Artillery, Scavengers, Constructors). Spacing is 38 px.
+
+| Formation | Layout (front of the group is "forward") |
+| --- | --- |
+| Column | Two abreast; light first, then heavy, then soft. |
+| Battle line | Heavy abreast in the front row, light added alternately to the left and right wings; soft in a second row 1.2 spacings behind. |
+| Wedge | Heavy, then light, along a V: one at the point, then pairs stepping 0.8 spacing back and 0.8 out; soft in pairs inside the V. |
+| Testudo (`box`) | Soft in a square grid in the middle; heavy then light evenly on a ring around them (radius at least 1.3 spacings), heavy taking the front-most places. |
+| Echelon | Heavy then light on a diagonal stepping back (0.65) and right (0.75); soft just behind and left of it. |
+| Scout screen | Light spread 1.6 spacings apart, 2.6 spacings ahead; heavy in a square block; soft in rows of three behind it. |
+
+The shape is centred on the spot ordered. On the move: the group first
+**forms up** around its current centre, facing the way it's going (up to
+6 s); then an anchor travels along one route at **90% of the slowest
+vehicle's speed**, turning at most 0.8 radians a second, and each vehicle
+drives to its place around the anchor (straight there, or by its own route
+if something is in the way; a place on rock or water falls back to the
+anchor). If any vehicle is more than 110 px from its place, the anchor
+waits (up to 4 s at a time). At the end everyone settles into place and
+stands there. Choosing a formation with vehicles selected forms them up on
+the spot, facing the way they face. The computer opponent doesn't use
+formations.
+
+### Recycling
+
+- Only on one of **your own, finished** Repair Pads. The vehicle must be
+  inside the pad's 3 × 3 footprint. Nowhere else.
+- You get back **50% of the vehicle's cost**, the same share as demolishing
+  a building (Scout 25, Tank 50, Artillery 70, Scavenger 30, Constructor 40,
+  Scout Mk II 38, Tank Mk II 75, Artillery Mk II 105,
+  Scavenger II 40, Constructor II 55).
+- The refund goes straight into storage. Whatever doesn't fit is left on
+  the pad as loose scrap for Scavengers.
+- The vehicle vanishes with a short green "taken apart" effect: no
+  explosion, no wreck, no salvage, and it doesn't count as lost.
+- The Recycler can never be recycled (as a vehicle or a building).
+
+### Automatic behaviour
+
+- **Idle armed units** attack anything in sight, but give up the chase once
+  the target is more than their weapon range + 220 pixels from where they
+  were told to stand, and then return there.
+- **Idle Scavengers** look for scrap within 450 pixels once a second and go
+  back to work. When a pile runs out, they look within 900 pixels.
+- **Vehicles on a Repair Pad** are repaired automatically, with a pulsing
+  green ring and rising green "+" signs. Every kind of vehicle is repaired.
+  Vehicles sent by **Go repair** drive off once fixed (to the waypoint or
+  beside the pad). **Idle Scavengers wait on the pad until fully repaired**,
+  then go back to work. Vehicles you simply park there stay.
+- **Arrival:** a vehicle counts as arrived when it reaches its destination,
+  or when it is within 120 pixels and has not got any closer for 2 seconds
+  (this stops crowds jostling forever).
+- **Traffic:** a moving vehicle looks ahead (twice its radius plus 0.7 s of
+  travel) for another vehicle in its path and steers round it, passing on
+  the right when it is dead ahead, so head-on meetings slide past. When two
+  overlap, a moving vehicle pushes a parked one aside (the parked one takes
+  most of the push), and two Scavengers of the same side may squeeze to 60%
+  of their usual spacing. Measured: 6 Scavengers on one field earn 9% more
+  and spend ~40% less time blocked; 8 Tanks swapping places with 8 others
+  head-on finish 13% faster.
+- **Getting unstuck:** a vehicle that barely moves for 1.2 seconds
+  re-plans its route; after 3.5 seconds it gives up.
+- **Route-finding:** A* search over the tile grid, with diagonal moves
+  that never cut rock corners, smoothed into straight legs. The search may
+  look at up to one tile per map square (24,934) before giving up, and
+  smoothing looks at most 40 tiles ahead, so long routes become several
+  straight legs in a row. A cross-map route takes about 5 ms on a desktop.
+
+---
+
+## 11. Building rules: territory and placement
+
+A Constructor can place a building only if **all** of these hold:
+
+1. Every tile of the footprint is inside the map, explored by your side, and
+   free of rock, water, other buildings and Repair Pads.
+2. The footprint is at least one tile away from any scrap geyser (geysers
+   are kept free for Extractors).
+3. No enemy vehicle is within one building-width of the spot.
+4. The spot is inside your **territory**: within the territory radius of one
+   of your finished buildings (Recycler 14, Factory 10, Extractor 9, Base
+   Silo 8, Research Lab 6, Radar 6 tiles; Gun Towers and
+   Repair Pads add none).
+5. Special rules:
+   - Base Silos must be within 7 tiles of your Recycler's edge.
+6. You can afford it.
+
+Before the Recycler is deployed you have no territory and cannot build.
+
+While placing, the screen shows your territory as green circles, or silo
+zones in gold, plus a green or red outline for the building. Towers also
+show their firing range.
+
+---
+
+## 12. Vision, fog of war and radar
+
+- Every unit and building sees a circle of its sight radius. Vision is
+  recalculated every 3 ticks (10 times per second).
+- **Unexplored** ground is nearly black. **Explored but not currently seen**
+  ground is dimmed.
+- Enemy vehicles are only drawn while visible. Enemy buildings stay drawn,
+  faded, where they were last seen.
+- The enemy base's health shows `?` in the top bar until your side has
+  seen it.
+- Artillery can only hit what your side can see, so it relies on spotters.
+  It does fire on its own at anything its side can see out to its full
+  range (440), so a Tank or Scout up front, a Gun Tower or a Radar ping lets
+  Artillery behind them shell targets it can't see itself. (Vehicles look
+  for targets out to their sight or their range, whichever is further; this
+  only matters for Artillery.)
+- **Radar:** each Radar pings once when finished, then every **30 seconds**.
+  A ping reveals everything within **750 pixels** (2.5 times a normal
+  building's sight) for **4 seconds**, and marks that ground as explored.
+  A green ring sweeps outward to show it. Anything revealed can be targeted
+  during those 4 seconds, which lets artillery hit targets beyond normal
+  sight. The Radar's own constant sight is a normal 220. Its info panel
+  shows the time to the next ping.
+
+---
+
+## 13. The computer opponent
+
+The computer plays by exactly the same rules and uses the same commands as
+the player. Its only advantage is its difficulty's income multiplier. It
+knows where your Recycler is at all times (deployed or not) but must see
+other buildings before targeting them.
+
+It makes decisions at intervals (`thinkEvery`, with ±15% random jitter). On
+each decision it runs through these steps in order:
+
+1. **Deploy:** if its Recycler is still a vehicle, deploy it on the nearest
+   free geyser. Nothing else happens until it is deployed.
+2. **Upgrade the Recycler** once past `upgradeBaseAfter` and it has a
+   Factory. It saves up for it; while saving, it pauses army production and
+   construction.
+3. **Recycler production** (only when the Recycler's queue is empty and it
+   isn't upgrading), first match wins:
+   - a Constructor (Constructor II once upgraded), if it has none;
+   - a Constructor II, if upgraded and it has none (so it can repair);
+   - a Scavenger II, if it wants a new geyser and has no Scavenger II
+     available to deploy;
+   - a Scavenger (Scavenger II once upgraded), if it has fewer than
+     `min(maxScavengers, 3 + minutes ÷ 2.5)` minus one for every two
+     Extractors it runs (never below 3).
+4. **Expansion:** once upgraded, if not already deploying, below
+   `maxExtractors`, past 90 seconds (360 on Easy) and at least 30 seconds
+   since its last attempt, it sends its nearest Scavenger II to the nearest
+   free geyser on its own half.
+5. **Construction** (with an idle Constructor, preferring a Constructor II),
+   first match wins:
+   1. finish any unfinished building;
+   2. repair any building below 60% HP (Constructor II only);
+   3. a Factory, if it has none;
+   4. a first Gun Tower after 90 seconds (300 on Easy);
+   5. a Base Silo, if under `maxBaseSilos`, storage at least 70% full, and
+      past 150 seconds;
+   7. a Research Lab after `labAfter` (never on Easy);
+   8. a Radar after `radarAfter` (never on Easy);
+   9. a second Factory after 300 seconds (not on Easy);
+   10. more Gun Towers, up to 1 plus the number of Extractors, after 200
+       seconds, placed at Extractors that have none nearby.
+
+   (A Repair Pad would come after the second Factory when `tactics.repair`
+   is set; it is off on every level, because it cost wins in testing.)
+
+   While saving for a Base Silo, it pauses army production.
+   **Gun Tower upgrades** (after `towerUpgradeAfter`: 15:00 Normal, 10:00
+   Hard, never Easy): one tower at a time; towers within 500 px of its
+   Recycler become Heavy Gun Towers, others Artillery Towers.
+6. **Research and Factory upgrade:** an idle lab researches Advanced Tanks,
+   then Scouts, then Artillery. Once anything is researched, it upgrades one
+   Factory at a time to Factory II. It saves for both, pausing army
+   production.
+7. **Army production** (each Factory with fewer than 2 queued, not
+   upgrading): stops at the army cap. On Easy and Normal the cap also grows
+   over time: `3 + minutes × armyPerMinute`, up to `maxArmy`. It picks:
+   - a Scout if it has fewer than 2, or scouts are under a quarter of the
+     army;
+   - Artillery if artillery is under a quarter of its tanks and time is past
+     `artilleryAfter`;
+   - otherwise a Tank;
+   - on Normal and Hard the mix **adapts** to a scouting report of what it
+     has seen of you: if it has seen 2 or more of your Artillery at once,
+     Scouts rise to a third of the army (to run them down); for every 2 of
+     your Gun Towers it knows of, it wants one more Artillery (up to 3 more
+     on Hard; half that effect on Normal). A bigger shift toward Artillery
+     and Scouts was tried and lost badly: Tanks give the most fighting
+     strength for the scrap.
+   - **Hornets:** after `hornetsAfter` (Normal 15:00, Hard 5:00) the fast
+     share of the army is split evenly between Scouts and Hornets (at least
+     2 Scouts are kept for raids; Hornets are too slow for raids and fight
+     as flankers in assaults).
+   - **Gun Towers:** one at home, then one for every `towerEvery` Extractors
+     (Easy 2, Normal and Hard 3), at the least guarded outpost.
+   - **Sentries:** after `sentriesAfter` (15:00 on Normal and Hard) it builds
+     one Sentry and digs it in just in front of its rally point, the approach
+     to its base. It stays out of its army and its waves. (More Sentries,
+     earlier, cost games in testing.)
+   - It researches Advanced Hornets and Advanced Sentries after the other
+     three topics, and only for vehicles it builds (saving for research
+     pauses its army production).
+   - the **Mk II** version whenever that Factory is a Factory II and the
+     research is done.
+
+   It keeps 60 scrap in reserve while its Constructor is busy, and sets the
+   Factory waypoint to its rally point, 220 pixels from its Recycler toward
+   the map centre.
+8. **Defence:** if an enemy combat vehicle it can see is within 380 pixels
+   of any of its buildings, every combat unit within 1,400 pixels of its
+   Recycler attack-moves there. On Easy nothing else happens that turn; on
+   Normal and Hard the tactics below still run (but no wave or raid leaves
+   while the base is under attack).
+9. **Attack (Easy):**
+   - The target is the nearest enemy building it knows of, or your Recycler
+     wherever it is.
+   - Idle units already out in the field keep pushing to the target after
+     the first-attack time; before it, they return to the rally point.
+   - When the time is past `nextWave` and enough units are waiting at the
+     rally point, it sends exactly `waveSize` of them (the extras stay home)
+     and announces "Enemy attack force spotted".
+   - `waveSize = min(maxArmy, waveBase + minutes since first attack × waveGrowth)`.
+   - The next wave is due `waveEvery` seconds later.
+10. **Battle tactics (Normal and Hard)**, on top of the same waves. Each was
+    added only if it beat the previous opponent in testing (section 20):
+    - **Hold, then counter-attack.** Early on it lets the enemy's waves break
+      on its towers and army at home, instead of trading attacks. It stops
+      holding after `hold` seconds (Normal 10:00, Hard 6:00), as soon as it
+      has beaten off an attack, or once its army at home is `holdArmy` times
+      the wave size (Normal 2, Hard 1.2). Right after beating off an attack
+      it **counter-attacks** at once, as soon as it has 60% of a wave at home.
+    - **All-in waves:** a wave takes everything waiting at home.
+    - **Flanking:** 70% of waves swing round a flank (a point 55% of the way
+      there, pushed sideways by 35% of the distance) on the side where it
+      has seen fewer defences, instead of going straight in.
+    - **Combined arms:** a wave with at least two Tanks, Sentries or
+      Artillery attacks as an assault. The **Tanks** (and Sentries) attack-move
+      straight at the target and take the hits. The **Artillery** goes to a firing spot 360 px short of
+      the target, behind the Tanks, and shells Gun Towers first, then enemy
+      Artillery, then anything else its side can see (the Tanks spot for
+      it). The **Scouts** and **Hornets** (all of them on Hard, half on Normal) swing round
+      the side at the same moment: they dive on enemy Artillery if any is
+      in sight, otherwise strike a soft target (an Extractor or other
+      unarmed building away from Gun Towers, or another outpost) like a
+      raid. When the target falls, the assault moves on to the nearest known
+      building within 1,500 px. Stopping to gather out of range before going
+      in was tried and lost more games, so the assault goes straight in.
+    - **Fire by role:** in every fight, Artillery aims at Gun Towers, then at
+      the tightest bunch of enemy vehicles (for its splash); Scouts go for
+      enemy Artillery; Tanks finish off the weakest armed enemy.
+    - **Feigned retreat (Normal):** 40% of waves of 6 or more start with two
+      fast vehicles poking the target while the rest wait in ambush 45% of
+      the way there. Once the bait makes contact (or is hurt) it runs back
+      past the ambush; when the pursuers are dealt with (or after 70 s) the
+      whole force attacks. Off on Hard: alongside combined arms it cost games
+      there.
+    - **Retreat trap:** when a group falls back (below), any vehicles waiting
+      at home (at least 2, with at least 30% of the chasing strength) move
+      out to a spot 40% of the way toward it and lie in wait for whatever
+      follows it home, then return after 45 s.
+    - **Retreat when outnumbered:** a group out fighting (units within 450 px
+      of each other, more than 900 px from home) falls back to the rally
+      point if its strength is under half that of the enemy vehicles it can
+      see within 600 px. Strength = health ÷ 100 × damage per second (×1.5
+      for splash weapons). An assault that is losing falls back the same way.
+    - **Focus fire:** in a fight, each vehicle switches to the weakest enemy
+      vehicle in its range (armed ones first).
+    - **Sneak raids:** after `raidAfter` (Normal 7:00, Hard 4:00), every
+      `raidEvery` (4:00 / 2:30), 3 or 4 spare fast vehicles (Scouts) swing
+      round the flank opposite the main wave to the least defended enemy
+      Extractor it knows of (or toward your base), hunt workers there, and
+      run for home when they meet more strength than their own (×1.0 / ×1.2)
+      or after 2.5 minutes. Raids only use vehicles beyond a full wave.
+
+Buildings are placed by searching rings around its Recycler toward the map
+centre (Towers at 8 tiles, others at 5), leaving a one-tile gap for driving.
+Placement near a target point walks back toward home until a legal spot is
+found. The search is done as if the AI were in the bottom-left corner and
+then mirrored, so both corners place buildings identically.
+
+**Measured tech timings** (one AI-vs-AI test game on seed 1701):
+
+| Milestone | Normal | Hard |
+| --- | --- | --- |
+| Recycler II ready | 3:18 | 2:59 |
+| First Extractor | 3:36 | 3:32 |
+| Advanced Tanks researched | 10:58 | 8:51 |
+| Factory II ready | 11:52 | 9:47 |
+| First Tank Mk II | 13:29 | 10:58 |
+
+---
+
+## 14. Difficulty levels
+
+| Setting | Easy | Normal | Hard |
+| --- | --- | --- | --- |
+| Income multiplier | ×0.5 | ×1.0 | ×1.35 |
+| First attack at | 10:00 | 5:00 | 3:00 |
+| Time between attacks | 4:00 | 2:30 | 1:40 |
+| First wave size | 3 | 5 | 6 |
+| Wave growth (extra units per minute) | 0.25 | 0.8 | 1.5 |
+| Most combat vehicles | 8 | 25 | 40 |
+| Army growth limit (units per minute, on top of 3) | 0.7 | 3 | none |
+| Most Extractors | 3 | 6 | 7 |
+| Upgrades Gun Towers after | never | 15:00 | 10:00 |
+| Battle tactics | none (simple waves) | all (section 13) | all but the opening feint, thinking twice as often |
+| Holds back early until | — | 10:00, an attack beaten off, or 2 waves at home | 6:00, an attack beaten off, or 1.2 waves at home |
+| Sneak raids | — | from 7:00, every 4:00, 3 Scouts | from 4:00, every 2:30, 4 Scouts |
+| Combined arms | — | yes, half the Scouts flank | yes, all Scouts flank |
+| Feigned retreat (opening feint) | — | 40% of waves | off (the retreat trap instead) |
+| Retreat trap | — | yes | yes |
+| Army mix adapts to what it has seen | — | half strength | full strength |
+| Most Base Silos | 1 | 2 | 3 |
+| Most Scavengers | 3 | 6 | 7 |
+| Seconds between decisions | 2.5 | 1.0 | 0.5 |
+| Artillery allowed after | 20:00 | 4:00 | 2:30 |
+| Second Factory | No | Yes | Yes |
+| Upgrades its Recycler after | 5:00 | 2:00 | 1:30 |
+| Builds a Research Lab after | never | 6:00 | 4:00 |
+| Builds a Radar after | never | 8:00 | 6:00 |
+
+**Measured "do nothing" survival** (the player deploys the Recycler and then
+does nothing; one test map, seed 5):
+
+| Version | Easy | Normal | Hard |
+| --- | --- | --- | --- |
+| After the tech tree | about 16 min | about 9 min | about 5 min |
+| Big map (early October) | about 17 min | about 13 min | about 8 min |
+| October economy retune | about 21 min | about 11 min | about 6 min |
+| Tactical opponent (Oct.) | about 21 min | about 9 min | about 6.5 min |
+
+The first attack lands at 10:00 / 5:00 / 3:00.
+
+If the player never deploys at all, the enemy kills the unarmed mobile
+Recycler at its first attack.
+
+---
+
+## 15. Controls
+
+### Touch (phones and tablets)
+
+| Action | How |
+| --- | --- |
+| Select a vehicle | Tap it. Tap the same kind twice quickly to select all of that kind on screen. |
+| Order selected vehicles | Tap the ground (move), an enemy (attack), scrap (gather), a geyser (deploy), a damaged building (repair, with a Constructor II), or your building (guard it, with Artillery). Use **Guard** for any armed vehicle to protect a building or a vehicle. |
+| Box select | Press and hold on the map, then drag. |
+| Scroll / zoom | One-finger drag / pinch. |
+| Build | Select the Constructor, pick a building, tap where it goes, then press **Build here**. |
+| Upgrade / research | Select the building and press its **Upgrade** or research button. |
+| Quick buttons (top bar) | **Army ▾** (menu: All combat / Scouts / Tanks / Artillery), **Base**, **Idle worker**, **Deselect**. |
+| Pause / Help | **Pause** button (❚❚ on narrow phones). The pause screen has **Resume** and **Help**. |
+| Minimap | Tap to move the camera. **Map ▾ / Map ▸** folds it away or brings it back. |
+
+### Mouse and keyboard
+
+| Action | How |
+| --- | --- |
+| Select | Left-click or drag a box. Double-click selects all of a type. Shift adds. |
+| Order | Right-click (the same meanings as tapping, above). |
+| Command buttons | `Q` `W` `E` `R` `T` `Y` `U` `I`, in the order the buttons appear |
+| Attack-move / Stop | `A` then click / `S` |
+| Demolish | `Z` (then `Z` again to confirm) |
+| Formations | **Formation ▾** in the top bar (it shows the current one): a card per formation with a diagram and a sentence. Applies to every group move until changed; remembered on that device. |
+| Unit groups (keyboard) | `Ctrl`+`1`–`9` saves the selection as a group, `1`–`9` selects it (twice to jump to it). A vehicle is in one group at a time; its number shows beside it. (The Groups menu was replaced by Formations.) |
+| Jump to base / selection | `H` / `Space` |
+| Idle worker | `X` |
+| Scroll | Arrow keys, screen edge, middle-drag, or the minimap |
+| Zoom | Mouse wheel |
+| Pause / mute / help / cancel | `P` / `M` / `F1` / `Esc` |
+| Confirm building placement | `Enter` |
+
+The game speed button cycles through ×1, ×2 and ×4.
+
+---
+
+## 16. Screen layout
+
+- **Top bar:** scrap held / capacity, workers, units / 50, your base's
+  health %, the enemy base's health % (or `?`), the quick buttons, clock,
+  speed and pause. On a narrow phone the clock is hidden, Pause becomes a ❚❚
+  symbol, and the quick buttons get their own second row.
+- **Quick buttons (in the top bar):** Army ▾ (its menu drops down under
+  it), Base, Idle worker, Deselect.
+- **Pause screen:** Resume and **Help**. Help is only reachable from here
+  (or `F1` on a keyboard, which also pauses).
+- **Bottom panel:** the selected unit or building's details, plus its
+  command buttons. On phones the details shrink to a one- or two-line summary
+  and the buttons wrap into rows of three (portrait) or sit beside the
+  summary (sideways), so nothing needs scrolling.
+- **Minimap:** bottom-right corner (top-right on phones). Shows fog, units,
+  buildings, geysers and alerts. Tap it to move the camera. The **Map**
+  button above it folds it down to a small tab; the choice is remembered on
+  that device.
+- **Message log:** top-left. Shows the latest messages, or only the latest
+  two on a sideways phone.
+- **On the map:** health bars appear on damaged or selected things. Under a
+  building's health bar, a blue bar shows unit production, an amber bar shows
+  upgrade or research progress, and a gold bar shows a tank's fill.
+- **Screens:** start screen (faction cards with an animated line-up of each
+  faction's vehicles, difficulty, **Start battle**, **How to play**, **Watch
+  AI vs AI**; the chosen faction is remembered on that device), How to play
+  (mission, factions and their names, vehicles, controls, tips; reachable
+  from the start screen or the pause screen), pause, end (Victory / Defeat
+  with stats; sides are named by faction).
+
+### Saving
+
+**Save game** and **Load game** are on the pause screen; **Load game** is
+also on the start screen. There are four slots: **Autosave** (written every
+3 minutes of battle time and whenever the page is hidden, for example when a
+phone switches apps) and **Slots 1–3**. Each shows faction, difficulty,
+battle time and when it was saved; **Delete** asks twice. A loaded battle
+starts **paused**, with the camera, formation choice and keyboard groups as
+they were. **Download this game** saves the battle as a small `.json` file
+(about 20–40 KB), and **Load from a file…** loads one back, on any device.
+
+A save is the whole game state (`saveGame` / `loadGame` in `sim.js`): every
+object, with links between objects (a vehicle's target, a squad's objective,
+route points) kept as references, unit and building definitions by name,
+terrain and fog as base64, and the random-number generator's position. So a
+loaded battle continues exactly as the original would have (a rules test
+plays both on for 3 minutes and compares them). Saves are about 350 KB as
+text and are gzip-compressed to about 30–40 KB for storage. On the published
+page they go to the page's private per-person store (`data/users/<you>/`,
+so they work on your other devices too); anywhere else to this browser's
+local storage.
+
+### Music
+
+Composed live by `js/music.js` with Web Audio (no audio files): a four-bar
+loop in A minor (Am, F, C, G) at 104 beats a minute, in five layers that
+fade with the action. The start screen plays pads and a slow arpeggio. In
+battle a bass pulse and hi-hats join, and as fighting heats up (up to 6
+enemy fighters your side can see within 650 px of your vehicles or
+buildings, checked twice a second) the arpeggio, busier hi-hats and kick and
+snare come in, and fade out slowly after. Scrapline sounds industrial (saw
+and square waves); the Kethra Concord glassy (sine and triangle waves, more
+echo, a flattened second in the arpeggio). It dips while paused, and ends
+with a short rising (victory) or falling (defeat) phrase. **Music: On/Off**
+on the start and pause screens, a volume slider on the pause screen, both
+remembered on that device; `M` silences sound effects and music together.
+
+---
+
+## 17. Art: how things are drawn, and sprite sizes
+
+Every unit and building is drawn from the **unit design sheet**,
+`js/sprites.js` (brief: `UNIT_SPRITES.md`). It draws with vector shapes on
+the canvas, so there are **no image files** and everything stays sharp at any
+zoom. Hulls are neutral steel; only the team panels change colour (Blue
+`#4aa3ff`, Red `#ff5a4a`). `js/render.js` calls `UnitSprites.drawSprite` for
+each vehicle and building, and keeps the health bars, selection rings,
+progress bars, fog and minimap dots itself.
+
+### What the sprites show
+
+| Thing | On screen |
+| --- | --- |
+| Tank, Artillery, Gun Tower | Turret turns on its own, recoils and flashes when firing |
+| Artillery | Four stabiliser legs fold out when it parks to fire, and fold away before it drives |
+| Mk II vehicles, Tier II workers, upgraded buildings | Gold chevrons; plus side skirts (Tank Mk II), fins (Scout Mk II), clamps (Scavenger II) |
+| Radar | Dish spins |
+| Extractor | Pump head spins, centre glows |
+| Recycler (deployed) | Centre drum turns. **No visible gun barrel** (see below) |
+| Research Lab | Dome glows and pulses while researching |
+| Repair Pad | Hazard stripes; green cross pulses |
+| Factory | Bay lights blink |
+| Anything under half health | Scorch marks, rising smoke, sparks |
+| Vehicle destroyed | Explosion, then a burnt-out wreck |
+| Building destroyed | Explosion, then a crater |
+| Building under construction | Faded sprite that firms up as it is built, dashed outline |
+
+**Recycler gun decision:** the sheet's Recycler has no turret. The Recycler
+**keeps its defence gun** (210 range, 24 damage) and fires it from the centre
+drum without a visible barrel, so bases are no easier to rush. To remove the
+gun instead, delete the `weapon` line from the Recycler in `config.js`.
+
+### Sizes on the map (at normal zoom)
+
+A tile is 32 × 32 pixels. The camera zooms from 0.45× to 1.8×, and phones
+start zoomed out (about 0.55×).
+
+| Building | Tiles | Pixels |
+| --- | --- | --- |
+| Recycler, Factory, Repair Pad | 3 × 3 | 96 × 96 |
+| Extractor, Base Silo, Gun Tower (and its upgrades), Research Lab, Radar | 2 × 2 | 64 × 64 |
+
+| Vehicle | Body diameter | Notes |
+| --- | --- | --- |
+| Recycler (mobile) | 44 px | |
+| Tank / Tank Mk II | 30 px | Barrel reaches about 22 px from the centre |
+| Artillery / Artillery Mk II | 30 px | Long barrel reaches about 36 px from the centre |
+| Scavenger / Scavenger II, Constructor / Constructor II | 26 px | |
+| Scout / Scout Mk II | 22 px | |
+
+### Guidance for sprite artists
+
+To change a design, edit the shape data in `js/sprites.js`. If you ever switch
+to image files instead:
+
+- Draw at **4×** these sizes (for example about 128 px for a Tank, 384 px
+  for a 3×3 building), so they stay crisp when zoomed in and on sharp phone
+  screens.
+- Top-down view, **facing right**. Angle 0 in the code means pointing right,
+  and sprites are rotated from there.
+- Separate **turret layers** for Tank, Artillery, Gun Tower and Recycler:
+  their guns turn independently of the body.
+- Leave **team-colour areas**, as a separate layer or in a neutral colour the
+  game can tint.
+- Transparent PNG backgrounds.
+- Current visual markers to keep: gold chevrons for Mk II vehicles and
+  upgraded buildings; the Repair Pad's hazard
+  stripes and green cross; the radar dish's rotation.
+
+---
+
+## 18. Derived numbers (for balancing)
+
+**Damage per second (DPS)** is damage divided by the time between shots.
+**Time to kill** is the target's HP divided by the attacker's DPS, ignoring
+travel and aiming.
+
+| Attacker | DPS vs units | DPS vs buildings | DPS per 100 scrap | HP per 100 scrap |
+| --- | --- | --- | --- | --- |
+| Scout | 22.9 | 11.4 | 45.7 | 280 |
+| Scout Mk II | 28.6 | 14.3 | 38.1 | 261 |
+| Tank | 28.3 | 28.3 | 28.3 | 400 |
+| Tank Mk II | 36.7 | 36.7 | 24.4 | 373 |
+| Artillery | 17.1 (more with splash) | 27.4 | 12.2 | 143 |
+| Artillery Mk II | 22.3 (more with splash) | 35.7 | 10.6 | 133 |
+| Recycler gun | 30.0 | 30.0 | — | — |
+| Gun Tower | 24.4 | 24.4 | 22.2 | 909 |
+
+Mk II vehicles are stronger per unit but slightly less efficient per scrap.
+Their value is in fewer, tougher, faster units (useful under the 50-unit
+cap) rather than raw cost efficiency.
+
+**One-on-one:** a Tank Mk II kills a Tank in about 11 s; a Tank needs about
+20 s to kill a Tank Mk II.
+
+**Killing a Recycler:** 4,000 HP (Recycler) or 5,000 HP (Recycler II).
+- 5 Tanks: about 28 s / 35 s.
+- 5 Tank Mk IIs: about 22 s / 27 s.
+- 5 Artillery: about 29 s / 36 s.
+- 10 Scouts: about 35 s / 44 s.
+
+**Repair:** a Repair Pad restores a Tank Mk II from 100 to full (560) in
+about 15 s. A Constructor II repairs a Base Silo from 500 to 1,100 in 24 s.
+
+**Travel:** the two starting positions are about 6,350 pixels apart in a
+straight line (was 2,900); real routes are longer. These are straight-line
+times.
+
+| Unit | Time to cross from base to base |
+| --- | --- |
+| Scout Mk II | about 54 s |
+| Scout | about 65 s |
+| Tank Mk II | about 132 s |
+| Scavenger / Constructor (either tier) | about 148 s |
+| Tank | about 159 s |
+| Artillery Mk II | about 167 s |
+| Artillery | about 198 s |
+| Mobile Recycler | about 212 s |
+
+**Economy:**
+
+- An Extractor (42 a minute, straight into storage) pays back the Scavenger
+  II (80) that became it in about 2 minutes.
+- A Base Silo (250 for +300 storage) is the cheapest way to raise the cap.
+- The full tech path costs 250 (Recycler II) + 200 (Lab) + 200 (research) +
+  200 (Factory II) = 850 scrap before the first Tank Mk II, plus its 150.
+- The Recycler's trickle of 2.1 a minute is symbolic: 126 scrap per hour.
+- Salvage: a destroyed Tank leaves 30; a demolished Factory leaves 75.
+
+---
+
+## 19. How the code is organised
+
+Plain HTML and JavaScript with no build step: open `index.html` to play.
+
+| File | Contents |
+| --- | --- |
+| `index.html` | Page layout, styles (including phone layouts), title, help and end screens |
+| `js/config.js` | **All balance numbers:** units, buildings, upgrades, research, difficulty |
+| `js/map.js` | Random mirrored map generation, geysers, scrap fields; route-finding (A*) |
+| `js/sim.js` | The rules: commands, movement, combat, economy, storage, deploying, upgrades, research, radar, repair pads, demolishing, vision, victory |
+| `js/ai.js` | The computer opponent |
+| `js/sprites.js` | The unit design sheet: vector drawings of every vehicle and building, their animations, damage smoke, explosions, wrecks and craters |
+| `js/render.js` | Drawing the map, fog, minimap, bars and effects; calls `sprites.js` for units and buildings. The ground is painted in chunks as they scroll into view (see below). |
+| `js/main.js` | Mouse, touch and keyboard input; panels and buttons; minimap toggle; sound effects; the game loop |
+| `js/music.js` | The soundtrack, composed live with Web Audio (see section 16, "Music") |
+| `js/saves.js` | Where saved games are kept: the published page's private per-person store, or this browser (see section 16, "Saving") |
+| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (85 checks). |
+
+Other documents in the folder: `README.md` (how to play, controls, unit
+tables), `ROADMAP.md` (planned stages), `ECONOMY_TEST_REPORT.md` (the October
+economy retune: what was tested, results and recommendations), and this file.
+Balance-testing tools are in `tests/balance/` (see that report, section 13).
+
+### Design principles already built in
+
+- **Every action is a command.** The player and the AI change the game
+  only through `issueCommand(game, team, command)`. This is what makes
+  online multiplayer possible later: players would exchange commands
+  rather than the whole game state. Commands include move, attack, harvest,
+  deploy, build, repair, produce, cancel, rally, demolish, upgrade, research,
+  scout, patrol, guard, gorepair, recycle and upgrade (with an `option` for Gun Towers).
+- **Deterministic simulation.** All randomness in the rules uses a seeded
+  generator (`makeRng`), including the per-tick shuffle of update order. The
+  same seed and the same commands give the same game.
+- **Fixed-rate simulation.** Rules run at exactly 30 ticks per second,
+  independent of screen frame rate.
+- **Mirror fairness.** Route-finding and group formation always compute
+  from one half of the map and mirror the result, so mirrored situations
+  get mirrored outcomes.
+- **Ground drawn in chunks.** A single picture of the whole 5,824 × 4,384
+  map would be about 25 million pixels, over the roughly 16.7 million a
+  phone browser allows for one image. So the ground is painted in 16 × 16
+  tile chunks (512 px) as they come into view, at most 2 per frame; at most
+  48 are kept and the ones off screen longest are dropped. Until a chunk is
+  ready, a blurred one-pixel-per-tile map shows instead. Each tile has its
+  own random numbers, so a chunk always repaints identically. Explosion
+  scorch marks are remembered (up to 3,000) and repainted onto chunks.
+- **Unit families.** Upgraded units name their basic kind
+  (`base: 'tank'`), so orders, menus and the AI treat a Tank Mk II as a
+  tank. Adding a Mk III later would follow the same pattern.
+
+---
+
+## 20. What has been tested, and how
+
+Automated tests were run throughout development. The **rules tests** are now
+in the repository (`tests/rules.js`, run with `node rts-game/tests/rules.js`);
+the other scripts were temporary, and their methods are listed so they can be
+rebuilt.
+
+| Test type | Method | What it checks |
+| --- | --- | --- |
+| **Rules tests** (`tests/rules.js`, 85 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Formations** (six plus Free; a group arrives where sent and stays together on the way, unlike free movement; Testudo keeps soft units inside the ring; Column puts fast units first and Artillery last); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused). |
+| **AI duels** (`tests/balance/duels.sh`) | The current opponent plays an earlier version of itself (`tests/balance/ai_previous.js`, the first one; `ai_v2.js` with `OPP=v2`, the 18 October one) on many seeds, 4 games at a time, up to 60 minutes each. With `BOTHOLD=1` both sides use the previous version, giving the baseline for the same seeds. | Whether a change to the opponent actually makes it stronger. Each tactic was tried alone, then in combinations; see the results below. |
+| **AI-vs-AI batches** | Run 30 to 120 full games between two computer players on different seeds. | Games end, typical length, and **fairness** by team and by corner. |
+| **AI tech progression** | Log when the AI reaches each milestone at each difficulty. | The AI actually upgrades, researches and fields Mk II units. |
+| **"Do nothing" survival** | The player deploys and then does nothing, at each difficulty. | Difficulty pacing: when the first attack lands and how long a passive player lasts. |
+| **Mirrored duels** | Identical groups placed in mirror-image positions fight 100 to 300 times. | Whether combat or movement favours one side or location. |
+| **Mirror determinism trace** | Same as a duel with randomness removed, comparing both sides every tick. | Finds the exact moment and cause of any asymmetry. |
+| **Economy comparison** | Average each side's scrap, units and build times minute by minute over 20+ games. | Which phase of the game an imbalance comes from. |
+| **Browser tests** | Automated Chromium, desktop and simulated iPhone (portrait and landscape), with real taps, drags and pinches. | Every button and gesture works, no script errors, and layout doesn't hide important things. Includes upgrade and research buttons, Go repair, the Army menu and the minimap toggle. |
+| **Performance** | Measure simulation time per game-second in a long AI-vs-AI game; on the big map also frame times while sweeping the camera across the whole map, on a desktop and on a phone-sized screen with the processor slowed 4×. | About 35 ms of work per second of play in big battles on a desktop. Big map, 10 minutes into an AI game: rules about 4 ms per second of play (12 ms on the slowed phone); a frame with the ground already painted about 0.2 ms to draw (1 ms on the slowed phone); 95% of frames under 13 ms while sweeping at extreme speed (52 ms on the slowed phone); the minimap about 0.1 ms. |
+
+### AI duel results (18 October 2026)
+
+The new opponent (team 1) against the previous one (team 2), same seeds, up
+to 60 minutes a game. The baseline is the previous opponent on both sides,
+which shows how often team 1 wins on those seeds by luck of the map.
+
+| Difficulty | Games | New opponent wins | Baseline team 1 wins | Gain |
+| --- | --- | --- | --- | --- |
+| Hard | 64 (seeds 1–64) | **38** (26 lost) | 29 (31 lost, 4 unfinished) | +9 |
+| Normal | 32 (seeds 1–32) | **20** (11 lost, 1 unfinished) | 12 (17 lost, 3 unfinished) | +8 |
+
+Tactics tried one at a time on Hard (seeds 1–16, baseline 5 wins): flank 8,
+focus fire 8, retreat 7, all-in 7, feint 6, raids 5, counter-attack 5,
+repair trips 3. Holding back early and then striking together gave the
+biggest single gain (20 of 32 against a baseline of 15). Repair trips stay
+off for the opponent.
+
+### AI duel results: combined arms (19 October 2026)
+
+The combined-arms opponent (team 1) against the 18 October opponent
+(`ai_v2.js`, team 2) on Hard, same seeds. The baseline is the 18 October
+opponent on both sides.
+
+| Seeds | Combined-arms opponent wins | Baseline team 1 wins |
+| --- | --- | --- |
+| 1–64 | **33** (31 lost) | 29 |
+| 65–128 | **34** (30 lost) | 24 |
+| All 128 | **67** | 53 (+14) |
+| Normal, 1–32 | **18** (14 lost) | 15 |
+
+Against the first opponent (`ai_previous.js`) on Hard, seeds 1–64, it wins
+35 (the 18 October one won 38 there; the difference is within chance).
+
+What was tried on the way (Hard, 32 seeds unless noted, baseline 15):
+
+| Variant | Wins | Kept? |
+| --- | --- | --- |
+| First adaptive mix (shift toward Artillery and Scouts by what was seen) | 3 of 16 (baseline 7) | No: fielded far fewer vehicles |
+| Conservative adaptive mix | 7 of 16 (baseline 7) | Yes |
+| Combined-arms assault, gathering out of range first | 13 to 15 | No: the wait cost more than it gained |
+| Combined-arms assault, straight in | 16 | Yes |
+| Fire by role | 15 | Yes |
+| Damaged vehicles back out of fights; Artillery backs away | 11 | No |
+| Two more Scouts; one more geyser; attacking Extractors first | 14 to 15 | No |
+| Retreat at 35% or 70% strength; smaller counter-attacks; always flank; more raids | 14 to 15 | No |
+| Hold for 1.6 waves | 17, then 12 on seeds 33–64 | No |
+| **No opening feint** | **19, then 16 on seeds 33–64** (baseline 14) | **Yes, on Hard** |
+| Retreat trap | 34 of 64 (baseline 29) | Yes |
+
+### AI duel results: Hornets and Sentries (19 October 2026)
+
+Against the 18 October opponent, Hard seeds 1–64 (it won 33 there before
+the new vehicles; the baseline is 29):
+
+| How the opponent used the new vehicles | Wins |
+| --- | --- |
+| Hornets, plus Sentries guarding outposts | 27 |
+| Hornets only | 30 |
+| Sentries guarding outposts only | 23 |
+| Hornets, research only what it builds | 29 |
+| **Hornets, plus one Sentry per four Tanks in the army** | **31** (30 on seeds 65–128, baseline 24) |
+| One Hornet per three Scouts, one Sentry per six Tanks | 29 |
+| Neither (current code) | 33 |
+
+Using the new vehicles costs the opponent a little strength (Tanks give the
+most fighting strength for the scrap), but the shipped mix still beats the
+18 October opponent: **61 of 128** against a baseline of 53. On Normal,
+bringing them in at 5–10 minutes lost (12 of 32, baseline 15); from 15:00
+it wins **17** (the opponent without them won 18).
+
+### AI duel results: the bigger map (20 October 2026)
+
+Against the 18 October opponent on the 223 × 168 map. Baselines (that
+opponent on both sides): Hard seeds 1–32 15, seeds 33–64 18; Normal 1–32 17.
+
+| Variant | Wins |
+| --- | --- |
+| Hard, as first shipped (one tower per two Extractors, 2 Sentries from 7:00) | 13 of 32 (25 of 64) |
+| Hard, one tower per Extractor (as before) | 8 of 32 |
+| Hard, one per two, no Sentries | 17 of 32, then **20** on seeds 33–64 |
+| Hard, one per two, no Hornets | 16 of 32 |
+| Hard, one per Extractor, no Sentries or Hornets | 9 of 32 |
+| **Hard, one per three, 1 Sentry from 15:00 (shipped)** | **19** on seeds 33–64 (baseline 18) |
+| Normal, one per two, 1 Sentry from 15:00 | 14 of 32 |
+| **Normal, one per three (shipped)** | **22** of 32 (baseline 17) |
+
+On the bigger map, with more Extractors, a Gun Tower for each one sank too
+much scrap into towers.
+
+### Bugs these tests have caught (for reference)
+
+- **Combat:** gun towers never reloaded; building guns were outranged by
+  tanks.
+- **Economy:** the starting Scavengers idled.
+- **Movement:** group moves to one point made units jostle forever (the
+  Hard AI stalled).
+- **AI:** it never finished research, because it spent everything on its
+  army.
+- **Phone layout:** the start geyser was hidden behind buttons, and a long
+  build list pushed the quick buttons over the map in portrait.
+- **Buttons:** the build queue's cancel buttons broke at the unit limit. The
+  Constructor's queue count showed program text ("function Object()…"),
+  the same built-in-name clash as the sprite bug; counts now use a clean
+  lookup table.
+- **Side bias**, from several sources: update order, route tie-breaking,
+  formation tie-breaking, a non-mirrored map clearing, and decision timing.
+- **Big map:** a cross-map route took 55 ms (route smoothing re-checked long
+  sight-lines); now about 5 ms.
+- **Kethra names:** an early version of the name lookup showed the
+  Constructor's queue count as program text; all lookups keyed by names now
+  use clean tables.
+- **Repair Pad:** a vehicle destroyed (or recycled) while parked on the pad
+  could be healed back to life in the same tick. Fixed.
+- **AI duels:** the first version of the cunning opponent lost badly to the
+  old one (1 win to 13 on Hard). Causes: it would not start a new wave while
+  one squad was out; stragglers were sent home with plain moves and looped
+  between home and the front; early retreats threw away fights; raids
+  stripped the base. Rebuilt on top of the old wave logic, one tactic at a
+  time, keeping only what won in paired duels.
+- **Traffic:** Scavengers queued behind each other at fields; light
+  steering around units ahead and softer pushing between workers gave about
+  9% more income with 6 Scavengers.
+
+---
+
+## 21. Known problems and open questions
+
+### Problems
+
+1. **Corner advantage (unsolved).** Before the tech tree, whoever started in
+   the **top-right corner won about 75%** of AI-vs-AI games (36 to 11 over
+   60 games). The map, the bases and the route-finding are verified mirror
+   images, so the cause is unknown. The workaround is random corners each
+   game, which makes the teams even on average. In a small batch after the
+   tech tree was added (30 games), the corners came out even (9 to 9), so
+   the effect may have shrunk, but this needs a larger test.
+2. **Stalemates.** Since the tech tree was added, about **2 in 5** AI-vs-AI
+   games reach 30 minutes without a winner (before, about 1 in 5), because
+   bases can now repair and upgrade and units are slow. It is unknown
+   whether human games feel too long.
+   **On the 182 × 137 map, games are much longer.** In 8 AI-vs-AI games
+   (Normal, seeds 1 to 8) with a 90-minute limit: 6 ended, after 19, 20, 22,
+   44, 45 and 48 minutes; 2 were still going at 90 minutes. At a 40-minute
+   limit, 5 of the same 8 had no winner (1 in 8 on the old map). A player who
+   does nothing still loses at about 17 / 13 / 8 minutes on Easy / Normal /
+   Hard, and the first attacks still land at 10 / 5 / 3 minutes. Travel
+   times roughly doubled (section 18) while speeds, costs and attack timing
+   were not changed.
+3. **Slower start.** No geyser can be claimed until the Recycler is upgraded
+   (250 scrap, 40 s, with a storage cap of 300), so the early game relies on
+   loose scrap for several minutes.
+4. **Economic death spiral.** If a side loses all its Scavengers and has no
+   Extractors, its only income is the Recycler's 2.1 a minute (about 1 on Easy for
+   the AI). It may never recover. Seen in an Easy AI-vs-AI game.
+5. **Never tested on a real phone.** Touch controls have only been tested
+   in a simulated iPhone.
+6. **The AI doesn't use** Scout, Patrol, Guard, Go repair or the Repair Pad,
+   and never demolishes. On Easy it skips research, the Radar and all
+   battle tactics.
+7. **The tactical opponent was tuned against the previous opponent, not
+   against people.** It beats the old one clearly (section 20), but a human
+   who turtles behind towers, or who raids it, may find new weaknesses. Its
+   "hold, then counter-attack" opening means Normal and Hard may feel quieter
+   in the first minutes if you don't attack it.
+8. **Balance is untested with human play.** All numbers come from design
+   intent and AI-vs-AI results, not from people playing.
+9. **Sprites not yet checked on a real phone.** They draw in about 5 ms a
+   frame with 30+ units on a desktop; a busy late game on an older phone may
+   be slower. `UnitSprites.bake()` can cache hulls if needed.
+
+### Open design questions
+
+- Should terrain affect speed or sight (hills, forests, roads)?
+- Is the Recycler's 2-a-minute trickle meaningful, or only flavour?
+- Should the enemy be denied knowledge of where your Recycler is?
+- How long should a typical game be?
+- Should Easy get some battle tactics (for example flanking) to feel less predictable?
+- **Tech tree:**
+  - Should Factory II require a Research Lab to exist?
+  - Should research be lost if the lab is destroyed?
+  - Should there be more tiers (Mk III, Recycler III)?
+- Mk II units are less cost-efficient than basic ones. Is that the intended
+  trade-off (quality over quantity under the unit cap)?
+- Should the Radar ping also show on the minimap, or warn the enemy when
+  they're pinged?
+- Should vehicles go to the Repair Pad automatically when badly damaged?
+- Should the basic Constructor be able to repair at a slower rate, rather
+  than not at all?
+- Should the deployed Recycler keep its (now invisible) defence gun, or lose
+  it to match the art? Currently kept.
+
+---
+
+## 22. Design decisions already made
+
+These were decided by the game's designer during development; change them
+only on purpose.
+
+1. **No capture-the-flag or tickets.** They were built and then removed.
+   The only win condition is destroying the enemy Recycler.
+2. **Must be playable on a phone.**
+3. **Easy must be genuinely easy** for a new player.
+4. **Battlezone 2-style economy:** loose scrap for Scavengers; geysers with
+   Extractors; a Recycler that deploys onto a geyser and pumps it at a
+   twentieth of an Extractor's rate.
+5. **Storage is limited,** expanded by Base Silos (next to the Recycler)
+   only. **No Extractor Silos and no Transports** (removed October 2026):
+   an Extractor's scrap goes straight into storage.
+6. **Speeds:** Tanks and Scouts slowed, Constructors equal to Scavengers,
+   Artillery the slowest.
+7. **Unit roles:** Scouts scout (solo or as a pack), Tanks patrol, any armed
+   vehicle can **Guard** a building or another vehicle.
+8. **Buildings can be demolished** for 50% of their cost, left as scrap on
+   the ground.
+9. **Waypoints** on the Recycler, Factory and Repair Pad (where repaired
+   vehicles go, so the pad doesn't pile up), which can be set and cleared.
+9d. **Production queue:** no fixed limit, a counter per vehicle type, and
+    each vehicle paid for when it starts.
+9e. **Unit groups** like Battlezone 2, on a Groups button as well as keys.
+9f. **Gun Towers upgrade** to an Artillery Tower or a Heavy Gun Tower.
+9g. **The opponent should be cunning:** different routes, sneak attacks,
+    feigned retreats, better tactics at higher difficulty.
+9b. **Map size and geysers:** the map is 182 × 137 (1.9× per side), with 12
+    geysers (6 per half, at least 20 tiles apart, from home out to the
+    contested middle) and 22 scrap fields.
+9c. **Recycling** happens only on a Repair Pad, for 50% of the vehicle's cost
+    (the demolish share), with a confirm step; never the Recycler.
+10. **Tech tree:**
+    - Basic Scavengers cannot deploy; basic Constructors cannot repair. Both
+      abilities need the upgraded Recycler.
+    - Mk II vehicles need both research at a Research Lab and a Factory II.
+11. **Radar** pings periodically (every 30 s) rather than giving constant
+    vision, over about 2.5 times normal sight.
+12. **Repair Pad** is a wide pad that vehicles drive onto, with a visible
+    repair animation. It repairs every kind of vehicle.
+13. **The minimap can be collapsed.**
+14. **Starting corners are random** (a fairness workaround, not a design
+    goal; revisit once the corner advantage is understood).
+
+---
+
+## 23. A framework for systematic improvement
+
+A suggested way to organise the next stage of work. It is a starting point
+to refine, not a finished plan.
+
+### How to run each phase
+
+1. **State the goal** in one sentence, and the measurable signs of success
+   (for example, "corner win rate between 45% and 55% over 100 games").
+2. **Change one system at a time,** so any effect can be traced to its
+   cause.
+3. **Test with the right tool** from section 20: rules tests for mechanics,
+   AI batches for balance and fairness, browser tests for controls and
+   layout, and **human playtests** for feel.
+4. **Record results** (numbers, not impressions) before and after.
+5. **Keep or roll back.** Every change is a separate saved version
+   (a git commit), so undoing is easy.
+
+### Candidate phases (in suggested order)
+
+| Phase | Goal | Main test |
+| --- | --- | --- |
+| 1. Real-device check | Confirm touch controls, layout and speed on the designer's actual phone. | Human playtest checklist: deploy, upgrade, research, build, select, order, every button. |
+| 2. Fairness | Confirm whether the corner advantage still exists after the tech tree; find and remove it. | AI-vs-AI by corner: 45 to 55% over 100+ games. Mirror traces for the cause. |
+| 3. Pacing and game length | Decide target game length; reduce stalemates; tune the slow start (Recycler II cost and time, storage cap). | Game length distribution; share over 30 minutes; time to first Extractor. |
+| 4. Core balance | Every unit has a clear job; no single unit type dominates; Mk II worth its price. | Unit-versus-unit duel tables (equal scrap spent); AI-vs-AI with forced army compositions. |
+| 5. Tech tree tuning | Upgrade and research costs and times feel right; the tech path is a real choice versus more basic units. | Timing curves; basic-army vs tech-army AI matchups. |
+| 6. Difficulty curve | Easy beatable by a first-time player; Hard challenging. | "Do nothing" survival, scripted "simple player" bots, human playtests. |
+| 7. AI competence | The AI uses Scout, Patrol, Guard and the Repair Pad without losing strength; recovers from losing its Scavengers; holds up against human tactics. | AI-vs-AI game length; milestone logs. |
+| 8. Art | Done: sprites from the unit design sheet (section 17). Remaining: check on real phones; sound. | Visual review on desktop and phone; performance check. |
+| 9. Content | New units, buildings or terrain effects (roadmap Stage 2). | Each addition gets its own rules test and balance check. |
+| 10. Campaign / 4X layer | Sector map between battles (roadmap Stage 3). | Design first, then playtests. |
+| 11. Online multiplayer | Lockstep command syncing (roadmap Stage 4). | Two browsers, determinism checks, disconnect handling. |
+
+### Useful measurements to track across phases
+
+- Win rate by team and by corner (AI-vs-AI).
+- Game length: median, and the share of games over 30 minutes.
+- Time of first Factory, first Extractor, Recycler II, first research, first
+  Mk II, first attack.
+- Scrap gathered per minute by source.
+- Units built and lost by type.
+- "Do nothing" survival time per difficulty.
+- Simulation cost per game-second (performance).
+- For human tests: win or loss, game length, what was confusing, what felt
+  unfair or boring.
+
+---
+
+## 24. Change log
+
+How the game reached its current state, in order. Each step is a separate
+saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
+
+1. **First playable version.** Flags and tickets, a scrap economy, a
+   Factory, three combat units, an AI opponent, desktop controls.
+2. **Fairness fix.** Update order alternated so neither side always acted
+   first.
+3. **Phone support.** Touch controls, the phone layout and quick buttons.
+4. **Flags and tickets removed.** Destroying the Recycler became the only
+   win condition; Easy made much gentler; Scrap Silos for territory.
+5. **Unit orders and geysers.** Scout, Patrol and Defend orders, the Army
+   menu, scrap geysers and Extractors (replacing Scrap Silos). Gun towers
+   fixed.
+6. **Storage.** A scrap cap, Base Silos, Outpost Silos and shielded
+   Transports. Route-finding and formations made mirror-fair.
+7. **Mobile Recycler.** Deploys onto a geyser; Demolish; waypoints; Outpost
+   Silos became Extractor Silos (joined onto Extractors, direct to storage);
+   units slowed.
+8. **Random starting corners,** to neutralise a corner advantage.
+9. **First version of this document.**
+10. **Tech tree.** Recycler II and Factory II upgrades, Research Lab, Mk II
+    vehicles, Scavenger II and Constructor II, Radar, Repair Pad; the AI
+    uses the tech tree; phone buttons kept to one scrolling row.
+11. **Collapsible minimap.**
+12. **This document brought fully up to date** (28 September 2026).
+13. **Unit design sheet.** All vehicles and buildings drawn from
+    `js/sprites.js`: turning turrets with recoil, spinning radar and pump,
+    shield bubble, damage smoke, explosions, wrecks and craters. Artillery
+    must now park and lower stabiliser legs (0.6 s) before firing and raise
+    them (0.6 s) before driving, a small nerf. The Recycler keeps its gun
+    without a visible barrel.
+14. **Phone layout tidy-up.** Quick buttons moved into the top bar; Help
+    moved onto the pause screen; the selection panel shrank to a short
+    summary with action buttons wrapping into rows instead of scrolling.
+15. **Constructor sprite fix and darker treads.** Constructors were drawn as
+    only a shadow (their name clashed with a built-in JavaScript word in the
+    sprite lookup). Tank, Artillery and mobile Recycler treads are now
+    near-black with lighter cleats for contrast. A pixel test now checks
+    every vehicle and building draws for both teams, upgraded and wrecked.
+16. **Bigger map** (11 October 2026): 182 × 137 (1.9× per side), noise
+    scaled to match, 24 geysers at least 20 tiles apart, 22 scrap fields;
+    ground painted in chunks for phones; route-finding made about 10× faster.
+17. **Repair Pad:** repairs every vehicle, workers wait on it until fixed;
+    **Recycle** on the pad for half the cost, with a confirm step. Rules
+    tests added to the repository (`tests/rules.js`).
+18. **Economy retune** (16 October 2026): 12 geysers (6 per half);
+    Extractors 0.7 a second with a 120 tank; the opponent builds more
+    Extractors (see `ECONOMY_TEST_REPORT.md`).
+19. **Orders, queue, towers and a cunning opponent** (18 October 2026):
+    Transports and Extractor Silos removed (Extractors pay straight into the
+    total; Base Silos raise the cap); Repair Pad waypoint, repaired units
+    leave the pad; Go repair for Constructors; Guard (a building or a unit);
+    unit groups 1 to 9; production counts up to 99 per building with
+    per-type cancel; Gun Tower upgrades (Artillery Tower, Heavy Gun Tower);
+    smoother traffic. Normal and Hard opponents now hold, counter-attack,
+    flank, feint, retreat, focus fire and raid Extractors (section 13), and
+    upgrade their towers. Duel tool added under `tests/balance/`.
+20. **Combined arms** (19 October 2026): on Normal and Hard the opponent's
+    Tanks lead assaults while its Artillery shells Gun Towers from behind
+    them and its Scouts strike elsewhere at the same moment; every vehicle
+    picks targets for its job; its army mix answers what it has seen of
+    yours; a retreat can spring a trap. Artillery now fires on anything its
+    side can see out to its full range (for both sides), so Tanks, Scouts
+    and Radar spot for it. The opening feint is off on Hard. Tested over 128
+    Hard games against the 18 October opponent (section 20).
+21. **Factions and new vehicles** (19 October 2026): a second playable
+    faction, the **Kethra Concord** (hovering alien designs from
+    `js/sprites_kethra.js`, same rules as Scrapline, its own names); the
+    **Hornet** light rocket tank and the **Sentry** mobile turret for both
+    factions, with Mk II versions and research; a new start screen (choose
+    faction and difficulty; How to play on its own screen); the opponent
+    builds Hornets as flankers and Sentries for its front line (section 20).
+22. **Formations and music** (20 October 2026): the Groups menu is replaced
+    by **Formations** (Column, Battle line, Wedge, Testudo, Echelon, Scout
+    screen, or Free), with diagrams; groups march in shape at the slowest
+    vehicle's pace. A live-composed **soundtrack** that follows the
+    fighting, with a sound for each faction, and Music On/Off and volume.
+23. **Defensive Sentries, Hornet and Mk II rebalance, bigger map**
+    (20 October 2026): Sentries are purely defensive (Deploy digs them in;
+    dug in they never move or chase; packed up they can't fire); the Hornet
+    sits between Scout and Tank; every Mk II is about 40–50% better per scrap
+    with a signature edge; the map is half as big again in area (223 × 168)
+    with 20 geysers and 36 scrap fields, home resources kept at their old
+    distances so the opening pace is unchanged; the opponent digs Sentries in
+    at its base approach (one, from 15:00) and builds one Gun Tower per
+    three Extractors (section 20).
+24. **Save game** (21 October 2026): Autosave plus three slots, on the
+    pause and start screens; download a save as a file and load it back;
+    a loaded battle continues exactly as the original. Saves follow you
+    between devices when playing on claude.ai.
