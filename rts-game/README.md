@@ -126,6 +126,31 @@ In a formation the group forms up, then marches at its slowest vehicle's
 pace, waiting for stragglers, and arrives in shape. With Attack-move it
 fights on the way.
 
+## Campaign
+
+Press **Campaign** on the start screen to fight a war for **The Cinder
+Reach**: fifteen battlefields joined into a web. Your side holds the west,
+the enemy the east, and AI commanders on both sides fight over the front
+lines while you're away ("on paper"), at the pace you choose: Fast (a war
+report every 10 minutes), Normal (30 minutes), Slow (2 hours), Very slow (8
+hours) or Hold (the war moves only when you finish a battle). At most 12
+reports come in while you're away, so the war is never decided without you.
+
+On the war map, tap a battlefield:
+
+- **Attack** an enemy battlefield **next to one your side holds** (you can't
+  attack deeper than that). You lead from the first minute.
+- Join a battle your side is already fighting (marked ⚔; the ring shows how
+  it's going, blue for you): **Take command** of the allied base and army as
+  they stand, or **Reinforce** with your own strike force (gold markers)
+  while the allied commander runs the base and sends you every third
+  vehicle it builds.
+
+Every neighbouring battlefield your side holds gives you extra vehicles at
+the start of a battle (up to 8); the enemy gets the same from its own.
+Win a battle and the battlefield is yours. **Leave battle** on the pause
+screen hands it back to the allied commander. Hold all fifteen to win.
+
 ## Saving your game
 
 Pause, then **Save game**: pick Slot 1, 2 or 3. There's also an **Autosave**,

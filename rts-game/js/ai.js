@@ -18,7 +18,8 @@ function aiUpdate(game, team) {
   // (whoever acts first on a shared tick would get a small, unfair edge).
   ai.next = game.time + diff.thinkEvery * (0.85 + game.rng() * 0.3);
 
-  const mine = game.entities.filter(e => e.team === team);
+  // Vehicles handed to a player fighting alongside (campaign Reinforce) are theirs to command.
+  const mine = game.entities.filter(e => e.team === team && !e.cmdr);
   const units = mine.filter(e => e.kind === 'unit');
   const buildings = mine.filter(e => e.kind === 'building');
   const tm = game.teams[team];

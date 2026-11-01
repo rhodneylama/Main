@@ -161,6 +161,62 @@
   #help table { border-collapse: collapse; width: 100%; }
   #help td { padding: 3px 8px 3px 0; vertical-align: top; }
   #help td:first-child { white-space: nowrap; }
+  /* Campaign: the war map */
+  #war { position: fixed; inset: 0; z-index: 10; overflow-y: auto; background: radial-gradient(ellipse at 50% 40%, #142014, #070907 75%);
+    padding: calc(10px + var(--safe-t)) calc(16px + var(--safe-r)) calc(14px + var(--safe-b)) calc(16px + var(--safe-l)); }
+  .war-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
+  .war-head h1 { margin: 0; font-size: 26px; letter-spacing: .06em; text-transform: uppercase; }
+  .war-head h1 span { color: var(--accent); }
+  #war-pace { display: flex; gap: 4px; flex-wrap: wrap; }
+  #war-pace button { padding: 4px 9px; font-size: 12px; min-height: 32px; }
+  .war-body { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 14px; margin-top: 10px; align-items: start; }
+  #war-map { width: 100%; height: auto; display: block; background: rgba(10, 16, 10, .6); border: 1px solid var(--edge); border-radius: 8px; }
+  #war-map .link { stroke: #3c4c3a; stroke-width: .45; }
+  #war-map .front { stroke: #e0a040; stroke-width: .6; stroke-dasharray: 1.2 .9; }
+  #war-map .sector { cursor: pointer; }
+  #war-map .node { stroke: #0b0d0a; stroke-width: .5; }
+  #war-map .node.capital { stroke: #f0e0a0; stroke-width: .6; }
+  #war-map .ring { fill: none; stroke-width: 1.1; }
+  #war-map .pulse { fill: none; stroke: #fff; stroke-width: .3; opacity: .6; animation: warpulse 1.6s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+  #war-map .pulse.yours { stroke: #ffd25a; stroke-width: .5; opacity: 1; }
+  #war-map .target { fill: none; stroke: #fff; stroke-width: .35; stroke-dasharray: .9 .7; opacity: .85; }
+  #war-map .sel { fill: rgba(140, 255, 160, .12); stroke: var(--accent); stroke-width: .5; }
+  #war-map .label { fill: #dfe8da; font-size: 2.5px; text-anchor: middle; paint-order: stroke; stroke: #070907; stroke-width: .6px; pointer-events: none; }
+  #war-map .glyph { fill: #fff; font-size: 3px; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
+  @keyframes warpulse { from { transform: scale(1); opacity: .7; } to { transform: scale(1.6); opacity: 0; } }
+  .war-side { display: flex; flex-direction: column; gap: 10px; }
+  #war-detail, #war-logbox { background: #131913; border: 1px solid var(--edge); border-radius: 8px; padding: 12px 14px; }
+  #war-detail h2 { margin: 0 0 4px; font-size: 16px; color: var(--accent); }
+  #war-detail p { margin: 6px 0; }
+  #war-detail > div { margin-top: 5px; }
+  .front-bar { height: 9px; border-radius: 5px; background: var(--red); overflow: hidden; margin-top: 8px !important; }
+  .front-bar div { height: 100%; background: var(--blue); }
+  .war-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+  .war-actions button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 8px 12px; min-height: 44px; }
+  .war-actions button.big { background: #2c4a2c; border-color: #5c9a5a; font-size: 15px; }
+  #war-log { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+  .wl { font-size: 13px; padding-left: 8px; border-left: 3px solid var(--dim); }
+  .wl.good { border-color: var(--accent); } .wl.bad { border-color: var(--bad); } .wl.warn { border-color: var(--warn); }
+  #war-note { color: var(--warn); font-size: 13px; min-height: 0; }
+  .war-legend { font-size: 12px; color: var(--dim); margin-top: 6px; }
+  .war-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin: 0 3px 0 8px; }
+  #warnew-pace { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+  .pace { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 2px; min-height: 52px; }
+  .pace.active { border-color: var(--accent); background: #1f2f1f; box-shadow: 0 0 0 1px var(--accent) inset; }
+  #wardrop { z-index: 12; }
+  .dropbar { height: 10px; border-radius: 5px; background: #222; overflow: hidden; margin-top: 14px; }
+  .dropbar div { height: 100%; width: 0; background: var(--accent); transition: width .1s; }
+  @media (max-width: 860px) {
+    .war-body { grid-template-columns: 1fr; }
+    .war-head h1 { font-size: 21px; }
+  }
+  @media (max-width: 460px) {
+    #war { padding-left: calc(10px + var(--safe-l)); padding-right: calc(10px + var(--safe-r)); }
+    #war-map .label { font-size: 3px; }
+  }
+
+  /* Reinforcing: the scrap and workers are the allied commander's, not yours. */
+  body.reinforce #scrap-stat, body.reinforce #income-stat { display: none; }
   #end-title.win { color: var(--accent); }
   #end-title.lose { color: var(--bad); }
   #end-stats { border-collapse: collapse; margin-top: 10px; }
@@ -259,7 +315,7 @@
 <canvas id="game"></canvas>
 
 <div id="topbar">
-  <div class="stat"><span class="label">Scrap</span><b id="scrap">0</b></div>
+  <div class="stat" id="scrap-stat"><span class="label">Scrap</span><b id="scrap">0</b></div>
   <div class="stat" id="income-stat"><span class="label">Workers</span><span id="income" class="small dim"></span></div>
   <div class="stat"><span class="label">Units</span><b id="units">0</b></div>
   <div class="bases">
@@ -292,6 +348,7 @@
     <div class="row" style="justify-content:center">
       <button id="savebtn">Save game</button>
       <button class="loadbtn">Load game</button>
+      <button id="leavebtn" class="hidden" title="Back to the war map. The battle goes on without you, on paper">Leave battle</button>
     </div>
     <div class="row music-row">
       <button class="musicbtn">Music: On</button>
@@ -343,11 +400,68 @@
     </div>
     <div class="row" style="margin-top:20px">
       <button id="start" class="big">Start battle</button>
+      <button id="campaign" class="big">Campaign</button>
       <button class="loadbtn">Load game</button>
       <button id="howto">How to play</button>
       <button id="watch">Watch AI vs AI</button>
       <button class="musicbtn">Music: On</button>
     </div>
+  </div>
+</div>
+
+<!-- Campaign: start a new one -->
+<div id="warnew" class="overlay hidden">
+  <div class="card">
+    <h1>New <span>campaign</span></h1>
+    <p>Fifteen battlefields in <b>The Cinder Reach</b>, fought over by allied and enemy commanders. Your side holds the west;
+      the enemy holds the east. Join any battle your side is fighting, or attack an enemy battlefield next to one you hold.
+      Every neighbouring battlefield your side holds gives you extra vehicles when a battle starts. Hold all fifteen to win.</p>
+    <p id="warnew-who" class="small dim"></p>
+    <h2>War pace</h2>
+    <p class="small dim">The battles you're not in are fought on paper as real time passes. Pick how fast. You can change it at any time.
+      While you're away the war moves at most 12 reports, so it can't be decided without you.</p>
+    <div id="warnew-pace"></div>
+    <div class="row" style="margin-top:18px">
+      <button id="warnew-begin" class="big">Begin the war</button>
+      <button id="warnew-back">Back</button>
+    </div>
+  </div>
+</div>
+
+<!-- Campaign: the war map -->
+<div id="war" class="hidden">
+  <div class="war-head">
+    <h1 id="war-title">The Cinder Reach</h1>
+    <div id="war-held" class="small"></div>
+    <div class="spacer" style="flex:1"></div>
+    <button id="war-menu">Main menu</button>
+  </div>
+  <div class="war-head" style="margin-top:6px">
+    <b id="war-clock" class="small"></b>
+    <div id="war-pace" title="War pace: how fast the battles you're not in are fought"></div>
+  </div>
+  <div id="war-note"></div>
+  <div class="war-body">
+    <div>
+      <svg id="war-map" viewBox="-4 -2 108 69" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="war-legend"><i style="background:var(--blue)"></i>Your side<i style="background:var(--red)"></i>Enemy
+        · ⚔ battle (ring: blue = going your way) · dashed ring: you can attack · ★ home ground</div>
+    </div>
+    <div class="war-side">
+      <div id="war-detail"></div>
+      <div id="war-logbox">
+        <h2 style="margin:0 0 6px;font-size:13px;color:var(--accent);text-transform:uppercase;letter-spacing:.08em">War reports</h2>
+        <div id="war-log"></div>
+        <div class="row"><button id="war-newbtn" class="small">New campaign</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="wardrop" class="overlay hidden">
+  <div class="card" style="max-width:480px">
+    <h1>Dropping <span>in</span></h1>
+    <div id="wardrop-text" class="dim"></div>
+    <div class="dropbar"><div id="wardrop-bar"></div></div>
   </div>
 </div>
 
@@ -453,6 +567,7 @@
       <li>The enemy attacks in waves. Towers and a few tanks at home keep your Recycler safe while your army is away.</li>
       <li>Constructors can repair damaged buildings: select one and tap or right-click the building.</li>
       <li><b>Save</b> from the pause screen (three slots, plus an autosave every 3 minutes and whenever you leave the page). <b>Load game</b> is on the pause and start screens. You can also download a save as a file.</li>
+      <li><b>Campaign</b>: fight a war across fifteen battlefields. On the war map, tap a battlefield. <b>Attack</b> an enemy one next to yours, or join a battle your side is fighting: <b>Take command</b> of the allied base and army, or <b>Reinforce</b> with a strike force (gold markers) while the allied commander runs the base and sends you every third vehicle it builds. Each neighbouring battlefield your side holds adds vehicles to your start. <b>Leave battle</b> on the pause screen hands the fight back to the allied commander.</li>
       <li><b>Music</b> follows the battle: it builds up when fighting breaks out near your forces. Turn it on or off on the start or pause screen.</li>
     </ul>
     <div class="row"><button id="helpclose" class="big">Back</button></div>
@@ -474,11 +589,13 @@
 <script src="js/map.js"></script>
 <script src="js/sim.js"></script>
 <script src="js/ai.js"></script>
+<script src="js/campaign.js"></script>
 <script src="js/sprites.js"></script>
 <script src="js/sprites_kethra.js"></script>
 <script src="js/render.js"></script>
 <script src="js/saves.js"></script>
 <script src="js/music.js"></script>
 <script src="js/main.js"></script>
+<script src="js/war.js"></script>
 </body>
 </html>

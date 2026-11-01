@@ -11,7 +11,7 @@
 
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const dir = path.join(__dirname, '..', 'js');
-const code = ['config', 'map', 'sim', 'ai'].map(f => fs.readFileSync(path.join(dir, f + '.js'), 'utf8')).join('\n');
+const code = ['config', 'map', 'sim', 'ai', 'campaign'].map(f => fs.readFileSync(path.join(dir, f + '.js'), 'utf8')).join('\n');
 
 // A fresh copy of the game code for each test, so tests can't affect each other.
 function load() {
@@ -19,7 +19,7 @@ function load() {
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
     'createGame, generateMap, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
-    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, FORMATIONS, nearestOpenTile, formRole, saveGame, loadGame });', ctx);
+    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, FORMATIONS, nearestOpenTile, formRole, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear });', ctx);
   return ctx;
 }
 
@@ -515,6 +515,70 @@ section('Saving and loading');
   let bad = false;
   try { S.loadGame('{"hello":1}'); } catch (err) { bad = true; }
   check('something that is not a save is refused', bad);
+}
+
+section('Campaign');
+{
+  const S = load();
+  const n = S.THEATER.sectors.length;
+  const linked = S.THEATER.links.every(([a, b]) => a !== b && a < n && b < n);
+  // Every battlefield can be reached from every other.
+  const seen = new Set([0]), todo = [0];
+  while (todo.length) for (const j of S.neighbours(todo.pop())) if (!seen.has(j)) { seen.add(j); todo.push(j); }
+  check('the theater has fifteen battlefields, all joined up', n === 15 && linked && seen.size === n);
+  const c = S.createCampaign({ seed: 5, difficulty: 'normal', pace: 'normal', now: 0 });
+  check('the war starts with each side holding its half, two battles under way',
+    c.owner.filter(o => o === 'ally').length === 7 && Object.keys(c.battles).length === 2);
+  const deep = S.THEATER.sectors.findIndex(s => s.capital === 'enemy');
+  const near = [...Array(n).keys()].find(i => S.canAttack(c, i));
+  check('you can attack an enemy battlefield next to yours, but not one behind enemy lines', near !== undefined && !S.canAttack(c, deep));
+  let refused = false;
+  try { S.beginBattle(c, deep, 'lead', 0); } catch (err) { refused = true; }
+  check('starting an attack deep in enemy ground is refused', refused);
+  // Holding the neighbours of a battlefield gives you a better start there.
+  const x = JSON.parse(JSON.stringify(c)), before = S.battleSetup(x, near, 'lead').bonus[1].length;
+  for (const j of S.neighbours(near)) x.owner[j] = 'ally';
+  const after = S.battleSetup(x, near, 'lead');
+  check('more neighbouring battlefields held means more vehicles at the start', after.bonus[1].length > before && after.allyLv > S.battleSetup(c, near, 'lead').allyLv,
+    `${before} → ${after.bonus[1].length} extra vehicles`);
+  const g = S.createGame({ seed: after.seed, mapSeed: after.mapSeed, aiTeams: [2], factions: after.factions, bonus: after.bonus });
+  check('and they are there when the battle begins', g.entities.filter(e => e.team === 1 && e.kind === 'unit').length === 7 + after.bonus[1].length);
+  const m1 = S.createGame({ seed: 1, mapSeed: after.mapSeed }), m2 = S.createGame({ seed: 2, mapSeed: after.mapSeed });
+  check('each battlefield keeps its own map', m1.map.tiles.join() === m2.map.tiles.join() && m1.map.tiles.join() !== S.createGame({ seed: 1 }).map.tiles.join());
+  // War reports run on real time, at the chosen pace, at most 12 while you're away.
+  const y = S.createCampaign({ seed: 6, pace: 'fast', now: 0 });
+  const ran = S.catchUp(y, 25 * 60e3);
+  check('war reports come in as time passes (Fast: every 10 minutes)', ran === 2 && y.report === 2);
+  const away = S.catchUp(y, 30 * 24 * 3600e3);
+  check(`a month away moves the war only ${S.WAR_AWAY_CAP} reports`, away === S.WAR_AWAY_CAP);
+  S.setPace(y, 'hold', 31 * 24 * 3600e3);
+  check('on Hold the war waits', S.catchUp(y, 99 * 24 * 3600e3) === 0);
+  // A paper war left alone on Normal doesn't run away from you.
+  let decided = 0;
+  for (let s = 1; s <= 10; s++) { const z = S.createCampaign({ seed: s, now: 0 }); for (let r = 0; r < 60; r++) S.warReport(z, r); if (z.outcome) decided++; }
+  check('on Normal the AI commanders alone don\'t decide the war in 60 reports', decided === 0);
+  // Your battle: win it and the battlefield is yours; leave and it goes back on paper.
+  const w = S.createCampaign({ seed: 7, now: 0 });
+  S.beginBattle(w, near, 'lead', 0);
+  S.endBattle(w, 'won', 0.5, 1);
+  check('win your battle and the battlefield is yours', w.owner[near] === 'ally' && !w.battles[near] && !w.playing);
+  S.beginBattle(w, 7, 'command', 2);
+  S.endBattle(w, 'left', 0.8, 3);
+  check('leave a battle and it carries on, on paper, from how it stood', w.battles[7] && w.battles[7].p === 80 && !w.playing);
+  // Reinforce: your strike force is yours alone; the allied commander sends you more.
+  const rs = S.battleSetup(w, 7, 'reinforce');
+  const r = S.createGame({ seed: rs.seed, mapSeed: rs.mapSeed, aiTeams: [1, 2], factions: rs.factions, bonus: rs.bonus });
+  r.teams[1].shareEvery = rs.shareEvery;
+  const hq = r.entities.find(e => e.team === 1 && e.type === 'mobileRecycler');
+  const force = rs.reinforce.map(t => { const u = S.addUnitNear(r, t, 1, hq.x + 200, hq.y); u.cmdr = 'player'; return u; });
+  const spot = force.map(u => `${u.x},${u.y}`).join();
+  const stepR = () => { if (r.rng() < 0.5) { S.aiUpdate(r, 1); S.aiUpdate(r, 2); } else { S.aiUpdate(r, 2); S.aiUpdate(r, 1); } S.stepGame(r); r.events.length = 0; };
+  for (let i = 0; i < 30 * 600 && !r.winner; i++) stepR();
+  const yours = r.entities.filter(e => e.cmdr === 'player');
+  check('the allied commander never moves your strike force', force.every(u => u.hp <= 0 || u.order.type === 'idle' || u.order.type === 'guard') || spot === force.map(u => `${u.x},${u.y}`).join(),
+    force.map(u => u.order.type).join());
+  check('and sends you some of the vehicles it builds', yours.length > force.filter(u => u.hp > 0).length || r.teams[1].shared >= rs.shareEvery,
+    `${r.teams[1].shared || 0} built, ${yours.length} yours`);
 }
 
 console.log(`\n${passes} passed, ${fails} failed`);

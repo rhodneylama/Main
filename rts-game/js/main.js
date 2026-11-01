@@ -25,6 +25,7 @@ let paused = false, speed = 1, accumulator = 0, lastFrame = 0, spectating = fals
 // -----------------------------------------------------------------------------
 
 function startGame(difficulty, watch = false) {
+  view.war = null;
   const seed = Number(new URLSearchParams(location.search).get('seed')) || Math.floor(Math.random() * 99999);
   // You play the faction you picked; the enemy fields the other one.
   const other = chosenFaction === 'kethra' ? 'scrapline' : 'kethra';
@@ -39,8 +40,14 @@ function startGame(difficulty, watch = false) {
 }
 
 // Everything that sets the screen up for the battle in `game` (new or loaded).
-function enterBattle(watch) {
+// war: { sector, mode } for a campaign battle (war.js), else null.
+function enterBattle(watch, war = null) {
   spectating = watch;
+  view.war = war; view.reinforce = !!war && war.mode === 'reinforce';
+  document.body.classList.toggle('reinforce', view.reinforce);
+  // Campaign battles save with the campaign, and you can leave them.
+  $('leavebtn').classList.toggle('hidden', !war);
+  for (const b of document.querySelectorAll('#paused .loadbtn')) b.classList.toggle('hidden', !!war);
   const mine_ = game.teams[watch ? 1 : view.team].faction;
   // The Army menu in your faction's words (Shards, Bulwarks...).
   for (const l of document.querySelectorAll('#armymenu .lbl')) {
@@ -52,7 +59,7 @@ function enterBattle(watch) {
   view.selected = []; view.placing = null; view.revealAll = watch; view.pings = []; view.alerts = [];
   view.lastAutosave = game.time;
   resize();
-  for (const id of ['menu', 'end', 'saves', 'paused', 'help']) $(id).classList.add('hidden');
+  for (const id of ['menu', 'end', 'saves', 'paused', 'help', 'war', 'warnew']) $(id).classList.add('hidden');
   $('log').innerHTML = '';
   paused = false; speed = 1; $('speedval').textContent = '×1';
   Music.play('battle', mine_); Music.duck(false);
@@ -64,16 +71,17 @@ function enterBattle(watch) {
 
 function saveMeta() {
   return { at: Date.now(), time: Math.floor(game.time), difficulty: game.difficulty,
-    faction: game.teams[spectating ? 1 : view.team].faction, spectating };
+    faction: game.teams[spectating ? 1 : view.team].faction, spectating, war: view.war };
 }
 function saveExtra() {
-  return { spectating, cam: { x: view.cam.x, y: view.cam.y, zoom: view.cam.zoom }, formation: view.formation, groups: input.groups };
+  return { spectating, cam: { x: view.cam.x, y: view.cam.y, zoom: view.cam.zoom }, formation: view.formation, groups: input.groups, war: view.war };
 }
 async function saveTo(slot, quiet = false) {
   if (!game || game.winner) return;
+  if (view.war) slot = 'warbattle';   // a campaign battle has one save, kept with the campaign
   try {
     await Saves.put(slot, saveGame(game, saveExtra()), saveMeta());
-    if (!quiet) { logMessage(slot === 'auto' ? 'Autosaved' : `Saved to slot ${slot}`, 'good'); sound('ack'); }
+    if (!quiet) { logMessage(view.war ? 'Battle saved with your campaign' : slot === 'auto' ? 'Autosaved' : `Saved to slot ${slot}`, 'good'); sound('ack'); }
   } catch (err) {
     if (quiet) return;
     const full = err && (err.code === 'quota_exceeded' || err.name === 'QuotaExceededError');
@@ -85,7 +93,7 @@ async function saveTo(slot, quiet = false) {
 function resumeFrom(text) {
   const { game: g, extra } = loadGame(text);
   game = g;
-  enterBattle(!!extra.spectating);
+  enterBattle(!!extra.spectating, extra.war || null);
   if (extra.cam) Object.assign(view.cam, extra.cam);
   if (extra.formation) { view.formation = extra.formation; updateFormationButton(); }
   input.groups = extra.groups || {}; view.groupOf = new Map();
@@ -136,10 +144,12 @@ function describeSave(m) {
 
 function showEnd() {
   const won = game.winner === view.team;
+  $('again').textContent = view.war ? 'Back to the war map' : 'Play again';
   $('end-title').textContent = spectating ? `${sideName(game, game.winner)} wins` : won ? 'Victory' : 'Defeat';
   $('end-title').className = won || spectating ? 'win' : 'lose';
   Music.sting(won || spectating);
   $('end-reason').textContent = game.endReason;
+  if (view.war) $('end-reason').textContent += ' ' + War.battleOver(won);
   const s1 = game.teams[1].stats, s2 = game.teams[2].stats;
   const mins = Math.floor(game.time / 60), secs = Math.floor(game.time % 60);
   $('end-stats').innerHTML = `
@@ -226,7 +236,10 @@ function scrapAt(wx, wy, pad = 0) {
   return game.scrap.find(s => Math.hypot(s.x - wx, s.y - wy) < 18 + pad);
 }
 
-function mine(ents) { return ents.filter(e => e.team === view.team && e.hp > 0); }
+// Yours to command. When you reinforce an allied commander in the campaign,
+// that's only your strike force: the allied base and army stay theirs.
+const isMine = e => e.team === view.team && (!view.reinforce || e.cmdr === 'player');
+function mine(ents) { return ents.filter(e => isMine(e) && e.hp > 0); }
 
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('mousedown', e => {
@@ -268,7 +281,7 @@ window.addEventListener('mouseup', e => {
     const w = toWorld(d.x0, d.y0);
     const hit = entityAt(w.x, w.y);
     let picked = hit ? pickWithDoubleTap(hit) : [];
-    if (d.shift) picked = [...new Set([...view.selected, ...picked])].filter(e => e.team === view.team);
+    if (d.shift) picked = [...new Set([...view.selected, ...picked])].filter(isMine);
     select(picked);
   } else boxSelect(d, d.shift);
 });
@@ -276,7 +289,7 @@ window.addEventListener('mouseup', e => {
 // Clicking the same kind of unit twice quickly selects every one on screen.
 function pickWithDoubleTap(hit) {
   const now = performance.now();
-  const double = hit.team === view.team && hit.kind === 'unit' && now - input.lastClick < 350 && input.lastType === hit.type;
+  const double = isMine(hit) && hit.kind === 'unit' && now - input.lastClick < 350 && input.lastType === hit.type;
   input.lastClick = now; input.lastType = hit.type;
   return double ? mine(game.entities).filter(u => u.type === hit.type && onScreen(u)) : [hit];
 }
@@ -287,7 +300,7 @@ function boxSelect(d, additive) {
   let picked = mine(game.entities).filter(u => u.kind === 'unit' && u.x >= a.x && u.x <= b.x && u.y >= a.y && u.y <= b.y);
   // Box-selecting prefers fighting units over workers.
   if (picked.some(u => u.def.role === 'combat')) picked = picked.filter(u => u.def.role === 'combat');
-  if (additive) picked = [...new Set([...view.selected, ...picked])].filter(e => e.team === view.team);
+  if (additive) picked = [...new Set([...view.selected, ...picked])].filter(isMine);
   select(picked);
 }
 
@@ -345,7 +358,7 @@ function aimAt(w, pad) {
 // and pick them again with one press. Pressing a group twice quickly jumps
 // the camera to it. Destroyed vehicles drop out of their group.
 function groupMembers(key) {
-  return (input.groups[key] || []).map(id => game.byId.get(id)).filter(u => u && u.hp > 0 && u.team === view.team);
+  return (input.groups[key] || []).map(id => game.byId.get(id)).filter(u => u && u.hp > 0 && isMine(u));
 }
 function setGroup(key) {
   const units = mine(view.selected).filter(u => u.kind === 'unit');
@@ -572,7 +585,7 @@ function handleTap(p) {
   const needsWork = hit && hit.team === view.team && hit.kind === 'building' && (hit.built < 1 || hit.hp < hit.maxHp);
   const artyDefend = hit && hit.team === view.team && hit.kind === 'building' && !hasBuilder &&
     sel.some(u => baseType(u) === 'artillery');
-  if (hit && hit.team === view.team && !(hasBuilder && needsWork) && !artyDefend) { select(pickWithDoubleTap(hit)); return; }
+  if (hit && (isMine(hit) || (hit.team === view.team && !sel.length)) && !(hasBuilder && needsWork) && !artyDefend) { select(pickWithDoubleTap(hit)); return; }
   if (sel.length && !spectating) {
     // Tap targets are a little bigger for fingers.
     const node = scrapAt(w.x, w.y, TOUCH_PAD);
@@ -762,7 +775,7 @@ function select(list) {
   view.selected = units.length ? units : list.slice(0, 1);
   view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
   $('armymenu').classList.add('hidden'); $('formmenu').classList.add('hidden');
-  if (view.selected.length && view.selected[0].team === view.team) sound('select');
+  if (view.selected.length && isMine(view.selected[0])) sound('select');
   refreshPanel();
 }
 
@@ -821,7 +834,7 @@ function refreshPanel() {
     info.innerHTML = `<div class="dim">Nothing selected.<br>Left-click or drag a box to select your vehicles.</div>`;
     return;
   }
-  const own = sel[0].team === view.team && !spectating;
+  const own = isMine(sel[0]) && !spectating;
   if (sel.length === 1) {
     const e = sel[0], d = e.def;
     let extra = '';
@@ -1059,7 +1072,7 @@ function refreshPanel() {
 
 function updateHud() {
   const me = game.teams[view.team];
-  const units = game.entities.filter(e => e.kind === 'unit' && e.team === view.team).length;
+  const units = game.entities.filter(e => e.kind === 'unit' && isMine(e)).length;
   const scavs = game.entities.filter(e => baseType(e) === 'scavenger' && e.team === view.team).length;
   const cap = scrapCapacity(game, view.team);
   $('scrap').textContent = `${Math.floor(me.scrap)} / ${cap}`;
@@ -1236,7 +1249,8 @@ document.querySelectorAll('[data-difficulty]').forEach(b => b.addEventListener('
 }));
 $('start').onclick = () => startGame(chosenDifficulty);
 $('howto').onclick = () => openHelp();
-$('savebtn').onclick = () => openSaves('save');
+$('savebtn').onclick = () => (view.war ? saveTo('warbattle') : openSaves('save'));
+$('leavebtn').onclick = () => War.leaveBattle();
 for (const b of document.querySelectorAll('.loadbtn')) b.onclick = () => openSaves('load');
 $('saves-close').onclick = () => $('saves').classList.add('hidden');
 $('save-file').onclick = async () => {
@@ -1255,7 +1269,11 @@ $('load-file-input').onchange = async e => {
 // Autosave when the page is hidden (phones close background tabs).
 document.addEventListener('visibilitychange', () => { if (document.hidden && game && !game.winner) saveTo('auto', true); });
 $('watch').onclick = () => startGame(chosenDifficulty, true);
-$('again').onclick = () => { $('end').classList.add('hidden'); $('menu').classList.remove('hidden'); Music.play('menu', chosenFaction); };
+$('again').onclick = () => {
+  $('end').classList.add('hidden');
+  if (view.war) { game = null; War.open(); return; }
+  $('menu').classList.remove('hidden'); Music.play('menu', chosenFaction);
+};
 // Help lives on the pause screen, so opening it always pauses the battle.
 function openHelp() {
   const fromMenu = !$('menu').classList.contains('hidden');

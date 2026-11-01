@@ -969,6 +969,71 @@ page they go to the page's private per-person store (`data/users/<you>/`,
 so they work on your other devices too); anywhere else to this browser's
 local storage.
 
+### Campaign
+
+**Campaign** on the start screen starts (or continues) a war for a theater,
+**The Cinder Reach**: fifteen battlefields joined into a web (`js/campaign.js`
+has the layout and every rule; `js/war.js` draws the war map). You fight as
+the faction picked on the start screen, at the difficulty picked there.
+Your side starts with the seven western battlefields (home ground:
+**Westgate**), the enemy with the eight eastern ones (**Eastgate**), and two
+battles are already under way: your side attacking The Crucible, the enemy
+attacking Old Foundry.
+
+**Paper battles.** Battles you're not in are fought on paper, one swing per
+**war report**. Each battle has a front (0–100%, how much is going your
+way); each report it moves by `12 × (A − E) / (A + E)`, plus a difficulty
+nudge (Easy +1.5, Normal 0, Hard −0.5), plus a random swing of up to ±24,
+where A and E are 1 + each side's **support** there. At 100% the
+battlefield is yours; at 0% it's theirs. Each report each side may also
+start a new offensive against an enemy battlefield **next to one it holds**
+(the attacker starts at 45%): your side runs up to 2 at once; the enemy 1
+(Easy), 2 (Normal) or 3 (Hard), more eagerly on harder levels. Left alone,
+Easy slowly drifts your way, Normal holds even, and Hard slowly pushes back.
+Your battles are what really moves the front.
+
+**War pace** (change it any time on the war map): Fast (a report every 10
+minutes), Normal (30 minutes), Slow (2 hours), Very slow (8 hours), or Hold
+(the war only moves one report each time you finish a battle). Reports run
+on real time, including while the game is closed, but **at most 12** come
+in while you're away, so the war is never decided without you.
+
+**Support.** A side's support on a battlefield is how many of its
+neighbours that side holds, plus one for the side that holds the
+battlefield itself (up to 4). Each level adds vehicles at the start of a
+battle there: level 1 a Tank and a Scavenger, level 2 two Hornets, level 3 a
+Tank and an Artillery, level 4 a Tank and a Sentry. The war map shows both
+sides' start before you commit.
+
+**Your battles.** Tap a battlefield on the war map:
+
+- **Attack** (an enemy battlefield next to one your side holds, with no
+  battle on it): a fresh battle you lead from the first minute. Only
+  neighbouring battlefields can be attacked; anything deeper is refused.
+- **Take command** (any battle your side is fighting, attacking or
+  defending): the two AI commanders play the battle on for 2½–6 minutes
+  ("Dropping in", longer the longer it's been going, and the side that's
+  ahead on paper gets up to two extra support levels), then the allied base
+  and army are yours.
+- **Reinforce** (same battles): after the drop-in, you land between the
+  allied base and the middle of the map with a strike force (2 Tanks, 2
+  Hornets, a Scout, plus one more vehicle per support level), marked with
+  gold chevrons. The allied commander keeps running the base and its own
+  army, never touches yours, and sends you every third fighting vehicle it
+  builds. The top bar hides the allied scrap and workers.
+
+Each battlefield always has the same map (its own map seed); the fight
+itself is different each time. Win and the battlefield is yours; lose and
+it's theirs. **Leave battle** on the pause screen puts the battle back on
+paper, with the front set to your side's share of the fighting strength on
+the field when you left. A campaign battle has one save, kept with the
+campaign (slot `warbattle`, autosaved as usual); if you close the page
+mid-battle, the war map offers **Return to the battle** or **Leave it to the
+allied commander**. The campaign itself is saved as slot `campaign`.
+
+Hold all fifteen battlefields to win the theater; lose all fifteen and the
+war is lost. **New campaign** (pressed twice) starts over.
+
 ### Music
 
 Composed live by `js/music.js` with Web Audio (no audio files): a four-bar
@@ -1133,8 +1198,10 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `js/render.js` | Drawing the map, fog, minimap, bars and effects; calls `sprites.js` for units and buildings. The ground is painted in chunks as they scroll into view (see below). |
 | `js/main.js` | Mouse, touch and keyboard input; panels and buttons; minimap toggle; sound effects; the game loop |
 | `js/music.js` | The soundtrack, composed live with Web Audio (see section 16, "Music") |
+| `js/campaign.js` | The campaign's rules: the theater, war reports, support, starting bonuses, battle results (section 16, "Campaign") |
+| `js/war.js` | The war map screen and starting campaign battles (drop-in, Take command, Reinforce) |
 | `js/saves.js` | Where saved games are kept: the published page's private per-person store, or this browser (see section 16, "Saving") |
-| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (85 checks). |
+| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (100 checks). |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
 tables), `ROADMAP.md` (planned stages), `ECONOMY_TEST_REPORT.md` (the October
@@ -1180,7 +1247,7 @@ rebuilt.
 
 | Test type | Method | What it checks |
 | --- | --- | --- |
-| **Rules tests** (`tests/rules.js`, 85 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Formations** (six plus Free; a group arrives where sent and stays together on the way, unlike free movement; Testudo keeps soft units inside the ring; Column puts fast units first and Artillery last); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused). |
+| **Rules tests** (`tests/rules.js`, 100 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Formations** (six plus Free; a group arrives where sent and stays together on the way, unlike free movement; Testudo keeps soft units inside the ring; Column puts fast units first and Artillery last); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused); **Campaign** (fifteen battlefields all joined up; each side starts with its half and two battles under way; only neighbouring enemy battlefields can be attacked; more neighbours held means more starting vehicles, and they appear in the battle; each battlefield keeps its own map; war reports come in on time at the chosen pace, at most 12 while away, none on Hold; on Normal the AI commanders alone don't decide the war in 60 reports; winning takes the battlefield; leaving puts it back on paper from how it stood; Reinforce: the allied commander never moves your strike force and sends you some of what it builds). |
 | **AI duels** (`tests/balance/duels.sh`) | The current opponent plays an earlier version of itself (`tests/balance/ai_previous.js`, the first one; `ai_v2.js` with `OPP=v2`, the 18 October one) on many seeds, 4 games at a time, up to 60 minutes each. With `BOTHOLD=1` both sides use the previous version, giving the baseline for the same seeds. | Whether a change to the opponent actually makes it stronger. Each tactic was tried alone, then in combinations; see the results below. |
 | **AI-vs-AI batches** | Run 30 to 120 full games between two computer players on different seeds. | Games end, typical length, and **fairness** by team and by corner. |
 | **AI tech progression** | Log when the AI reaches each milestone at each difficulty. | The AI actually upgrades, researches and fields Mk II units. |
@@ -1573,3 +1640,9 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     pause and start screens; download a save as a file and load it back;
     a loaded battle continues exactly as the original. Saves follow you
     between devices when playing on claude.ai.
+25. **Campaign** (1 November 2026): a war across fifteen battlefields in
+    The Cinder Reach, fought by allied and enemy AI commanders on paper in
+    real time at a pace you choose (at most 12 reports while you're away).
+    Attack enemy battlefields next to yours, or drop into a battle in
+    progress to Take command or Reinforce the allied commander. Neighbouring
+    battlefields held add vehicles to your start. Hold all fifteen to win.

@@ -32,8 +32,12 @@ const turnToward = (cur, target, maxStep) => {
 };
 
 // factions: { 1: 'scrapline' | 'kethra', 2: ... } (both Scrapline if left out).
-function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams = [2], factions = {} } = {}) {
-  const map = generateMap(seed);
+// Campaign battles also pass `mapSeed` (each battlefield keeps its own map
+// while every fight there plays out differently) and `bonus`: extra
+// vehicles per side, { 1: ['tank', 'hornet'], 2: [...] }, from the
+// neighbouring battlefields that side holds.
+function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams = [2], factions = {}, mapSeed = seed, bonus = {} } = {}) {
+  const map = generateMap(mapSeed);
   const game = {
     map, seed, difficulty, aiTeams,
     rng: makeRng(seed * 7 + 1),
@@ -70,6 +74,7 @@ function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams
     spawn('scavenger', 3, -1); spawn('scavenger', 3, 1);
     spawn('constructor', -1, -3);
     spawn('scout', 4, -3); spawn('scout', 5, -2); spawn('tank', 5, -4);
+    (bonus[t] || []).forEach((type, i) => addUnitNear(game, type, t, home.x + (2 + (i % 4) * 1.6) * dir * CONFIG.TILE, home.y - (5.5 + Math.floor(i / 4) * 1.6) * dir * CONFIG.TILE));
   }
   updateVisibility(game);
   for (const e of game.entities) if (e.kind === 'unit' && e.def.role === 'harvester') autoHarvest(game, e);
@@ -98,6 +103,12 @@ function addUnit(game, type, team, x, y) {
   u.turret = u.angle;
   game.entities.push(u); game.byId.set(u.id, u);
   return u;
+}
+
+// A new vehicle on the nearest open ground to (x, y).
+function addUnitNear(game, type, team, x, y) {
+  const T = CONFIG.TILE, spot = nearestOpenTile(game, Math.floor(x / T), Math.floor(y / T), 8) || { x: Math.floor(x / T), y: Math.floor(y / T) };
+  return addUnit(game, type, team, (spot.x + 0.5) * T, (spot.y + 0.5) * T);
 }
 
 function addBuilding(game, type, team, tx, ty, complete) {
@@ -842,6 +853,14 @@ function spawnFromBuilding(game, b, type) {
   const spot = nearestOpenTile(game, exitX, exitY, 6) || { x: b.tx, y: b.ty };
   const u = addUnit(game, type, b.team, (spot.x + 0.5) * T, (spot.y + 0.5) * T);
   game.teams[b.team].stats.built++;
+  // Campaign reinforcements: an allied commander hands every few fighting
+  // vehicles it builds to the player fighting beside it.
+  const tm = game.teams[b.team];
+  if (tm.shareEvery && u.def.role === 'combat' && !u.def.deployable && (tm.shared = (tm.shared || 0) + 1) % tm.shareEvery === 0) {
+    u.cmdr = 'player';
+    pushEvent(game, b.team, `Allied command sends you a ${u.def.name}`, 'good', u.x, u.y);
+    return;
+  }
   // With a waypoint set, every new vehicle drives straight to it. Workers
   // then get back to work on their own from there.
   if (b.rally) {
