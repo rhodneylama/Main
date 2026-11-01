@@ -328,7 +328,7 @@ Scavengers, Constructors and the mobile Recycler are unarmed.
 | Scout (and Mk II) | **Scout** (alone) or **Scout as pack** / **Scout solo** (groups). |
 | Tank (and Mk II) | **Patrol:** loops around all your buildings. |
 | Sentry (and Mk II) | **Purely defensive.** **Deploy** digs it in where it stands: it lowers four legs (0.6 s) and then fires five rounds a second at anything its side can see in range. Dug in, it never moves, never chases and isn't pushed aside, and an attack order on something out of range is ignored. **Pack up**, or any move, patrol, scout or repair order, folds the legs (0.6 s) so it can drive. Packed up it **cannot fire** at all. It can't take Guard posts. |
-| Any armed vehicle | **Guard:** then pick one of your buildings or vehicles. Guarding a building: take a post beside it and fire at anything in range. Guarding a vehicle: keep a spot beside it, follow it, fight anything in range, go after whoever attacks it (never more than 320 px away), stand down if it is destroyed. |
+| Any armed vehicle | **Guard:** then pick one of your buildings or vehicles. Guarding a building: take a post beside it and fire at anything in range; **the moment the building is hit**, go after the attacker (anywhere within 650 px of the building), then return to the post (Artillery stays at its post). Guarding a vehicle: keep a spot beside it, follow it, fight anything in range, go after whoever attacks it (never more than 320 px away), stand down if it is destroyed. |
 | Any damaged vehicle | **Go repair:** drives to the nearest Repair Pad (the button appears once you have one). |
 | Any vehicle parked on your Repair Pad (not the Recycler) | **Recycle:** takes it apart for half its cost. Needs a second press, **Confirm recycle**. |
 
@@ -521,7 +521,7 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
 
 | Order | Who | What it does |
 | --- | --- | --- |
-| Move | Any vehicle | Drives to the point. Groups spread into a grid about 34 pixels apart, or, with a formation chosen, march in that formation (section 10, "Formations"). |
+| Move | Any vehicle | Drives to the point; how armed vehicles behave on the way depends on their stance (below). Groups spread into a grid about 34 pixels apart at the destination. |
 | Attack-move | Armed vehicles | Moves, but stops to fight anything seen on the way. |
 | Attack | Armed vehicles | Chases and fires at one target until it dies or is lost from sight. |
 | Stop | Any vehicle | Stops and stands guard. |
@@ -531,38 +531,62 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
 | Repair | Constructor II | Restores a damaged building. |
 | Scout | Scouts | Explores: unexplored ground first, then areas under fog. Fires at enemies passed without stopping. Picks a new destination on arrival or after 45 seconds. |
 | Scout as pack | 2+ Scouts | As Scout, but the group travels together in a loose ring of about 34 pixels and picks a new destination when any of them arrives (or after 40 seconds). |
+| Hunt | Armed vehicles (not Sentries) | Seek and destroy (below). **Hunt as pack** (2+) or **Hunt solo**. |
+| Aggressive / Return fire / Stealth | Armed vehicles | Sets their stance (below). |
 | Patrol | Tanks | Loops around the outside of all your finished buildings, fighting anything met. |
 | Guard | Any armed vehicle | See Special abilities: protect one of your buildings or vehicles. |
 | Go repair | Damaged vehicles (Constructors too) | Drives to the nearest Repair Pad. Once fixed, it drives to the pad's waypoint, or to its own spot just beside the pad (facing the map centre) so the pad stays clear. Workers go back to work. |
 | Recycle | Vehicles parked on one of your Repair Pads | Two steps: **Recycle**, then **Confirm recycle** (or **Keep** / `Esc` to back out). The confirm button has no keyboard shortcut, so a double key press can't recycle anything. Shown on a selected vehicle that is parked on a pad, and on the selected pad itself (recycling every vehicle parked on it). |
 
-### Formations
+### Stance
 
-Group moves can use a formation, picked on the **Formation ▾** menu (the
-default is **Free**: the old grid). Vehicles are placed by type: **heavy**
-(Tanks, Sentries, the mobile Recycler), **light** (Scouts, Hornets) and
-**soft** (Artillery, Scavengers, Constructors). Spacing is 38 px.
+Every armed vehicle you command has a stance, set with the **Aggressive**,
+**Return fire** and **Stealth** buttons (the active one is highlighted when
+the whole selection shares it). New vehicles start **Aggressive**.
 
-| Formation | Layout (front of the group is "forward") |
-| --- | --- |
-| Column | Two abreast; light first, then heavy, then soft. |
-| Battle line | Heavy abreast in the front row, light added alternately to the left and right wings; soft in a second row 1.2 spacings behind. |
-| Wedge | Heavy, then light, along a V: one at the point, then pairs stepping 0.8 spacing back and 0.8 out; soft in pairs inside the V. |
-| Testudo (`box`) | Soft in a square grid in the middle; heavy then light evenly on a ring around them (radius at least 1.3 spacings), heavy taking the front-most places. |
-| Echelon | Heavy then light on a diagonal stepping back (0.65) and right (0.75); soft just behind and left of it. |
-| Scout screen | Light spread 1.6 spacings apart, 2.6 spacings ahead; heavy in a square block; soft in rows of three behind it. |
+| Stance | On the move | Standing idle |
+| --- | --- | --- |
+| Aggressive | Fights anything it sees on the way (an attack-move), chasing it as far as it can see; then re-plans its route and carries on to where it was sent. | Fights anything that comes near, chasing up to 220 px beyond its weapon range from its spot; **goes to the help of a friend under fire** within about 380 px (checked twice a second), chasing that attacker up to 520 px beyond its range. Fires back if hit. |
+| Return fire | Shoots whatever comes in range but keeps driving; never chases. | Fires at what's in range without leaving its spot. |
+| Stealth | Holds fire and just drives there. | Holds fire, even when hit. |
 
-The shape is centred on the spot ordered. On the move: the group first
-**forms up** around its current centre, facing the way it's going (up to
-6 s); then an anchor travels along one route at **90% of the slowest
-vehicle's speed**, turning at most 0.8 radians a second, and each vehicle
-drives to its place around the anchor (straight there, or by its own route
-if something is in the way; a place on rock or water falls back to the
-anchor). If any vehicle is more than 110 px from its place, the anchor
-waits (up to 4 s at a time). At the end everyone settles into place and
-stands there. Choosing a formation with vehicles selected forms them up on
-the spot, facing the way they face. The computer opponent doesn't use
-formations.
+An **Attack** order (tap or right-click an enemy) always attacks, whatever
+the stance, and **Attack-move** always fights on the way. The computer
+opponent gives exact orders, so its vehicles have no stance and behave as
+before.
+
+### Hunt
+
+Seek and destroy. The hunters head for the nearest enemy their side knows
+about: anything in sight now, or a building seen before (buildings are
+weighted 250 px further, unarmed vehicles 120 px, so fighters come first).
+With nothing known they search, like Scouts (unexplored ground first, then
+fogged ground). They fight everything met on the way (as Aggressive). A new
+target is picked when the old one dies or is lost (a vehicle out of sight
+once they get close), when a search point is reached, every 8 s while
+searching (to switch to a newly spotted enemy), or after 40 s. **As a
+pack** they share one target and arrive in a loose ring (36 px, then rings
+30 px further out); anyone more than 200 px ahead of the pack's middle
+waits for the rest. Sentries can't hunt (a packed-up Sentry can't fire).
+
+### Fighting as a group
+
+- **Fanning out:** a vehicle closing in on a target heads for its own
+  firing spot on an arc around it, at 80% of its weapon range (never inside
+  its minimum range), offset from the direct line by up to ±0.6 radians
+  (fixed per vehicle). A group therefore spreads round the target instead of
+  piling into one clump. Where the spot is clear in a straight line it
+  drives straight there instead of planning a route.
+- **Falling in:** a vehicle with a friend just ahead going the same way
+  (within about 45°) slows to follow it rather than swerving round, so
+  columns flow instead of jostling. Anything else ahead is steered round as
+  before.
+- **Attacking remembered buildings:** your Attack order on an enemy building
+  your side has seen works even when it's out of sight now: they drive there.
+  (The computer opponent's tactics were tuned for the old rules, where such
+  an order ends and a vehicle stays where an attack-move fight left it; with
+  the new rules it won 16 of 32 duels against the October 18 opponent
+  instead of 22, so its vehicles keep the old rules.)
 
 ### Recycling
 
@@ -904,8 +928,8 @@ Recycler at its first attack.
 | Command buttons | `Q` `W` `E` `R` `T` `Y` `U` `I`, in the order the buttons appear |
 | Attack-move / Stop | `A` then click / `S` |
 | Demolish | `Z` (then `Z` again to confirm) |
-| Formations | **Formation ▾** in the top bar (it shows the current one): a card per formation with a diagram and a sentence. Applies to every group move until changed; remembered on that device. |
-| Unit groups (keyboard) | `Ctrl`+`1`–`9` saves the selection as a group, `1`–`9` selects it (twice to jump to it). A vehicle is in one group at a time; its number shows beside it. (The Groups menu was replaced by Formations.) |
+| Stance and Hunt | Buttons in the panel for any selection of armed vehicles: **Hunt as pack** / **Hunt solo** (or **Hunt**), and **Aggressive**, **Return fire**, **Stealth**. |
+| Unit groups (keyboard) | `Ctrl`+`1`–`9` saves the selection as a group, `1`–`9` selects it (twice to jump to it). A vehicle is in one group at a time; its number shows beside it. |
 | Jump to base / selection | `H` / `Space` |
 | Idle worker | `X` |
 | Scroll | Arrow keys, screen edge, middle-drag, or the minimap |
@@ -919,7 +943,7 @@ The game speed button cycles through ×1, ×2 and ×4.
 
 ## 16. Screen layout
 
-- **Top bar:** scrap held / capacity, workers, units / 50, your base's
+- **Top bar:** scrap held / capacity, workers, units / 100, your base's
   health %, the enemy base's health % (or `?`), the quick buttons, clock,
   speed and pause. On a narrow phone the clock is hidden, Pause becomes a ❚❚
   symbol, and the quick buttons get their own second row.
@@ -954,7 +978,7 @@ also on the start screen. There are four slots: **Autosave** (written every
 3 minutes of battle time and whenever the page is hidden, for example when a
 phone switches apps) and **Slots 1–3**. Each shows faction, difficulty,
 battle time and when it was saved; **Delete** asks twice. A loaded battle
-starts **paused**, with the camera, formation choice and keyboard groups as
+starts **paused**, with the camera and keyboard groups as
 they were. **Download this game** saves the battle as a small `.json` file
 (about 20–40 KB), and **Load from a file…** loads one back, on any device.
 
@@ -1201,7 +1225,7 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `js/campaign.js` | The campaign's rules: the theater, war reports, support, starting bonuses, battle results (section 16, "Campaign") |
 | `js/war.js` | The war map screen and starting campaign battles (drop-in, Take command, Reinforce) |
 | `js/saves.js` | Where saved games are kept: the published page's private per-person store, or this browser (see section 16, "Saving") |
-| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (100 checks). |
+| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (107 checks). |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
 tables), `ROADMAP.md` (planned stages), `ECONOMY_TEST_REPORT.md` (the October
@@ -1209,6 +1233,12 @@ economy retune: what was tested, results and recommendations), and this file.
 Balance-testing tools are in `tests/balance/` (see that report, section 13).
 
 ### Design principles already built in
+
+- **Neighbours, not everyone.** Every tick the vehicles are sorted into a
+  grid of 64-pixel cells (`buildUnitGrid` in `sim.js`). Keeping apart,
+  steering round each other and choosing targets only look at nearby cells,
+  so a battle of 200 vehicles costs about 80 ms per second of play on a
+  desktop (it was about 200 ms before the grid).
 
 - **Every action is a command.** The player and the AI change the game
   only through `issueCommand(game, team, command)`. This is what makes
@@ -1221,7 +1251,7 @@ Balance-testing tools are in `tests/balance/` (see that report, section 13).
   same seed and the same commands give the same game.
 - **Fixed-rate simulation.** Rules run at exactly 30 ticks per second,
   independent of screen frame rate.
-- **Mirror fairness.** Route-finding and group formation always compute
+- **Mirror fairness.** Route-finding and group arrival spots always compute
   from one half of the map and mirror the result, so mirrored situations
   get mirrored outcomes.
 - **Ground drawn in chunks.** A single picture of the whole 5,824 × 4,384
@@ -1247,7 +1277,7 @@ rebuilt.
 
 | Test type | Method | What it checks |
 | --- | --- | --- |
-| **Rules tests** (`tests/rules.js`, 100 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Formations** (six plus Free; a group arrives where sent and stays together on the way, unlike free movement; Testudo keeps soft units inside the ring; Column puts fast units first and Artillery last); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused); **Campaign** (fifteen battlefields all joined up; each side starts with its half and two battles under way; only neighbouring enemy battlefields can be attacked; more neighbours held means more starting vehicles, and they appear in the battle; each battlefield keeps its own map; war reports come in on time at the chosen pace, at most 12 while away, none on Hold; on Normal the AI commanders alone don't decide the war in 60 reports; winning takes the battlefield; leaving puts it back on paper from how it stood; Reinforce: the allied commander never moves your strike force and sends you some of what it builds). |
+| **Rules tests** (`tests/rules.js`, 107 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Orders** (Aggressive by default: an enemy beside the route is attacked, then they carry on to where they were sent; Stealth holds fire and arrives sooner; Return fire shoots in passing and keeps going; Hunt as a pack destroys a known enemy building across the map and keeps together; Hunt with nothing known goes searching; a guard goes after whoever attacks what it guards, even out of its range, then returns to its post; an idle vehicle helps a friend under fire nearby; a group attacking one target fans out in an arc; 100 units a side; 200 vehicles fighting take well under a second per battle second); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused); **Campaign** (fifteen battlefields all joined up; each side starts with its half and two battles under way; only neighbouring enemy battlefields can be attacked; more neighbours held means more starting vehicles, and they appear in the battle; each battlefield keeps its own map; war reports come in on time at the chosen pace, at most 12 while away, none on Hold; on Normal the AI commanders alone don't decide the war in 60 reports; winning takes the battlefield; leaving puts it back on paper from how it stood; Reinforce: the allied commander never moves your strike force and sends you some of what it builds). |
 | **AI duels** (`tests/balance/duels.sh`) | The current opponent plays an earlier version of itself (`tests/balance/ai_previous.js`, the first one; `ai_v2.js` with `OPP=v2`, the 18 October one) on many seeds, 4 games at a time, up to 60 minutes each. With `BOTHOLD=1` both sides use the previous version, giving the baseline for the same seeds. | Whether a change to the opponent actually makes it stronger. Each tactic was tried alone, then in combinations; see the results below. |
 | **AI-vs-AI batches** | Run 30 to 120 full games between two computer players on different seeds. | Games end, typical length, and **fairness** by team and by corner. |
 | **AI tech progression** | Log when the AI reaches each milestone at each difficulty. | The AI actually upgrades, researches and fields Mk II units. |
@@ -1346,6 +1376,21 @@ opponent on both sides): Hard seeds 1–32 15, seeds 33–64 18; Normal 1–32 1
 
 On the bigger map, with more Extractors, a Gun Tower for each one sank too
 much scrap into towers.
+
+### AI duel results: unit intelligence (1 November 2026)
+
+The neighbour grid, fanning out round a target and falling in behind
+friends apply to both sides. Normal, seeds 33 to 64, current opponent
+against the October 18 one:
+
+| Version | Current wins | Previous wins | Unfinished |
+| --- | --- | --- | --- |
+| Before (20 October) | 22 | | |
+| All new rules for everyone | 16 | 14 | 2 |
+| Same, old fanning-out | 15 | 11 | 6 |
+| **Shipped:** the opponent keeps the old rules for attacking unseen buildings and for staying put after an attack-move fight | **20** | 8 | 4 |
+
+Finished games averaged 29.7 minutes.
 
 ### Bugs these tests have caught (for reference)
 
@@ -1646,3 +1691,11 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     Attack enemy battlefields next to yours, or drop into a battle in
     progress to Take command or Reinforce the allied commander. Neighbouring
     battlefields held add vehicles to your start. Hold all fifteen to win.
+26. **Unit intelligence, 100 units** (1 November 2026): formations removed.
+    Armed vehicles have a **stance** (Aggressive by default: fight on the way,
+    then carry on; Return fire; Stealth). **Hunt** (seek and destroy, as a
+    pack or solo) for every armed vehicle. **Guards** go after whoever
+    attacks what they guard, then return. Idle vehicles help friends under
+    fire. Groups **fan out** round a target and **fall in** behind friends
+    going the same way. Seen enemy buildings can be attacked out of sight.
+    Unit limit 100 a side, with a neighbour grid so big battles stay fast.

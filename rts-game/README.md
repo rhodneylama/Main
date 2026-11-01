@@ -63,7 +63,7 @@ The game works on touch screens. Turning your phone sideways gives the best view
 | Move / attack / gather | With vehicles selected, tap the ground, an enemy, or a scrap pile |
 | Select a group | Press and hold on the map, then drag a box |
 | Select fighters | **Army** button, then All, Scouts, Tanks or Artillery |
-| Formations | **Formation** button: pick Column, Battle line, Wedge, Testudo, Echelon or Scout screen (each shown as a little diagram). Group moves then march in that shape; picking one with vehicles selected forms them up on the spot. **Free** turns it off. |
+| Stance and Hunt | **Aggressive**, **Return fire** or **Stealth** sets how selected vehicles behave; **Hunt** sends them to seek and destroy (see "Orders and stances"). |
 | Scroll / zoom | Drag one finger / pinch |
 | Build | Select the Constructor, pick a building, tap where it goes, then press **Build here** |
 | Deselect, jump home, find an idle worker | **Deselect**, **Base**, **Idle worker** buttons in the top bar |
@@ -105,26 +105,20 @@ Base Silo = **Vault Orb**, Gun Tower = **Prism Tower**, Research Lab =
 **How to play** on the start screen (or Help on the pause screen) has the
 mission, the controls and tips.
 
-## Formations
+## Orders and stances
 
-Choose how your vehicles line up when you move them together (the
-**Formation** button in the top bar). Squares in the diagrams are armour
-(Tanks, Sentries), triangles fast units (Scouts, Hornets), circles Artillery
-and workers.
+Select armed vehicles and use the buttons in the panel:
 
-| Formation | Shape | Good for |
-| --- | --- | --- |
-| Free | No formation; everyone drives at their own speed | Quick moves |
-| Column | Two abreast: fast units lead, armour in the middle, guns and workers at the back | Narrow passes |
-| Battle line | Armour shoulder to shoulder, fast units on the wings, Artillery in a row behind | Meeting an enemy head-on |
-| Wedge | Armour at the point and edges, fast units on the trailing wings, Artillery inside the V | Punching through |
-| Testudo | A ring of armour with Artillery and workers safe in the middle | Escorting guns or workers |
-| Echelon | A staggered diagonal, guns tucked behind | Advancing past a threat on one side |
-| Scout screen | Fast units spread out ahead, armour in a block, guns at the rear | Spotting ambushes before the main body arrives |
+| Button | What it does |
+| --- | --- |
+| **Aggressive** (default) | On the move they fight anything they meet, then carry on to where you sent them. Standing still, they go to the help of friends under fire nearby. |
+| **Return fire** | They shoot whatever comes in range but keep going (or keep to their spot). No chasing. |
+| **Stealth** | They hold fire and just get there. |
+| **Hunt as pack** / **Hunt solo** | Seek and destroy: they go after the nearest enemy you know of, or search for one. A pack keeps together. |
+| **Guard** | Pick a building or vehicle: they stay beside it, and the moment it's attacked they go after the attacker, then come back. |
 
-In a formation the group forms up, then marches at its slowest vehicle's
-pace, waiting for stragglers, and arrives in shape. With Attack-move it
-fights on the way.
+When several vehicles attack the same target they spread out around it
+instead of bunching up. Each side can have up to **100 units**.
 
 ## Campaign
 

@@ -74,7 +74,7 @@ function saveMeta() {
     faction: game.teams[spectating ? 1 : view.team].faction, spectating, war: view.war };
 }
 function saveExtra() {
-  return { spectating, cam: { x: view.cam.x, y: view.cam.y, zoom: view.cam.zoom }, formation: view.formation, groups: input.groups, war: view.war };
+  return { spectating, cam: { x: view.cam.x, y: view.cam.y, zoom: view.cam.zoom }, groups: input.groups, war: view.war };
 }
 async function saveTo(slot, quiet = false) {
   if (!game || game.winner) return;
@@ -95,7 +95,6 @@ function resumeFrom(text) {
   game = g;
   enterBattle(!!extra.spectating, extra.war || null);
   if (extra.cam) Object.assign(view.cam, extra.cam);
-  if (extra.formation) { view.formation = extra.formation; updateFormationButton(); }
   input.groups = extra.groups || {}; view.groupOf = new Map();
   for (const [k, ids] of Object.entries(input.groups)) for (const id of ids) view.groupOf.set(id, k);
   logMessage(`Game loaded: ${Math.floor(game.time / 60)}:${String(Math.floor(game.time % 60)).padStart(2, '0')} into the battle`, 'good');
@@ -309,7 +308,7 @@ function attackMoveAt(w, pad = 0) {
   if (ids.length) {
     const t = entityAt(w.x, w.y, pad);
     if (t && t.team !== view.team) issueCommand(game, view.team, { type: 'attack', ids, targetId: t.id });
-    else issueCommand(game, view.team, { type: 'move', ids, x: w.x, y: w.y, attackMove: true, formation: view.formation });
+    else issueCommand(game, view.team, { type: 'move', ids, x: w.x, y: w.y, attackMove: true });
     ping(w, '#ff7a6a'); sound('ack');
   }
   view.attackMode = false; refreshPanel();
@@ -378,76 +377,6 @@ function recallGroup(key) {
   if (input.lastGroup === key && now - input.lastGroupAt < 400) centerOn(g[0]);
   input.lastGroup = key; input.lastGroupAt = now;
   select(g);
-}
-// The Formation menu: how your selected vehicles line up when you send
-// them somewhere together. The choice applies to every group move until you
-// change it, and is remembered on this device.
-view.formation = 'free';
-try { if (FORMATIONS.some(f => f.key === localStorage.getItem('scrapline.formation'))) view.formation = localStorage.getItem('scrapline.formation'); } catch (err) { /* optional */ }
-
-// A little diagram of a formation, pointing up the page: squares are armour
-// (Tanks, Sentries), triangles fast units (Scouts, Hornets), circles guns
-// and workers (Artillery, Scavengers, Constructors).
-const FORM_SAMPLE = ['tank', 'tank', 'tank', 'sentry', 'scout', 'scout', 'hornet', 'artillery', 'artillery'].map((type, i) => ({ id: i + 1, type, def: UNIT_TYPES[type] }));
-function drawFormationIcon(c, key) {
-  const ctx = c.getContext('2d'), W = c.width, H = c.height;
-  ctx.clearRect(0, 0, W, H);
-  let pts = formationOffsets(key, FORM_SAMPLE);
-  if (!pts) pts = FORM_SAMPLE.map((u, i) => ({ u, f: Math.sin(i * 2.3) * 60, r: Math.cos(i * 3.7) * 70 }));  // free: a loose scatter
-  const ext = Math.max(...pts.map(p => Math.max(Math.abs(p.f), Math.abs(p.r)))) || 1;
-  const k = (Math.min(W, H) / 2 - 7) / ext;
-  ctx.strokeStyle = 'rgba(140,255,160,0.35)'; ctx.lineWidth = 1.5;  // direction of travel
-  ctx.beginPath(); ctx.moveTo(W - 7, H - 6); ctx.lineTo(W - 7, 6); ctx.lineTo(W - 10, 10); ctx.moveTo(W - 7, 6); ctx.lineTo(W - 4, 10); ctx.stroke();
-  for (const p of pts) {
-    const x = W / 2 + p.r * k, y = H / 2 - p.f * k, role = formRole(p.u);
-    ctx.beginPath();
-    if (role === 'heavy') { ctx.fillStyle = '#8cffa0'; ctx.rect(x - 3.5, y - 3.5, 7, 7); }
-    else if (role === 'light') { ctx.fillStyle = '#7cc4ff'; ctx.moveTo(x, y - 4.5); ctx.lineTo(x + 4, y + 3.5); ctx.lineTo(x - 4, y + 3.5); ctx.closePath(); }
-    else { ctx.fillStyle = '#f0c040'; ctx.arc(x, y, 3.4, 0, Math.PI * 2); }
-    ctx.fill();
-  }
-}
-
-function setFormation(key) {
-  view.formation = key;
-  try { localStorage.setItem('scrapline.formation', key); } catch (err) { /* optional */ }
-  updateFormationButton();
-  // Selected vehicles standing still form up on the spot, facing the way they face.
-  const units = mine(view.selected).filter(u => u.kind === 'unit');
-  if (key !== 'free' && units.length > 1) {
-    const cx = units.reduce((a, u) => a + u.x, 0) / units.length, cy = units.reduce((a, u) => a + u.y, 0) / units.length;
-    const hx = units.reduce((a, u) => a + Math.cos(u.angle), 0), hy = units.reduce((a, u) => a + Math.sin(u.angle), 0);
-    issueCommand(game, view.team, { type: 'move', ids: units.map(u => u.id), x: cx, y: cy, formation: key, heading: Math.atan2(hy, hx) });
-  }
-  const f = FORMATIONS.find(x => x.key === key);
-  logMessage(key === 'free' ? 'Formation off: vehicles move freely' : `Formation: ${f.name}. Group moves keep this shape.`, 'info');
-  sound('ack');
-}
-function updateFormationButton() {
-  const f = FORMATIONS.find(x => x.key === view.formation);
-  $('q-form').innerHTML = `${view.formation === 'free' ? 'Formation' : f.name} ▾`;
-}
-function toggleFormationMenu() {
-  const menu = $('formmenu');
-  if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
-  $('armymenu').classList.add('hidden');
-  menu.innerHTML = '';
-  for (const f of FORMATIONS) {
-    const b = document.createElement('button'); b.className = 'fopt' + (f.key === view.formation ? ' active' : '');
-    const c = document.createElement('canvas'); c.width = 64; c.height = 56; drawFormationIcon(c, f.key);
-    const t = document.createElement('div'); t.innerHTML = `<b>${f.name}</b><span class="dim small">${f.desc}</span>`;
-    b.append(c, t);
-    onPress(b, () => { menu.classList.add('hidden'); setFormation(f.key); });
-    menu.appendChild(b);
-  }
-  const note = document.createElement('div'); note.className = 'note';
-  note.innerHTML = '<span style="color:#8cffa0">■</span> Tanks, Sentries &nbsp; <span style="color:#7cc4ff">▲</span> Scouts, Hornets &nbsp; <span style="color:#f0c040">●</span> Artillery, workers. ' +
-    'The group marches at its slowest vehicle\'s pace and waits for stragglers.';
-  menu.appendChild(note);
-  const r = $('q-form').getBoundingClientRect();
-  menu.style.top = `${r.bottom + 6}px`;
-  menu.classList.remove('hidden');
-  menu.style.left = `${Math.max(6, Math.min(r.left, window.innerWidth - menu.offsetWidth - 6))}px`;
 }
 
 // The Army button opens a menu: everyone, or just one kind of vehicle.
@@ -638,7 +567,7 @@ function rightClick(w, pad = 0) {
     // Artillery told to go to one of your buildings digs in to defend it.
     issueCommand(game, view.team, { type: 'guard', ids: arty.map(u => u.id), targetId: t.id });
     const rest = ids.filter(id => !arty.some(a => a.id === id));
-    if (rest.length) issueCommand(game, view.team, { type: 'move', ids: rest, x: w.x, y: w.y, formation: view.formation });
+    if (rest.length) issueCommand(game, view.team, { type: 'move', ids: rest, x: w.x, y: w.y });
     ping(t, '#8cc8ff');
   } else if (t && t.team !== view.team && units.some(u => u.def.weapon)) {
     issueCommand(game, view.team, { type: 'attack', ids, targetId: t.id });
@@ -650,10 +579,10 @@ function rightClick(w, pad = 0) {
     const scavs = units.filter(u => u.def.role === 'harvester').map(u => u.id);
     issueCommand(game, view.team, { type: 'harvest', ids: scavs, nodeId: node.id });
     const rest = ids.filter(id => !scavs.includes(id));
-    if (rest.length) issueCommand(game, view.team, { type: 'move', ids: rest, x: w.x, y: w.y, formation: view.formation });
+    if (rest.length) issueCommand(game, view.team, { type: 'move', ids: rest, x: w.x, y: w.y });
     ping(node, '#f0c040');
   } else {
-    issueCommand(game, view.team, { type: 'move', ids, x: w.x, y: w.y, formation: view.formation });
+    issueCommand(game, view.team, { type: 'move', ids, x: w.x, y: w.y });
     ping(w, '#8cffa0');
   }
   sound('ack');
@@ -774,7 +703,7 @@ function select(list) {
   const units = list.filter(e => e.kind === 'unit');
   view.selected = units.length ? units : list.slice(0, 1);
   view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
-  $('armymenu').classList.add('hidden'); $('formmenu').classList.add('hidden');
+  $('armymenu').classList.add('hidden');
   if (view.selected.length && isMine(view.selected[0])) sound('select');
   refreshPanel();
 }
@@ -815,13 +744,18 @@ function addRecycleButtons(addBtn, list, tip, keys) {
 }
 
 let panelKey = '';
+const STANCES = [
+  ['aggressive', 'Aggressive', 'Fight anything met on the way and chase it a little, then carry on. Idle, they help friends under fire nearby. (The default.)'],
+  ['return', 'Return fire', 'Shoot at whatever comes in range, but keep going (or keep to the spot). No chasing.'],
+  ['stealth', 'Stealth', 'Hold fire and just go where they are sent.'],
+];
 function refreshPanel() {
   const info = $('selinfo'), cmds = $('commands');
   const sel = view.selected.filter(e => e.hp > 0);
   // Only rebuild the buttons when something about them actually changed.
   const key = game ? JSON.stringify([sel.map(e => e.id), view.placing, view.placeReady, view.attackMode, view.aim, view.confirmDemolish, spectating,
     view.confirmRecycle, recycleCandidates(sel).map(u => u.id),
-    sel.map(e => !!e.rally), sel.map(e => !!e.deployed),
+    sel.map(e => !!e.rally), sel.map(e => !!e.deployed), sel.map(e => e.stance), sel.map(e => e.order && e.order.type),
     sel.map(e => [e.level, e.upgrading !== null && e.upgrading !== undefined ? Math.floor(e.upgrading) : -1, e.researching ? e.researching.key + Math.floor(e.researching.t) : 0, e.hp < e.maxHp]),
     Object.keys(game.teams[view.team].research).join(), game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1),
     game.entities.filter(b => b.team === view.team && b.researching).map(b => b.researching.key + Math.floor(b.researching.t / 3)).join(),
@@ -1029,6 +963,15 @@ function refreshPanel() {
     addBtn('Scout as pack', null, keys.shift(), () => order('scout', scouts, { pack: true }), { title: 'The scouts roam the map together' });
     addBtn('Scout solo', null, keys.shift(), () => order('scout', scouts, { pack: false }), { title: 'Each scout explores on its own' });
   } else if (scouts.length) addBtn('Scout', null, keys.shift(), () => order('scout', scouts), { title: 'Explore the map on its own' });
+  // Hunt: seek and destroy, as a pack or each on its own.
+  const hunters = sel.filter(e => e.kind === 'unit' && e.def.weapon && !e.def.deployable);
+  if (hunters.length > 1) {
+    addBtn('Hunt as pack', null, keys.shift(), () => order('hunt', hunters, { pack: true }),
+      { active: hunters.every(u => u.order.type === 'hunt' && u.order.packId), title: 'Seek and destroy together: go after the nearest enemy you know of, or search for one. The pack keeps together.' });
+    addBtn('Hunt solo', null, keys.shift(), () => order('hunt', hunters, { pack: false }),
+      { active: hunters.every(u => u.order.type === 'hunt' && !u.order.packId), title: 'Seek and destroy: each vehicle goes after enemies on its own' });
+  } else if (hunters.length) addBtn('Hunt', null, keys.shift(), () => order('hunt', hunters),
+    { active: hunters[0].order.type === 'hunt', title: 'Seek and destroy: go after the nearest enemy you know of, or search for one' });
   if (tanks.length) addBtn('Patrol', null, keys.shift(), () => order('patrol', tanks), { title: 'Loop around your buildings, fighting anything met' });
   // Sentries are purely defensive: Deploy digs them in where they stand.
   const sentries = sel.filter(e => e.kind === 'unit' && e.def.deployable);
@@ -1063,6 +1006,13 @@ function refreshPanel() {
     if (view.attackMode) addBtn('Cancel', null, 'Esc', () => { view.attackMode = false; refreshPanel(); });
   }
   if (sel.some(e => e.kind === 'unit')) addBtn('Stop', null, 'S', () => issueCommand(game, view.team, { type: 'stop', ids: sel.map(e => e.id) }));
+  // How they behave on the move and when idle.
+  const armed = sel.filter(e => e.kind === 'unit' && e.def.weapon && !e.def.deployable);
+  if (armed.length) {
+    const now = new Set(armed.map(u => stanceOf(game, u)));
+    for (const [k, label, tip] of STANCES)
+      addBtn(label, null, null, () => { order('stance', armed, { stance: k }); refreshPanel(); }, { active: now.size === 1 && now.has(k), title: tip });
+  }
   if (recycleTip.textContent) cmds.appendChild(recycleTip);
 }
 
@@ -1298,9 +1248,7 @@ function setMinimapCollapsed(on) {
 }
 try { setMinimapCollapsed(localStorage.getItem('scrapline.minimapCollapsed') === '1'); } catch (err) { setMinimapCollapsed(false); }
 onPress($('maptoggle'), () => setMinimapCollapsed(!minimapCollapsed));
-onPress($('q-army'), () => { if (!game) return; $('formmenu').classList.add('hidden'); toggleArmyMenu(); });
-onPress($('q-form'), () => game && toggleFormationMenu());
-updateFormationButton();
+onPress($('q-army'), () => { if (!game) return; toggleArmyMenu(); });
 for (const b of document.querySelectorAll('#armymenu button')) onPress(b, () => game && selectArmyType(b.dataset.army));
 onPress($('q-base'), () => game && centerOn(findHQ(view.team)));
 onPress($('q-idle'), () => game && idleWorker());

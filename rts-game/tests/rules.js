@@ -19,7 +19,7 @@ function load() {
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
     'createGame, generateMap, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
-    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, FORMATIONS, nearestOpenTile, formRole, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear });', ctx);
+    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear });', ctx);
   return ctx;
 }
 
@@ -370,6 +370,7 @@ section('Artillery stabilisers');
   for (let i = 0; i < 90; i++) { S.stepGame(g); if (first === null && art.lastShot !== undefined) first = (i + 1) / 30; }
   check('artillery fires only after lowering its legs (about 0.6 s)', first !== null && first >= 0.55 && art.legE === 1, first && `${first.toFixed(2)} s`);
   const x0 = art.x, y0 = art.y;
+  art.stance = 'return';   // keep driving (an aggressive one would stay and fight)
   S.issueCommand(g, 1, { type: 'move', ids: [art.id], x: art.x, y: art.y - 200 });
   let moved = null;
   for (let i = 0; i < 60; i++) { S.stepGame(g); if (moved === null && Math.hypot(art.x - x0, art.y - y0) > 1) moved = (i + 1) / 30; }
@@ -466,38 +467,135 @@ section('Factions');
   check('a side with no faction chosen is Scrapline', g2.teams[1].faction === 'scrapline' && g2.teams[2].faction === 'scrapline');
 }
 
-section('Formations');
+section('Orders: stance, Hunt, Guard, spreading out');
 {
   const S = load();
-  const march = key => {
+  // An empty battlefield with no computer players: team 1's vehicles at `from`.
+  const field = () => {
     const g = S.createGame({ seed: 42, difficulty: 'normal', aiTeams: [] });
-    const m = mine(g, 1, 'mobileRecycler')[0], T = S.CONFIG.TILE, base = { x: m.x + 200, y: m.y - 200 };
-    const us = ['tank', 'tank', 'tank', 'sentry', 'scout', 'scout', 'hornet', 'artillery', 'artillery', 'scavenger'].map((t, i) => {
-      const o = S.nearestOpenTile(g, Math.floor((base.x + (i % 4) * 40) / T), Math.floor((base.y + Math.floor(i / 4) * 40) / T), 8);
-      return S.addUnit(g, t, 1, (o.x + 0.5) * T, (o.y + 0.5) * T);
-    });
-    const dest = { x: base.x + 1600, y: base.y - 900 };
-    S.issueCommand(g, 1, { type: 'move', ids: us.map(u => u.id), x: dest.x, y: dest.y, formation: key });
-    let spread = 0, done = false;
-    for (let i = 0; i < 30 * 240 && !done; i++) {
-      S.stepGame(g);
-      if (i % 30 === 0 && i > 30 * 15) { const c = centre(us); spread = Math.max(spread, ...us.map(u => S.dist(u, c))); }
-      done = us.every(u => u.order.type === 'idle' && !u.path.length);
-    }
-    const c = centre(us), a = Math.atan2(dest.y - base.y, dest.x - base.x);
-    const avg = (role, f) => { const l = us.filter(u => S.formRole(u) === role).map(f); return l.reduce((x, y) => x + y, 0) / l.length; };
-    const fwd = u => (u.x - c.x) * Math.cos(a) + (u.y - c.y) * Math.sin(a);
-    return { done, spread, toDest: S.dist(c, dest), fwd: role => avg(role, fwd), out: role => avg(role, u => S.dist(u, c)) };
+    for (const e of g.entities) e.hp = e.type === 'mobileRecycler' ? e.hp : 0;
+    S.stepGame(g);
+    return g;
   };
-  const centre = us => ({ x: us.reduce((a, u) => a + u.x, 0) / us.length, y: us.reduce((a, u) => a + u.y, 0) / us.length });
-  check('six formations to choose from, plus Free', S.FORMATIONS.length === 7 && S.FORMATIONS[0].key === 'free');
-  const free = march('free'), box = march('box'), col = march('column');
-  check('a group in formation arrives where it was sent', box.done && box.toDest < 40 && col.done, `${Math.round(box.toDest)} px off`);
-  check('and stays together on the way (free movement strings out)', box.spread < 220 && col.spread < 220 && free.spread > box.spread * 2,
-    `formation ${Math.round(box.spread)} px, free ${Math.round(free.spread)} px`);
-  check('Testudo keeps Artillery and workers inside the ring of armour', box.out('soft') < box.out('heavy'),
-    `${Math.round(box.out('soft'))} vs ${Math.round(box.out('heavy'))} px from the centre`);
-  check('Column puts fast units in front and Artillery at the back', col.fwd('light') > col.fwd('heavy') && col.fwd('heavy') > col.fwd('soft'));
+  const T = 32;
+  // Open ground for a building of `size` near (x, y), ignoring territory.
+  const openSpot = (g, x, y, size = 3) => {
+    const cx = Math.floor(x / T), cy = Math.floor(y / T);
+    for (let r = 0; r < 30; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      let ok = true;
+      for (let yy = -1; yy <= size && ok; yy++) for (let xx = -1; xx <= size && ok; xx++) if (S.isBlockedTile(g, cx + dx + xx, cy + dy + yy)) ok = false;
+      if (ok) return { tx: cx + dx, ty: cy + dy };
+    }
+    return null;
+  };
+  const runUntil = (g, sec, done) => { for (let i = 0; i < sec * 30; i++) { S.stepGame(g); if (done && done()) return i / 30; } return Infinity; };
+  const hq1 = g => mine(g, 1, 'mobileRecycler')[0];
+  // A group drives past an enemy tank sitting beside the route.
+  const drive = stance => {
+    const g = field(), h = hq1(g), from = { x: h.x + 300, y: h.y - 300 };
+    const us = [0, 1, 2, 3].map(i => S.addUnitNear(g, 'tank', 1, from.x + (i % 2) * 36, from.y + Math.floor(i / 2) * 36));
+    const dir = { x: Math.sign(g.map.W * T / 2 - h.x), y: Math.sign(g.map.H * T / 2 - h.y) };
+    const dest = { x: from.x + dir.x * 1100, y: from.y };
+    const foe = S.addUnitNear(g, 'tank', 2, from.x + dir.x * 550, from.y + 150);
+    foe.stance = 'stealth';   // it just sits there
+    if (stance) S.issueCommand(g, 1, { type: 'stance', ids: us.map(u => u.id), stance });
+    S.issueCommand(g, 1, { type: 'move', ids: us.map(u => u.id), x: dest.x, y: dest.y });
+    const t = runUntil(g, 90, () => us.every(u => u.order.type === 'idle'));
+    return { t, foeHp: foe.hp / foe.maxHp, arrived: us.filter(u => S.dist(u, dest) < 150).length };
+  };
+  const ag = drive(null), st = drive('stealth'), rf = drive('return');
+  check('vehicles are aggressive by default: an enemy beside the route gets attacked, then they carry on to where they were sent',
+    ag.foeHp <= 0 && ag.arrived === 4, `enemy at ${Math.round(Math.max(0, ag.foeHp) * 100)}%, ${ag.arrived}/4 arrived`);
+  check('Stealth: they hold fire and just drive there', st.foeHp === 1 && st.arrived === 4 && st.t < ag.t, `${st.t.toFixed(0)} s vs ${ag.t.toFixed(0)} s`);
+  check('Return fire: they shoot what they pass but keep going', rf.foeHp < 1 && rf.arrived === 4 && rf.t < ag.t,
+    `enemy at ${Math.round(Math.max(0, rf.foeHp) * 100)}%, ${rf.t.toFixed(0)} s`);
+
+  // Hunt: as a pack, they find a known enemy building far away and destroy it, keeping together.
+  {
+    const g = field(), h = hq1(g);
+    const us = [0, 1, 2, 3].map(i => S.addUnitNear(g, 'tank', 1, h.x + 250 + i * 36, h.y - 250));
+    const far = openSpot(g, g.map.W * T / 2, g.map.H * T / 2);
+    const b = S.addBuilding(g, 'factory', 2, far.tx, far.ty, true);
+    b.seen[1] = true;
+    S.issueCommand(g, 1, { type: 'hunt', ids: us.map(u => u.id), pack: true });
+    let spread = 0;
+    const t = runUntil(g, 240, () => {
+      const c = { x: us.reduce((a, u) => a + u.x, 0) / 4, y: us.reduce((a, u) => a + u.y, 0) / 4 };
+      if (g.tick % 30 === 0) spread = Math.max(spread, ...us.map(u => S.dist(u, c)));
+      return b.hp <= 0;
+    });
+    check('Hunt as a pack: they go and destroy a known enemy far away', t < 240, `${Math.round(S.dist(h, b))} px away, ${Math.round(t)} s`);
+    check('and the pack keeps together on the way', spread < 300, `furthest ${Math.round(spread)} px from the middle`);
+    // With nothing known, hunters go searching.
+    const g2 = field(), h2 = hq1(g2), lone = S.addUnitNear(g2, 'hornet', 1, h2.x + 250, h2.y - 250);
+    S.issueCommand(g2, 1, { type: 'hunt', ids: [lone.id] });
+    runUntil(g2, 20);
+    check('Hunt with no enemy in sight: it goes searching', S.dist(lone, h2) > 500 && lone.order.type === 'hunt');
+  }
+
+  // Guard: the guarded building is shot at from beyond the guard's range; the guard goes after the attacker, then returns.
+  {
+    const g = deployedGame(S), rec = mine(g, 1, 'recycler')[0];
+    for (const e of g.entities) if (e.team === 2 && e.type !== 'recycler') e.hp = 0;
+    S.stepGame(g);
+    const guard = S.addUnitNear(g, 'tank', 1, rec.x, rec.y - 150);
+    S.issueCommand(g, 1, { type: 'guard', ids: [guard.id], targetId: rec.id });
+    runUntil(g, 10);
+    const post = { x: guard.order.px, y: guard.order.py };
+    const away = S.dist(post, rec) > 0 ? { x: rec.x - (post.x - rec.x), y: rec.y - (post.y - rec.y) } : post;
+    const k = (rec.radius * 0.8 + 180) / S.dist(away, rec);
+    const foe = S.addUnitNear(g, 'tank', 2, rec.x + (away.x - rec.x) * k, rec.y + (away.y - rec.y) * k);
+    S.issueCommand(g, 2, { type: 'attack', ids: [foe.id], targetId: rec.id });
+    const t = runUntil(g, 40, () => foe.hp <= 0);
+    check('a guard goes after whoever attacks what it guards, even out of its range', t < 40, `${Math.round(t)} s`);
+    runUntil(g, 25);
+    check('then goes back to its post', S.dist(guard, post) < 60, `${Math.round(S.dist(guard, post))} px from it`);
+  }
+
+  // An idle vehicle helps a friend under fire nearby.
+  {
+    const g = field(), h = hq1(g), p = { x: h.x + 400, y: h.y - 400 };
+    const helper = S.addUnitNear(g, 'tank', 1, p.x, p.y);
+    const friend = S.addUnitNear(g, 'tank', 1, p.x + 300, p.y);
+    friend.stance = 'stealth';
+    const foe = S.addUnitNear(g, 'tank', 2, p.x + 480, p.y);
+    S.issueCommand(g, 2, { type: 'attack', ids: [foe.id], targetId: friend.id });
+    const t = runUntil(g, 40, () => foe.hp <= 0);
+    check('an idle vehicle drives over to help a friend under fire nearby', t < 40 && S.dist(helper, p) > 100, `${Math.round(t)} s`);
+  }
+
+  // Attacking together: they fan out round the target instead of piling into one clump.
+  {
+    const g = field(), h = hq1(g);
+    const us = [...Array(8).keys()].map(i => S.addUnitNear(g, 'tank', 1, h.x + 250 + (i % 4) * 34, h.y - 250 - Math.floor(i / 4) * 34));
+    const at = openSpot(g, h.x + 1300 * Math.sign(g.map.W * T / 2 - h.x), h.y - 250);
+    const b = S.addBuilding(g, 'factory', 2, at.tx, at.ty, true);
+    b.hp = b.maxHp = 50000; b.seen[1] = true;
+    S.issueCommand(g, 1, { type: 'attack', ids: us.map(u => u.id), targetId: b.id });
+    runUntil(g, 60, () => us.every(u => !u.path.length && S.dist(u, b) < 260));
+    let near = 0;
+    for (let i = 0; i < us.length; i++) for (let j = i + 1; j < us.length; j++) near = Math.max(near, 0) + (S.dist(us[i], us[j]) < 30 ? 1 : 0);
+    const angles = us.map(u => Math.atan2(u.y - b.y, u.x - b.x)), mean = Math.atan2(angles.reduce((a, x) => a + Math.sin(x), 0), angles.reduce((a, x) => a + Math.cos(x), 0));
+    const arc = Math.max(...angles.map(a => Math.abs(Math.atan2(Math.sin(a - mean), Math.cos(a - mean)))));
+    check('a group attacking one target fans out in an arc around it', arc > 0.35 && near <= 2, `arc ±${arc.toFixed(2)} rad, ${near} pairs bumper to bumper`);
+  }
+
+  check('each side can have 100 units', S.CONFIG.UNIT_CAP === 100);
+  // Two armies of 100 meet: the rules keep up (time is for this computer; phones are slower).
+  {
+    const g = S.createGame({ seed: 4, aiTeams: [] });
+    const types = ['tank', 'tank', 'hornet', 'scout', 'artillery'];
+    for (const t of [1, 2]) {
+      const h = g.entities.find(e => e.team === t && e.type === 'mobileRecycler'), s = t === 1 ? 1 : -1;
+      for (let i = 0; i < 93; i++) S.addUnitNear(g, types[i % 5], t, h.x + ((i % 10) - 5) * 30 * s + 200 * s, h.y - (Math.floor(i / 10) - 5) * 30 * s);
+    }
+    const mid = { x: g.map.W * T / 2, y: g.map.H * T / 2 };
+    for (const t of [1, 2]) S.issueCommand(g, t, { type: 'move', ids: g.entities.filter(e => e.team === t && e.def.weapon && e.kind === 'unit').map(e => e.id), x: mid.x, y: mid.y });
+    runUntil(g, 5);
+    const t0 = Date.now(); runUntil(g, 60); const ms = (Date.now() - t0) / 60;
+    check('200 vehicles fighting: each second of battle takes well under a second to work out', ms < 250, `${ms.toFixed(0)} ms per battle second`);
+  }
 }
 
 section('Saving and loading');

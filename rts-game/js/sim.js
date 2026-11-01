@@ -47,7 +47,6 @@ function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams
     occupied: new Uint8Array(map.W * map.H),
     scrap: map.scrap, geysers: map.geysers,
     packs: {}, nextPackId: 1,
-    formations: [], nextFormationId: 1,
     teams: {},
     winner: 0,
     ai: {},
@@ -250,7 +249,7 @@ function issueCommand(game, team, cmd) {
     }
     return;
   }
-  if (['move', 'attack', 'patrol', 'guard', 'scout', 'gorepair'].includes(cmd.type)) {
+  if (['move', 'attack', 'patrol', 'guard', 'scout', 'hunt', 'gorepair'].includes(cmd.type)) {
     // A dug-in Sentry ignores attack orders it can't reach and stays dug in.
     if (cmd.type === 'attack') {
       const t = game.byId.get(cmd.targetId);
@@ -261,9 +260,7 @@ function issueCommand(game, team, cmd) {
 
   switch (cmd.type) {
     case 'move': {
-      // With a formation chosen, the group marches together in that shape.
-      if (cmd.formation && cmd.formation !== 'free' && units.length > 1 && startFormation(game, team, units, cmd)) break;
-      const slots = formationSlots(game, cmd.x, cmd.y, units);
+      const slots = arrivalSlots(game, cmd.x, cmd.y, units);
       units.forEach((u, i) => {
         u.order = { type: 'move', gx: slots[i].x, gy: slots[i].y, attackMove: !!cmd.attackMove };
         u.target = null;
@@ -347,6 +344,24 @@ function issueCommand(game, team, cmd) {
         scouts.forEach((u, i) => { u.order = { type: 'scout', packId: id, slot: i }; u.path = []; u.target = null; });
       } else {
         for (const u of scouts) { u.order = { type: 'scout', target: null, chosenAt: 0 }; u.path = []; u.target = null; }
+      }
+      break;
+    }
+    case 'stance': {
+      // How vehicles behave on the move and when idle (see stanceOf).
+      if (!['aggressive', 'return', 'stealth'].includes(cmd.stance)) return;
+      for (const u of units) if (u.def.weapon) { u.stance = cmd.stance; if (cmd.stance === 'stealth') u.target = null; }
+      break;
+    }
+    case 'hunt': {
+      // Seek and destroy: as one pack, or each vehicle on its own.
+      const hunters = units.filter(u => u.def.weapon && !u.def.deployable);
+      if (cmd.pack && hunters.length > 1) {
+        const id = game.nextPackId++;
+        game.packs[id] = { hunt: true, target: null, chosenAt: -99, members: hunters.map(u => u.id) };
+        hunters.forEach((u, i) => { u.order = { type: 'hunt', packId: id, slot: i }; u.path = []; u.target = null; });
+      } else {
+        for (const u of hunters) { u.order = { type: 'hunt', goal: null, chosenAt: -99 }; u.path = []; u.target = null; }
       }
       break;
     }
@@ -474,18 +489,18 @@ function issueCommand(game, team, cmd) {
 // Spread a group out around the clicked point so they don't pile up.
 // Like route-finding, this always works from the same half of the map so
 // both sides get mirror-image results.
-function formationSlots(game, x, y, units) {
+function arrivalSlots(game, x, y, units) {
   if (units.length <= 1) return [{ x, y }];
   const cx = units.reduce((a, u) => a + u.x, 0) / units.length, cy = units.reduce((a, u) => a + u.y, 0) / units.length;
   if (inMirroredHalf(game, cx, cy)) {
     const WW = game.map.W * CONFIG.TILE, HH = game.map.H * CONFIG.TILE;
     const flipped = units.map(u => ({ x: WW - u.x, y: HH - u.y }));
-    return formationSlotsOn(mirroredView(game), WW - x, HH - y, flipped).map(p => ({ x: WW - p.x, y: HH - p.y }));
+    return arrivalSlotsOn(mirroredView(game), WW - x, HH - y, flipped).map(p => ({ x: WW - p.x, y: HH - p.y }));
   }
-  return formationSlotsOn(game, x, y, units);
+  return arrivalSlotsOn(game, x, y, units);
 }
 
-function formationSlotsOn(game, x, y, units) {
+function arrivalSlotsOn(game, x, y, units) {
   const spacing = 34, slots = [], used = new Set();
   const T = CONFIG.TILE;
   const cols = Math.ceil(Math.sqrt(units.length));
@@ -512,141 +527,6 @@ function formationSlotsOn(game, x, y, units) {
     out.push(slots.splice(bi, 1)[0]);
   }
   return out;
-}
-
-// -----------------------------------------------------------------------------
-// Formations (player group moves). The shape: where each vehicle stands,
-// as f (metres forward of the centre) and r (to the right), by type.
-// -----------------------------------------------------------------------------
-
-const formRole = u => { const b = baseType(u); return b === 'tank' || b === 'sentry' || b === 'mobileRecycler' ? 'heavy' : b === 'scout' || b === 'hornet' ? 'light' : 'soft'; };
-
-function formationOffsets(key, units) {
-  const D = 38, by = { heavy: [], light: [], soft: [] }, out = [];
-  for (const u of units.slice().sort((a, b) => a.id - b.id)) by[formRole(u)].push(u);
-  const H = by.heavy, L = by.light, S = by.soft, put = (u, f, r) => out.push({ u, f, r });
-  const grid = (list, cols, f0, gap = D) => list.forEach((u, i) => {
-    const row = Math.floor(i / cols), inRow = Math.min(cols, list.length - row * cols);
-    put(u, f0 - row * gap, ((i % cols) - (inRow - 1) / 2) * gap);
-  });
-  switch (key) {
-    case 'column': {  // two abreast: fast units first, armour, then guns and workers
-      const all = [...L, ...H, ...S];
-      all.forEach((u, i) => put(u, -Math.floor(i / 2) * D, i === all.length - 1 && i % 2 === 0 ? 0 : (i % 2 ? 0.5 : -0.5) * D));
-      break;
-    }
-    case 'line': {  // armour abreast, fast units on the wings, guns in a row behind
-      const row = [...H];
-      L.forEach((u, i) => (i % 2 ? row.push(u) : row.unshift(u)));
-      grid(row, row.length, 0);
-      grid(S, Math.max(1, S.length), -D * 1.2);
-      break;
-    }
-    case 'wedge': {  // armour at the point and along the edges, fast units further out, guns inside
-      [...H, ...L].forEach((u, i) => { const k = Math.ceil(i / 2); put(u, -k * D * 0.8, i === 0 ? 0 : (i % 2 ? 1 : -1) * k * D * 0.8); });
-      S.forEach((u, i) => { const m = Math.floor(i / 2); put(u, -(1.4 + m) * D * 0.8, i === S.length - 1 && i % 2 === 0 ? 0 : (i % 2 ? 0.4 : -0.4) * D * (1 + m)); });
-      break;
-    }
-    case 'box': {  // testudo: guns and workers in the middle, a ring of armour (front first), fast units fill the rear
-      const c = Math.max(1, Math.ceil(Math.sqrt(S.length)));
-      grid(S, c, (Math.ceil(S.length / c) - 1) / 2 * D * 0.9, D * 0.9);
-      const ring = [...H, ...L], n = ring.length;
-      const R = Math.max(D * 1.3, n * D / (2 * Math.PI), (c / 2 + 0.9) * D);
-      const angles = ring.map((_, i) => i * 2 * Math.PI / n).sort((a, b) => Math.cos(b) - Math.cos(a) || a - b);
-      ring.forEach((u, i) => put(u, Math.cos(angles[i]) * R, Math.sin(angles[i]) * R));
-      break;
-    }
-    case 'echelon': {  // a diagonal stepping back to the right, guns behind it
-      [...H, ...L].forEach((u, i) => put(u, -i * D * 0.65, i * D * 0.75));
-      S.forEach((u, i) => put(u, -(i + 1.6) * D * 0.65, (i - 0.6) * D * 0.75));
-      break;
-    }
-    case 'screen': {  // fast units spread out in front, armour in a block, guns at the back
-      L.forEach((u, i) => put(u, 2.6 * D, (i - (L.length - 1) / 2) * D * 1.6));
-      const c = Math.max(1, Math.ceil(Math.sqrt(H.length)));
-      grid(H, c, 0);
-      grid(S, 3, -Math.max(1, Math.ceil(H.length / c)) * D);
-      break;
-    }
-    default: return null;
-  }
-  // Centre the shape on its middle, so the spot you pick is its centre.
-  const fs = out.map(o => o.f), rs = out.map(o => o.r);
-  const mf = (Math.max(...fs) + Math.min(...fs)) / 2, mr = (Math.max(...rs) + Math.min(...rs)) / 2;
-  for (const o of out) { o.f -= mf; o.r -= mr; }
-  return out;
-}
-
-// Start a formation march: form up where the group is, facing the way it's
-// going, then move the whole shape along one route at the slowest member's pace.
-function startFormation(game, team, units, cmd) {
-  const layout = formationOffsets(cmd.formation, units);
-  if (!layout) return false;
-  const cx = units.reduce((a, u) => a + u.x, 0) / units.length, cy = units.reduce((a, u) => a + u.y, 0) / units.length;
-  const path = findPath(game, cx, cy, cmd.x, cmd.y);
-  if (!path.length) return false;
-  const ahead = path.find(p => Math.hypot(p.x - cx, p.y - cy) > 60);
-  const F = {
-    id: game.nextFormationId++, team, key: cmd.formation, ids: units.map(u => u.id), offsets: {},
-    // Facing the way it's going (or, forming up on the spot, cmd.heading).
-    ax: cx, ay: cy, heading: ahead ? Math.atan2(ahead.y - cy, ahead.x - cx) : cmd.heading || 0, path, wp: 0,
-    speed: Math.min(...units.map(u => u.def.speed)) * 0.9, phase: 'form', t0: game.time, waited: 0, attackMove: !!cmd.attackMove,
-  };
-  for (const o of layout) F.offsets[o.u.id] = { f: o.f, r: o.r };
-  game.formations.push(F);
-  for (const u of units) { u.order = { type: 'formation', fid: F.id, attackMove: F.attackMove }; u.target = null; u.path = []; u.fgoal = null; }
-  return F;
-}
-
-function updateFormations(game, dt) {
-  for (const F of game.formations) {
-    const m = F.ids.map(id => game.byId.get(id)).filter(u => u && u.hp > 0 && u.order.type === 'formation' && u.order.fid === F.id);
-    if (!m.length) { F.done = true; continue; }
-    // Each member's spot: the shape turned to the heading, around the anchor.
-    const c = Math.cos(F.heading), s = Math.sin(F.heading);
-    let lag = 0;
-    for (const u of m) {
-      const o = F.offsets[u.id], gx = F.ax + o.f * c - o.r * s, gy = F.ay + o.f * s + o.r * c;
-      u.fgoal = isBlockedAt(game, gx, gy) ? { x: F.ax, y: F.ay } : { x: gx, y: gy };
-      if (!(F.attackMove && u.target)) lag = Math.max(lag, dist(u, u.fgoal));
-    }
-    if (F.phase === 'form') {
-      if (lag < 45 || game.time - F.t0 > 6) F.phase = 'march';
-    } else if (F.phase === 'march') {
-      // Wait for stragglers (up to 4 s at a time), otherwise advance.
-      if (lag < 60) F.waited = 0;
-      if (lag > 110 && F.waited < 4) { F.waited += dt; continue; }
-      let step = F.speed * dt;
-      while (step > 0 && F.wp < F.path.length) {
-        const p = F.path[F.wp], d = Math.hypot(p.x - F.ax, p.y - F.ay);
-        if (d <= step) { F.ax = p.x; F.ay = p.y; F.wp++; step -= d; } else { F.ax += (p.x - F.ax) / d * step; F.ay += (p.y - F.ay) / d * step; step = 0; }
-      }
-      const next = F.path[F.wp];
-      if (next && Math.hypot(next.x - F.ax, next.y - F.ay) > 20) F.heading = turnToward(F.heading, Math.atan2(next.y - F.ay, next.x - F.ax), 0.8 * dt);
-      if (F.wp >= F.path.length) { F.phase = 'arrive'; F.arriveT = game.time; }
-    } else if (lag < 14 || game.time - F.arriveT > 12) {
-      // Arrived: everyone holds their place in the shape.
-      for (const u of m) { u.order = { type: 'idle', gx: u.fgoal.x, gy: u.fgoal.y }; u.path = []; }
-      F.done = true;
-    }
-  }
-  game.formations = game.formations.filter(F => !F.done);
-}
-
-// A vehicle in a formation drives to its spot in the shape (fighting on the
-// way if it was an attack-move).
-function updateFormationMember(game, u, dt) {
-  let engaged = false;
-  if (u.order.attackMove && u.def.weapon) engaged = combatThink(game, u, dt, true);
-  const g = u.fgoal;
-  if (engaged || !g) return;
-  if (dist(u, g) < 10) u.path = [];
-  else {
-    if (hasClearLine(game, u.x, u.y, g.x, g.y)) u.path = [g];
-    else if (!u.path.length || game.tick % 15 === u.id % 15) planPath(game, u, g.x, g.y);
-    followPath(game, u, dt, 8);
-  }
-  if (u.def.weapon) aimAtNearby(game, u, dt);
 }
 
 function planPath(game, u, x, y) {
@@ -683,7 +563,7 @@ function stepGame(game) {
 
   // Shuffle the update order every tick so neither side can get a steady
   // head start from always acting first (or last) on some kind of tick.
-  updateFormations(game, dt);
+  buildUnitGrid(game);
   const order = shuffled(game, game.entities);
   for (const e of order) {
     if (e.hp <= 0) continue;
@@ -885,7 +765,16 @@ function updateUnit(game, u, dt) {
   const o = u.order;
   switch (o.type) {
     case 'idle': {
+      const st = u.def.weapon ? stanceOf(game, u) : null;
+      if (st === 'stealth' || st === 'return') {
+        // Hold fire entirely, or fire at what's in range without leaving the spot.
+        if (st === 'return') shootWhileMoving(game, u, dt); else u.target = null;
+        if (dist(u, { x: o.gx, y: o.gy }) > 40) { if (!u.path.length) planPath(game, u, o.gx, o.gy); followPath(game, u, dt); }
+        else u.path = [];
+        break;
+      }
       if (u.def.weapon) {
+        if (st === 'aggressive' && !u.target) helpFriends(game, u, dt);
         const engaged = combatThink(game, u, dt, true);
         if (!engaged && dist(u, { x: o.gx, y: o.gy }) > 40) {
           if (!u.path.length) planPath(game, u, o.gx, o.gy);
@@ -904,17 +793,26 @@ function updateUnit(game, u, dt) {
       break;
     }
     case 'move': {
+      const st = o.attackMove ? 'aggressive' : stanceOf(game, u);
       let engaged = false;
-      if (o.attackMove && u.def.weapon) engaged = combatThink(game, u, dt, true);
-      if (!engaged) {
-        if (followPath(game, u, dt)) u.order = { type: 'idle', gx: u.x, gy: u.y };
-        else if (u.def.weapon) aimAtNearby(game, u, dt);
-      }
+      if (u.def.weapon && st === 'aggressive') engaged = combatThink(game, u, dt, true);
+      if (engaged) { o.fought = true; break; }
+      // Back on course after a fight on the way. (The computer opponent's
+      // tactics expect its vehicles to stay where the fight left them.)
+      if (o.fought && o.gx !== undefined && stanceOf(game, u)) { o.fought = false; planPath(game, u, o.gx, o.gy); }
+      if (followPath(game, u, dt)) { u.order = { type: 'idle', gx: u.x, gy: u.y }; break; }
+      if (!u.def.weapon || st === 'stealth') { u.target = null; break; }
+      if (st === 'return') shootWhileMoving(game, u, dt);
+      else aimAtNearby(game, u, dt);
       break;
     }
     case 'attack': {
       const t = game.byId.get(o.targetId);
-      if (!t || t.hp <= 0 || !isVisibleTo(game, u.team, t)) { u.order = { type: 'idle', gx: u.x, gy: u.y }; u.target = null; u.path = []; break; }
+      // A building your side has seen can be attacked out of sight (you drive
+      // there); a vehicle must be in sight. (The computer opponent's orders
+      // assume the old rule: out of sight, the order ends.)
+      const known = t && t.hp > 0 && (isVisibleTo(game, u.team, t) || (t.kind === 'building' && t.seen[u.team] && stanceOf(game, u)));
+      if (!known) { u.order = { type: 'idle', gx: u.x, gy: u.y }; u.target = null; u.path = []; break; }
       u.target = t;
       engageTarget(game, u, t, dt);
       break;
@@ -924,9 +822,91 @@ function updateUnit(game, u, dt) {
     case 'scout': updateScout(game, u, dt); break;
     case 'patrol': updatePatrol(game, u, dt); break;
     case 'guard': updateGuard(game, u, dt); break;
-    case 'formation': updateFormationMember(game, u, dt); break;
+    case 'hunt': updateHunt(game, u, dt); break;
     case 'deploy': updateDeploy(game, u, dt); break;
   }
+}
+
+// How a vehicle behaves on the move and when idle:
+//   'aggressive'  fights anything it meets, chasing a little (the default)
+//   'return'      fires at what's in range but keeps to its course or spot
+//   'stealth'     holds fire and just goes where it's sent
+// The computer opponent gives its orders exactly (attack-move or not), so
+// its vehicles have no stance (null) and behave as they always have.
+const stanceOf = (game, u) => u.stance || (game.aiTeams.includes(u.team) && !u.cmdr ? null : 'aggressive');
+
+// An idle, aggressive vehicle goes to the help of a friend under fire nearby.
+function helpFriends(game, u, dt) {
+  u.helpCheck = (u.helpCheck || 0) - dt;
+  if (u.helpCheck > 0) return;
+  u.helpCheck = 0.5 + game.rng() * 0.2;
+  let best = null, bd = Infinity;
+  const consider = f => {
+    if (f.team !== u.team || f === u || f.hp <= 0 || !(f.lastHitAt > game.time - 2)) return;
+    const a = f.lastHitBy;
+    if (!a || a.hp <= 0 || a.team === u.team || !isVisibleTo(game, u.team, a)) return;
+    const d = dist(u, a);
+    if (d < bd && dist(a, { x: u.order.gx, y: u.order.gy }) < u.def.weapon.range + 520) { bd = d; best = a; }
+  };
+  forUnitsNear(game, u.x, u.y, 380, consider);
+  for (const b of (game.ugrid ? game.ugrid.buildings : [])) if (dist(u, b) < 420) consider(b);
+  if (best) { u.target = best; u.order.helping = true; }
+}
+
+// --- Hunting -------------------------------------------------------------------
+// Seek and destroy: head for the nearest enemy this side knows about (in
+// sight now, or a building seen before); with none known, search unexplored
+// and fogged ground. Fights everything met on the way.
+function pickHuntTarget(game, team, from) {
+  let best = null, bd = Infinity;
+  for (const e of game.entities) {
+    if (e.team === team || e.hp <= 0) continue;
+    const known = e.kind === 'building' ? e.seen[team] || isVisibleTo(game, team, e) : isVisibleTo(game, team, e);
+    if (!known) continue;
+    const d = dist(from, e) + (e.kind === 'building' ? 250 : e.def.weapon ? 0 : 120);
+    if (d < bd) { bd = d; best = e; }
+  }
+  if (best) return { x: best.x, y: best.y, id: best.id };
+  const p = pickScoutTarget(game, team, from);
+  return p && { x: p.x, y: p.y, id: 0 };
+}
+
+function updateHunt(game, u, dt) {
+  const o = u.order;
+  if (combatThink(game, u, dt, true)) { o.planned = null; return; }
+  let goal, slot = 0, holder = o;
+  if (o.packId) {
+    const pack = game.packs[o.packId];
+    if (!pack) { goIdle(u); return; }
+    const alive = pack.members.map(id => game.byId.get(id)).filter(m => m && m.hp > 0 && m.order.packId === o.packId);
+    holder = pack; slot = o.slot;
+    // Keep the pack together: anyone well ahead of the rest waits for them.
+    const cx = alive.reduce((a, m) => a + m.x, 0) / alive.length, cy = alive.reduce((a, m) => a + m.y, 0) / alive.length;
+    if (pack.target && alive.length > 1 && Math.hypot(u.x - cx, u.y - cy) > 200 &&
+        Math.hypot(pack.target.x - u.x, pack.target.y - u.y) < Math.hypot(pack.target.x - cx, pack.target.y - cy)) {
+      aimAtNearby(game, u, dt); return;
+    }
+    if (pack.target && alive.some(m => Math.hypot(m.x - pack.target.x, m.y - pack.target.y) < 120) && !pack.target.id) pack.target = null;
+  }
+  // The quarry: still there and still known? Otherwise pick another.
+  const t = holder.target && holder.target.id ? game.byId.get(holder.target.id) : null;
+  if (t && t.hp > 0 && isVisibleTo(game, u.team, t)) { holder.target.x = t.x; holder.target.y = t.y; }
+  else if (holder.target && holder.target.id && (!t || t.hp <= 0 || (t.kind === 'unit' && Math.hypot(u.x - t.x, u.y - t.y) < u.def.sight))) holder.target = null;
+  if (!holder.target || game.time - holder.chosenAt > 40 || (!holder.target.id && game.time - holder.chosenAt > 8 && game.tick % 60 === u.id % 60)) {
+    const next = pickHuntTarget(game, u.team, u);
+    // A new known enemy takes over from searching; otherwise keep going.
+    if (next && (!holder.target || next.id || game.time - holder.chosenAt > 40)) { holder.target = next; holder.chosenAt = game.time; }
+  }
+  goal = holder.target;
+  if (!goal) { aimAtNearby(game, u, dt); return; }
+  const a = (slot % 6) * Math.PI / 3, r = slot ? 36 + Math.floor(slot / 6) * 30 : 0;
+  const gx = goal.x + Math.cos(a) * r, gy = goal.y + Math.sin(a) * r;
+  if (!o.planned || Math.hypot(o.planned.x - gx, o.planned.y - gy) > 100 || !u.path.length) {
+    o.planned = { x: gx, y: gy };
+    if (hasClearLine(game, u.x, u.y, gx, gy)) u.path = [{ x: gx, y: gy }]; else planPath(game, u, gx, gy);
+  }
+  if (followPath(game, u, dt, 30) && !goal.id) { holder.target = null; o.planned = null; }
+  aimAtNearby(game, u, dt);
 }
 
 const goIdle = u => { u.order = { type: 'idle', gx: u.x, gy: u.y }; u.path = []; };
@@ -1021,6 +1001,13 @@ function updateGuard(game, u, dt) {
   if (!b || b.hp <= 0) { goIdle(u); return; }
   if (o.follow) { updateEscort(game, u, b, dt); return; }
   const w = u.def.weapon;
+  // The building is under attack: go after whoever is hitting it (as far as
+  // GUARD_LEASH from it), then come back to the post.
+  const GUARD_LEASH = 650;
+  const fair = t => t && t.hp > 0 && t.team !== u.team && isVisibleTo(game, u.team, t) && dist(t, b) < GUARD_LEASH;
+  if (b.lastHitAt > game.time - 3 && fair(b.lastHitBy) && !fair(o.chase) && !u.def.deployToFire) o.chase = b.lastHitBy;
+  if (o.chase && !fair(o.chase)) { o.chase = null; u.path = []; }
+  if (o.chase) { u.target = o.chase; engageTarget(game, u, o.chase, dt); return; }
   u.retarget -= dt;
   if (u.target && (u.target.hp <= 0 || !isVisibleTo(game, u.team, u.target) || edgeDist(u, u.target) > w.range ||
       (w.minRange && edgeDist(u, u.target) < w.minRange))) u.target = null;
@@ -1124,7 +1111,7 @@ function followPath(game, u, dt, stopDist = 6) {
   u.movingTick = game.tick;
   u.angle = turnToward(u.angle, want, 5 * dt);
   const facing = Math.cos(wrapAngle(want - u.angle));
-  const step = Math.min(d, u.def.speed * dt * Math.max(0.25, facing));
+  const step = Math.min(d, u.def.speed * dt * Math.max(0.25, facing) * (u.slowF || 1));
   const ox = u.x, oy = u.y;
   moveWithCollision(game, u, Math.cos(want) * step, Math.sin(want) * step);
   const moved = Math.hypot(u.x - ox, u.y - oy);
@@ -1138,25 +1125,63 @@ function followPath(game, u, dt, stopDist = 6) {
   return false;
 }
 
+// --- Who is near whom ----------------------------------------------------------
+// A grid of 64-pixel cells listing the vehicles in each, rebuilt every tick,
+// so a vehicle only checks its neighbours instead of every vehicle on the
+// map (big battles have 200 or more).
+const GRID_CELL = 64;
+function buildUnitGrid(game) {
+  const cols = Math.ceil(game.map.W * CONFIG.TILE / GRID_CELL) + 1, rows = Math.ceil(game.map.H * CONFIG.TILE / GRID_CELL) + 1;
+  let g = game.ugrid;
+  if (!g || g.cols !== cols) g = game.ugrid = { cols, rows, cells: Array.from({ length: cols * rows }, () => []) };
+  for (const c of g.used || []) g.cells[c].length = 0;
+  g.used = []; g.buildings = [];
+  for (const e of game.entities) {
+    if (e.kind === 'building') { g.buildings.push(e); continue; }
+    if (e.hp <= 0) continue;
+    const cx = Math.max(0, Math.min(cols - 1, Math.floor(e.x / GRID_CELL))), cy = Math.max(0, Math.min(rows - 1, Math.floor(e.y / GRID_CELL)));
+    const k = cy * cols + cx, cell = g.cells[k];
+    if (!cell.length) g.used.push(k);
+    cell.push(e);
+  }
+}
+// Calls fn(unit) for every vehicle that might be within r of (x, y).
+function forUnitsNear(game, x, y, r, fn) {
+  const g = game.ugrid;
+  if (!g) { for (const e of game.entities) if (e.kind === 'unit' && e.hp > 0) fn(e); return; }
+  const x0 = Math.max(0, Math.floor((x - r) / GRID_CELL)), x1 = Math.min(g.cols - 1, Math.floor((x + r) / GRID_CELL));
+  const y0 = Math.max(0, Math.floor((y - r) / GRID_CELL)), y1 = Math.min(g.rows - 1, Math.floor((y + r) / GRID_CELL));
+  for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
+    const cell = g.cells[cy * g.cols + cx];
+    for (let i = 0; i < cell.length; i++) fn(cell[i]);
+  }
+}
+
 // Look a little way ahead for another vehicle in the way and steer round it.
 // Something dead ahead is passed on the right, so two vehicles meeting head-on
 // both turn the same way and slide past each other instead of shoving.
 function avoidSteer(game, u, want) {
   const look = u.radius * 2 + u.def.speed * 0.7;
   const fx = Math.cos(want), fy = Math.sin(want);
-  let ahead = Infinity, lat = 0, clear = 0;
-  for (const o of game.entities) {
-    if (o === u || o.kind !== 'unit' || o.hp <= 0) continue;
+  let ahead = Infinity, lat = 0, clear = 0, blocker = null;
+  forUnitsNear(game, u.x, u.y, look + 30, o => {
+    if (o === u || o.hp <= 0) return;
     const rx = o.x - u.x, ry = o.y - u.y;
-    if (rx > look + 40 || rx < -look - 40 || ry > look + 40 || ry < -look - 40) continue;
     const a = rx * fx + ry * fy;
-    if (a <= 0 || a > look || a >= ahead) continue;
+    if (a <= 0 || a > look || a >= ahead) return;
     const l = -rx * fy + ry * fx;               // how far to our right it is
     const c = u.radius + o.radius + 4;
-    if (Math.abs(l) >= c) continue;
-    ahead = a; lat = l; clear = c;
-  }
+    if (Math.abs(l) >= c) return;
+    ahead = a; lat = l; clear = c; blocker = o;
+  });
+  u.slowF = 1;
   if (ahead === Infinity) return want;
+  // A friend ahead driving the same way: fall in behind it at its pace
+  // instead of swerving round (that's what made columns jostle and spread).
+  if (blocker.team === u.team && blocker.movingTick >= game.tick - 1 && Math.cos(wrapAngle(blocker.angle - want)) > 0.7) {
+    u.slowF = Math.max(0.35, Math.min(1, (ahead - clear * 0.6) / look + 0.25));
+    return want + (lat > 3 ? -0.2 : 0.2) * (1 - Math.abs(lat) / clear);
+  }
   // The closer and more central the obstacle, the harder the turn.
   const turn = 0.95 * (1 - Math.abs(lat) / clear) * (1 - 0.5 * ahead / look) + 0.25;
   return want + (lat > 3 ? -turn : turn);
@@ -1173,16 +1198,18 @@ function moveWithCollision(game, u, dx, dy) {
 // Keep units from overlapping each other or driving inside buildings.
 function separateUnits(game) {
   const units = shuffled(game, game.entities.filter(e => e.kind === 'unit' && e.hp > 0));
+  units.forEach((u, i) => { u.sepIdx = i; });
+  buildUnitGrid(game);
   for (let i = 0; i < units.length; i++) {
     const a = units[i];
-    for (let j = i + 1; j < units.length; j++) {
-      const b = units[j];
+    forUnitsNear(game, a.x, a.y, 48, b => {
+      if (b.sepIdx <= i) return;
       const dx = b.x - a.x, dy = b.y - a.y;
       // Two Scavengers of the same side may squeeze closer, so they can
       // slip past each other on busy runs between a field and the base.
       const workers = a.team === b.team && a.def.role === 'harvester' && b.def.role === 'harvester';
       const min = (a.radius + b.radius) * (workers ? 0.6 : 1);
-      if (Math.abs(dx) > min || Math.abs(dy) > min) continue;
+      if (Math.abs(dx) > min || Math.abs(dy) > min) return;
       const d = Math.hypot(dx, dy) || 0.01;
       if (d < min) {
         // A moving vehicle shoulders a parked one aside rather than both
@@ -1196,7 +1223,7 @@ function separateUnits(game) {
         moveWithCollision(game, a, -ux * over * ka, -uy * over * ka);
         moveWithCollision(game, b, ux * over * kb, uy * over * kb);
       }
-    }
+    });
   }
   // Nudge units that ended up inside a building's footprint back out.
   for (const u of units) {
@@ -1237,17 +1264,21 @@ function edgeDist(a, b) {
 function findTarget(game, e, radius) {
   let best = null, bestScore = Infinity;
   const w = e.def.weapon;
-  for (const o of game.entities) {
-    if (o.team === e.team || o.hp <= 0) continue;
+  const consider = o => {
+    if (o.team === e.team || o.hp <= 0) return;
     const d = edgeDist(e, o);
-    if (d > radius || (w.minRange && d < w.minRange)) continue;
-    if (!isVisibleTo(game, e.team, o)) continue;
+    if (d > radius || (w.minRange && d < w.minRange)) return;
+    if (!isVisibleTo(game, e.team, o)) return;
     let score = d;
     if (o.kind === 'building') score += o.def.weapon ? 40 : 200;
     else if (!o.def.weapon) score += 120;
     if (o === e.lastHitBy) score -= 150;
     if (score < bestScore) { bestScore = score; best = o; }
-  }
+  };
+  const g = game.ugrid;
+  if (!g) { for (const o of game.entities) consider(o); return best; }
+  forUnitsNear(game, e.x, e.y, radius, consider);
+  for (const b of g.buildings) consider(b);
   return best;
 }
 
@@ -1272,7 +1303,7 @@ function combatThink(game, e, dt, canChase = false) {
   // Vehicles look as far as they can see or shoot, whichever is further, so
   // Artillery fires on anything its side can see (spotted by a Tank, a Scout,
   // a Radar...) out to its full range.
-  const reach = canChase ? Math.max(e.def.sight, w.range) : w.range;
+  const reach = canChase ? Math.max(e.def.sight, w.range) + (e.order && e.order.helping ? 450 : 0) : w.range;
   if (e.target && edgeDist(e, e.target) > reach) e.target = null;
   if (e.retarget <= 0) {
     e.retarget = 0.4 + game.rng() * 0.2;
@@ -1280,10 +1311,10 @@ function combatThink(game, e, dt, canChase = false) {
     const t = findTarget(game, e, radius);
     if (t && (!e.target || edgeDist(e, t) < edgeDist(e, e.target) - 60)) e.target = t;
   }
-  if (!e.target) return false;
+  if (!e.target) { if (e.order && e.order.helping) e.order.helping = false; return false; }
   if (e.kind === 'building') { aimAndFire(game, e, e.target, dt); return true; }
   // Idle units only chase a limited distance from where they were told to stand.
-  if (e.order.type === 'idle' && dist(e.target, { x: e.order.gx, y: e.order.gy }) > w.range + 220) { e.target = null; return false; }
+  if (e.order.type === 'idle' && dist(e.target, { x: e.order.gx, y: e.order.gy }) > w.range + (e.order.helping ? 520 : 220)) { e.target = null; e.order.helping = false; return false; }
   engageTarget(game, e, e.target, dt);
   return true;
 }
@@ -1292,8 +1323,18 @@ function engageTarget(game, u, t, dt) {
   const w = u.def.weapon, d = edgeDist(u, t);
   if (d > w.range * 0.92) {
     u.repath = (u.repath || 0) - dt;
-    if (!u.path.length || u.repath <= 0) { u.repath = 0.8; planPath(game, u, t.x, t.y); }
-    followPath(game, u, dt, w.range * 0.8);
+    if (!u.path.length || u.repath <= 0) {
+      u.repath = 0.8;
+      // Close in to a firing spot of its own on an arc around the target,
+      // so a group fans out instead of piling into one clump.
+      const a = angleTo(t, u) + (((u.id * 0.618034) % 1) - 0.5) * 1.2;
+      const r = Math.max(w.minRange || 0, w.range * 0.8) + (t.kind === 'building' ? t.radius * 0.8 : 0);
+      let gx = t.x + Math.cos(a) * r, gy = t.y + Math.sin(a) * r;
+      if (isBlockedAt(game, gx, gy)) { gx = t.x; gy = t.y; }
+      if (hasClearLine(game, u.x, u.y, gx, gy)) u.path = [{ x: gx, y: gy }];
+      else planPath(game, u, gx, gy);
+    }
+    followPath(game, u, dt, 12);
     aimAtNearby(game, u, dt);
   } else {
     u.path = [];
@@ -1381,9 +1422,9 @@ function damage(game, e, amount, p) {
   e.hp -= amount;
   e.hitFlash = 0.1;
   const shooter = game.byId.get(p.owner);
-  if (shooter && shooter.hp > 0) e.lastHitBy = shooter;
-  // Fight back if we were just standing around.
-  if (e.kind === 'unit' && e.def.weapon && shooter && e.order.type === 'idle' && !e.target) e.target = shooter;
+  if (shooter && shooter.hp > 0) { e.lastHitBy = shooter; e.lastHitAt = game.time; }
+  // Fight back if we were just standing around (unless told to hold fire).
+  if (e.kind === 'unit' && e.def.weapon && shooter && e.order.type === 'idle' && !e.target && stanceOf(game, e) !== 'stealth') e.target = shooter;
   if (e.kind === 'unit' && !e.def.weapon && shooter && e.hp > 0) warnUnderAttack(game, e);
   if (e.kind === 'building' && e.hp > 0) warnUnderAttack(game, e);
 }
@@ -1645,7 +1686,7 @@ function saveGame(game, extra = {}) {
     for (const k in v) { const x = enc(v[k]); if (x !== undefined) o[k] = x; }
     return o;
   };
-  const { rng, byId, events, ...rest } = game;
+  const { rng, byId, events, ugrid, ...rest } = game;
   return JSON.stringify({ v: SAVE_VERSION, rng: rng.state(), game: enc(rest), extra });
 }
 
@@ -1674,6 +1715,9 @@ function loadGame(text) {
   const game = dec(snap.game);
   game.rng = makeRng(0); game.rng.setState(snap.rng);
   game.byId = new Map(game.entities.map(e => [e.id, e]));
+  // Saves from before formations were removed: those vehicles just stop.
+  for (const e of game.entities) if (e.kind === 'unit' && e.order.type === 'formation') e.order = { type: 'idle', gx: e.x, gy: e.y };
+  delete game.formations; delete game.nextFormationId;
   game.events = [];
   return { game, extra: snap.extra || {} };
 }
