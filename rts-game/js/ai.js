@@ -146,7 +146,7 @@ function aiUpdate(game, team) {
 
   // --- Army production -----------------------------------------------------
   // Sentries are dug-in defences, not part of the army that attacks.
-  const army = units.filter(u => u.def.role === 'combat' && !u.def.deployable);
+  let army = units.filter(u => u.def.role === 'combat' && !u.def.deployable);
   if (diff.tactics && diff.tactics.adapt) updateIntel(game, team, ai);
   // Sentry posts: the approach to the base first, then outlying Extractors.
   // Each Sentry drives to its post and digs in there.
@@ -179,6 +179,21 @@ function aiUpdate(game, team) {
     if (tm.scrap >= UNIT_TYPES[pick].cost + (builder ? 60 : 0)) cmd({ type: 'produce', buildingId: f.id, unit: pick });
     if (!f.rally) cmd({ type: 'rally', buildingId: f.id, x: rally.x, y: rally.y });
   }
+
+  // Call-ins: reinforcements at the rally point once the base is up, or a
+  // supply drop when the bank is nearly empty.
+  if (tm.callins > 0 && game.time > 120 && game.time - (ai.lastCallin || -99) > 60) {
+    ai.lastCallin = game.time;
+    if (tm.scrap < 100 && scrapCapacity(game, team) - tm.scrap > 200) cmd({ type: 'callin', kind: 'supply' });
+    else {
+      // The nearest open, explored ground to the rally point.
+      const T = CONFIG.TILE, t = nearestOpenTile(game, Math.floor(rally.x / T), Math.floor(rally.y / T), 8);
+      if (t && tm.explored[t.y * game.map.W + t.x]) cmd({ type: 'callin', kind: 'reinforce', x: (t.x + 0.5) * T, y: (t.y + 0.5) * T });
+    }
+  }
+
+  // Capture-and-hold battles: squads take and hold the uplinks; the rest fight as usual.
+  if (game.uplinks) army = aiUplinks(game, team, ai, army, hq, cmd);
 
   // Normal and Hard fight with squads and tactics; Easy keeps the simple waves.
   if (diff.tactics) { runTactics(game, team, ai, diff, { hq, army, buildings, rally, cmd, enemy }); return; }
@@ -217,6 +232,38 @@ function aiUpdate(game, team) {
 }
 
 // Attack the enemy building closest to our base: outposts first, then the HQ.
+// Uplinks: a few vehicles (not Artillery) are put on duty at each uplink,
+// nearest first, keeping at least two for the usual tactics; they go there and hold it. If the enemy
+// holds two (and is counting down to a win), everything goes to retake the
+// nearest of them. Returns the vehicles left for the usual tactics.
+function aiUplinks(game, team, ai, army, hq, cmd) {
+  const enemy = 3 - team, links = game.uplinks, duty = ai.duty || (ai.duty = {});
+  for (const id of Object.keys(duty)) { const u = game.byId.get(+id); if (!u || u.hp <= 0) delete duty[id]; }
+  if (game.uplinkHold.team === enemy) {
+    const target = links.filter(l => l.owner === enemy).sort((a, b) => dist(a, hq) - dist(b, hq))[0];
+    if (target && game.time - (ai.uplinkPush || -99) > 6) {
+      ai.uplinkPush = game.time;
+      const go = army.filter(u => dist(u, target) > 100);
+      if (go.length) cmd({ type: 'move', ids: go.map(u => u.id), x: target.x, y: target.y, attackMove: true });
+    }
+    return [];
+  }
+  const per = game.difficulty === 'easy' ? 2 : 3, maxDuty = army.length - 2;
+  const inSquad = new Set((ai.squads || []).flatMap(s => s.ids || []));
+  let onDuty = Object.keys(duty).length;
+  for (const l of links.slice().sort((a, b) => dist(a, hq) - dist(b, hq))) {
+    const mine = army.filter(u => duty[u.id] === l.id);
+    while (mine.length < per && onDuty < maxDuty) {
+      const spare = army.filter(u => !duty[u.id] && !inSquad.has(u.id) && baseType(u) !== 'artillery').sort((a, b) => dist(a, l) - dist(b, l))[0];
+      if (!spare) break;
+      duty[spare.id] = l.id; mine.push(spare); onDuty++;
+    }
+    const send = mine.filter(u => dist(u, l) > CONFIG.UPLINK_RADIUS * 0.6 && !(u.order.type === 'move' && Math.hypot(u.order.gx - l.x, u.order.gy - l.y) < 80));
+    if (send.length) cmd({ type: 'move', ids: send.map(u => u.id), x: l.x, y: l.y, attackMove: true });
+  }
+  return army.filter(u => !duty[u.id]);
+}
+
 function pickObjective(game, team, hq) {
   let best = null, bd = Infinity;
   for (const b of game.entities) {

@@ -15,6 +15,23 @@ const CONFIG = {
 
   START_SCRAP: 300,    // scrap each side starts with (the Recycler's storage is full)
   UNIT_CAP: 100,       // most units a side can have at once
+  // Uplinks (capture-and-hold battles): radius, seconds for one vehicle to
+  // capture (faster with up to three), seconds holding two to win.
+  UPLINK_RADIUS: 130, UPLINK_CAPTURE: 15, UPLINK_WIN: 180,
+  // Uplinks can be taken from the start, but holding two only counts toward
+  // a win once they come online, so a side that has just landed can get going.
+  UPLINK_ONLINE: 300,
+  // Campaign: the holder of a battlefield doesn't send its first attack wave
+  // before this (it still defends, and strikes back after beating one off).
+  DEFENDER_FIRST_WAVE: 480,
+  // ...and a side that has just landed doesn't send its first wave before this.
+  LANDER_FIRST_WAVE: 420,
+  // Call-ins: each side starts with one; every uplink held earns another
+  // every CALLIN_EARN seconds (up to CALLIN_MAX in hand). They land
+  // CALLIN_DELAY seconds after being called.
+  CALLIN_START: 1, CALLIN_EARN: 120, CALLIN_MAX: 5, CALLIN_DELAY: 4,
+  // Campaign battles: economy and production this much faster.
+  CAMPAIGN_TEMPO: 1.35,
   QUEUE_MAX: 99,       // most vehicles queued at one building (each is paid for when its turn comes)
 
   WRECK_SCRAP_FRACTION: 0.3, // share of a destroyed unit's cost left as salvage
@@ -262,6 +279,12 @@ const BUILDING_TYPES = {
 };
 
 // Hotkeys for the command buttons, in the order the buttons appear.
+// Call-ins (CONFIG.CALLIN_*).
+const CALLINS = {
+  supply:    { name: 'Supply drop', scrap: 300, desc: '+300 scrap, dropped beside your Recycler (any that doesn\'t fit is left as a pile to collect).' },
+  reinforce: { name: 'Reinforcements', units: ['tank', 'tank', 'hornet', 'hornet'], desc: '2 Tanks and 2 Hornets, dropped where you choose on ground you have explored.' },
+};
+
 const HOTKEYS = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I'];
 
 // How the computer opponent plays at each difficulty.

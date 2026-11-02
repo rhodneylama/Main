@@ -193,6 +193,9 @@ function drawGame(ctx, game, view) {
     drawScrap(ctx, s);
   }
 
+  // Uplinks (capture-and-hold battles): always shown, they're the objective.
+  if (game.uplinks) for (const u of game.uplinks) if (onScreen(u.x, u.y, 200)) drawUplink(ctx, u, game.time);
+
   // Wrecks (burnt-out vehicles in their own shape) and craters where buildings stood
   for (const fx of game.effects) if ((fx.kind === 'wreck' || fx.kind === 'crater') && onScreen(fx.x, fx.y)) {
     ctx.save();
@@ -246,7 +249,8 @@ function drawGame(ctx, game, view) {
   }
 
   for (const fx of game.effects) {
-    if (fx.kind === 'wreck' || fx.kind === 'crater' || !onScreen(fx.x, fx.y) || !visAt(fx.x, fx.y)) continue;
+    if (fx.kind === 'wreck' || fx.kind === 'crater' || !onScreen(fx.x, fx.y, 600)) continue;
+    if (!visAt(fx.x, fx.y) && !(fx.kind === 'droppod' && fx.team === team)) continue;
     drawEffect(ctx, fx);
   }
 
@@ -536,9 +540,59 @@ function drawProjectile(ctx, p) {
   }
 }
 
+// An uplink: its capture circle (dashed, in the holder's colour), a ring
+// showing how far capture has got, and the mast with a blinking light.
+function drawUplink(ctx, u, time) {
+  const R = CONFIG.UPLINK_RADIUS, col = u.owner ? TEAMS[u.owner].color : '#c8d0c0';
+  ctx.save();
+  ctx.fillStyle = u.owner ? col + '18' : 'rgba(200,208,192,0.06)';
+  ctx.beginPath(); ctx.arc(u.x, u.y, R, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = u.contested ? '#ffd25a' : col; ctx.globalAlpha = 0.7; ctx.lineWidth = 2; ctx.setLineDash([10, 8]);
+  ctx.lineDashOffset = -time * 12;
+  ctx.beginPath(); ctx.arc(u.x, u.y, R, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]); ctx.globalAlpha = 1;
+  if (Math.abs(u.p) > 0.01) {
+    ctx.strokeStyle = TEAMS[u.p > 0 ? 1 : 2].color; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.arc(u.x, u.y, 34, -Math.PI / 2, -Math.PI / 2 + Math.abs(u.p) * Math.PI * 2); ctx.stroke();
+  }
+  // The mast: a plinth, a lattice tower and a dish.
+  ctx.fillStyle = '#2a302a'; ctx.strokeStyle = '#0b0d0a'; ctx.lineWidth = 2;
+  ctx.fillRect(u.x - 14, u.y - 14, 28, 28); ctx.strokeRect(u.x - 14, u.y - 14, 28, 28);
+  ctx.strokeStyle = '#9aa496'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(u.x - 8, u.y + 8); ctx.lineTo(u.x, u.y - 22); ctx.lineTo(u.x + 8, u.y + 8);
+  ctx.moveTo(u.x - 5, u.y - 2); ctx.lineTo(u.x + 5, u.y - 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(u.x + 3, u.y - 22, 9, Math.PI * 0.9, Math.PI * 1.9); ctx.stroke();
+  const on = Math.sin(time * 5) > 0;
+  ctx.fillStyle = on ? col : '#333';
+  ctx.beginPath(); ctx.arc(u.x, u.y - 24, 3.5, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
 function drawEffect(ctx, fx) {
   const k = fx.t / fx.life;
   switch (fx.kind) {
+    case 'droppod': {
+      // A call-in on its way: a target marker on the ground and a pod
+      // falling out of the sky on a beam of light.
+      const land = Math.min(1, fx.t / (fx.life - 0.6)), col = TEAMS[fx.team].color;
+      ctx.save();
+      ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.globalAlpha = 0.8;
+      ctx.beginPath(); ctx.arc(fx.x, fx.y, 26 + 6 * Math.sin(fx.t * 8), 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(fx.x - 34, fx.y); ctx.lineTo(fx.x - 18, fx.y); ctx.moveTo(fx.x + 18, fx.y); ctx.lineTo(fx.x + 34, fx.y);
+      ctx.moveTo(fx.x, fx.y - 34); ctx.lineTo(fx.x, fx.y - 18); ctx.moveTo(fx.x, fx.y + 18); ctx.lineTo(fx.x, fx.y + 34); ctx.stroke();
+      if (land < 1) {
+        const py = fx.y - 520 * (1 - land) * (1 - land);
+        const g = ctx.createLinearGradient(fx.x, py - 300, fx.x, py);
+        g.addColorStop(0, 'rgba(255,240,200,0)'); g.addColorStop(1, 'rgba(255,240,200,0.45)');
+        ctx.globalAlpha = 1; ctx.fillStyle = g; ctx.fillRect(fx.x - 7, py - 300, 14, 300);
+        ctx.fillStyle = '#c8ccc0'; ctx.strokeStyle = '#1a1c18'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(fx.x, py - 22); ctx.lineTo(fx.x + 11, py - 6); ctx.lineTo(fx.x + 11, py + 10); ctx.lineTo(fx.x - 11, py + 10); ctx.lineTo(fx.x - 11, py - 6); ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = 'rgba(255,170,60,0.9)'; ctx.beginPath(); ctx.arc(fx.x, py + 14, 5 + Math.random() * 3, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+      break;
+    }
     case 'flash':
       ctx.fillStyle = `rgba(255,230,150,${1 - k})`;
       ctx.beginPath(); ctx.arc(fx.x, fx.y, fx.big ? 7 : 4, 0, Math.PI * 2); ctx.fill();
@@ -630,6 +684,11 @@ function drawMinimap(ctx, game, view) {
     ctx.fillStyle = TEAMS[e.team].color;
     if (e.kind === 'building') { const s = e.size * T * sx; ctx.fillRect(e.x * sx - s / 2, e.y * sy - s / 2, s, s); }
     else ctx.fillRect(e.x * sx - 1.5, e.y * sy - 1.5, 3, 3);
+  }
+  if (game.uplinks) for (const u of game.uplinks) {
+    ctx.fillStyle = u.owner ? TEAMS[u.owner].color : '#c8d0c0'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(u.x * sx, u.y * sy - 5); ctx.lineTo(u.x * sx + 5, u.y * sy); ctx.lineTo(u.x * sx, u.y * sy + 5); ctx.lineTo(u.x * sx - 5, u.y * sy); ctx.closePath();
+    ctx.fill(); ctx.stroke();
   }
   for (const ev of view.alerts) {
     const k = (performance.now() - ev.at) / 2000;

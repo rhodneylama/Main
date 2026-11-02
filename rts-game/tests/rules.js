@@ -19,7 +19,7 @@ function load() {
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
     'createGame, generateMap, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
-    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear });', ctx);
+    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt });', ctx);
   return ctx;
 }
 
@@ -677,6 +677,97 @@ section('Campaign');
     force.map(u => u.order.type).join());
   check('and sends you some of the vehicles it builds', yours.length > force.filter(u => u.hp > 0).length || r.teams[1].shared >= rs.shareEvery,
     `${r.teams[1].shared || 0} built, ${yours.length} yours`);
+}
+
+section('Uplinks and call-ins');
+{
+  const S = load();
+  const g = S.createGame({ seed: 11, aiTeams: [], uplinks: true });
+  check('an uplink battle has three uplinks on open ground, the middle one in the middle', g.uplinks.length === 3 &&
+    g.uplinks.every(u => !S.isBlockedAt(g, u.x, u.y)) && S.dist(g.uplinks[0], { x: g.map.W * 16, y: g.map.H * 16 }) < 400);
+  const W = g.map.W * 32, H = g.map.H * 32;
+  check('the two side uplinks mirror each other', Math.abs(g.uplinks[1].x + g.uplinks[2].x - W) < 400 && Math.abs(g.uplinks[1].y + g.uplinks[2].y - H) < 400);
+  const run = (sec) => { for (let i = 0; i < sec * 30; i++) S.stepGame(g); };
+  const put = (team, u, n) => [...Array(n).keys()].map(k => S.addUnitNear(g, 'tank', team, u.x + (k - n / 2) * 30, u.y + 20));
+  const a = put(1, g.uplinks[1], 1);
+  run(S.CONFIG.UPLINK_CAPTURE / 3 + 1);
+  const partial = g.uplinks[1].p;
+  run(S.CONFIG.UPLINK_CAPTURE);
+  check('one vehicle on an uplink captures it in about 15 s', g.uplinks[1].owner === 1 && partial > 0.2 && partial < 0.6, `${Math.round(partial * 100)}% after 6 s`);
+  const b = put(2, g.uplinks[1], 2); for (const u of [...a, ...b]) u.stance = 'stealth';
+  const before = g.uplinks[1].p; run(5);
+  check('with both sides on it, nothing changes', g.uplinks[1].contested && g.uplinks[1].p === before);
+  for (const u of b) u.hp = 0;
+  put(1, g.uplinks[2], 3);
+  run(8);
+  check('three vehicles capture three times as fast', g.uplinks[2].owner === 1);
+  const callinsBefore = g.teams[1].callins;
+  run(Math.max(0, S.CONFIG.UPLINK_ONLINE - g.time) + 2);
+  check('holding two only starts the countdown once the uplinks are online', g.uplinkHold.team === 1 && g.uplinkHold.since >= S.CONFIG.UPLINK_ONLINE);
+  run(S.CONFIG.UPLINK_WIN + 1);
+  check('hold two for 3 minutes and you win', g.winner === 1 && /uplinks/.test(g.endReason), g.endReason);
+  check('uplinks held earn call-ins', g.teams[1].callins > callinsBefore, `${callinsBefore} → ${g.teams[1].callins}`);
+
+  const h = S.createGame({ seed: 12, aiTeams: [] });
+  check('everyone starts a battle with one call-in', h.teams[1].callins === 1 && h.teams[2].callins === 1);
+  const m = h.entities.find(e => e.team === 1 && e.type === 'mobileRecycler');
+  h.teams[1].scrap = 0;
+  S.issueCommand(h, 1, { type: 'callin', kind: 'supply' });
+  for (let i = 0; i < 30 * (S.CONFIG.CALLIN_DELAY + 0.5); i++) S.stepGame(h);
+  check('a supply drop lands a few seconds later with 300 scrap', h.teams[1].scrap === 300 && h.teams[1].callins === 0);
+  S.issueCommand(h, 1, { type: 'callin', kind: 'reinforce', x: m.x + 200, y: m.y });
+  const n0 = h.entities.filter(e => e.team === 1).length;
+  for (let i = 0; i < 30 * 6; i++) S.stepGame(h);
+  check('with none left, nothing more can be called', h.entities.filter(e => e.team === 1).length === n0);
+  h.teams[1].callins = 1;
+  S.issueCommand(h, 1, { type: 'callin', kind: 'reinforce', x: m.x + 200 * Math.sign(h.map.W * 16 - m.x), y: m.y });
+  for (let i = 0; i < 30 * (S.CONFIG.CALLIN_DELAY + 0.5); i++) S.stepGame(h);
+  const dropped = h.entities.filter(e => e.team === 1 && e.kind === 'unit').length - (n0 - 0);
+  check('reinforcements: 2 Tanks and 2 Hornets land where you chose', h.lastDrop && h.lastDrop.ids.length === 4 && h.lastDrop.ids.every(id => S.dist(h.byId.get(id), m) < 300));
+  h.teams[1].callins = 1;
+  S.issueCommand(h, 1, { type: 'callin', kind: 'reinforce', x: h.map.W * 32 - m.x, y: h.map.H * 32 - m.y });
+  check('but only on ground you have explored', h.teams[1].callins === 1);
+}
+
+{
+  // The computer opponent's call-ins actually land (aimed at open ground).
+  const S = load();
+  const g = S.createGame({ seed: 5, difficulty: 'normal', aiTeams: [1, 2] });
+  for (let i = 0; i < 30 * 200 && !g.lastDrop; i++) { S.aiUpdate(g, 1); S.aiUpdate(g, 2); S.stepGame(g); g.events.length = 0; }
+  check('the computer opponent uses its call-ins too', g.teams[1].callins + g.teams[2].callins < 2, `${g.teams[1].callins} and ${g.teams[2].callins} left after ${Math.round(g.time)} s`);
+}
+
+section('Campaign battlefields');
+{
+  const S = load();
+  const c = S.createCampaign({ seed: 3, now: 0 });
+  const near = [...Array(15).keys()].find(i => S.canAttack(c, i));
+  const setup = S.battleSetup(c, near, 'lead');
+  const prep = S.prepareBattle(setup, [2]);
+  const g = prep.game, def = prep.defender;
+  const has = type => g.entities.filter(e => e.team === def && e.type === type).length;
+  check('the side holding a battlefield starts with a base there', setup.defender === 2 && has('recycler') === 1 && has('factory') === 1 && has('tower') >= 1 && has('extractor') >= 1,
+    `level ${setup.fort}: ${has('extractor')} Extractors, ${has('tower')} Gun Towers`);
+  const x = JSON.parse(JSON.stringify(c)); x.owner[near] = 'enemy';
+  for (const j of S.neighbours(near)) x.owner[j] = 'enemy';
+  x.heldSince[near] = -20;
+  check('a battlefield held longer, with more support around it, is more built up', S.fortification(x, near) > S.fortification(c, near),
+    `${S.fortification(c, near)} → ${S.fortification(x, near)}`);
+  check('two landing zones to choose from, well clear of their defences', prep.zones.length === 2 &&
+    prep.zones.every(z => Math.min(...g.entities.filter(e => e.team === def && e.kind === 'building').map(b => S.dist(b, z))) > 500), prep.zones.map(z => z.key).join(' + '));
+  const lib = prep.zones.find(z => z.key === 'liberate');
+  check('one of them next to an Extractor of theirs to liberate (from base level 2)', setup.fort < 2 || !!lib);
+  S.landAttacker(prep, setup, prep.zones[1]);
+  const mob = g.entities.find(e => e.team === 1 && e.type === 'mobileRecycler');
+  check('you land at the zone you chose, Recycler on wheels, with a strike force', mob && S.dist(mob, prep.zones[1]) < 200 &&
+    g.entities.filter(e => e.team === 1 && e.def.role === 'combat').length >= 6);
+  check('the landing brings three call-ins', g.teams[1].callins === 3);
+  check('with supply crates to start on, and knowing where their Recycler is',
+    g.scrap.filter(n => S.dist(n, prep.zones[1]) < 400).length >= 4 && g.entities.find(e => e.team === def && e.type === 'recycler').seen[1]);
+  check('campaign battles run faster (economy and production)', g.tempo > 1 && g.teams[1].incomeMult === g.tempo);
+  const up = S.THEATER.sectors.findIndex(s => s.uplinks);
+  const us = S.battleSetup(c, up, 'command');
+  check('some battlefields are capture-and-hold', us.uplinks && S.prepareBattle(us, [1, 2]).game.uplinks.length === 3);
 }
 
 console.log(`\n${passes} passed, ${fails} failed`);

@@ -99,6 +99,17 @@
   /* Placed just under the Army button by main.js. */
   #armymenu { position: fixed; left: calc(10px + var(--safe-l)); top: calc(var(--top-h) + 6px); z-index: 6;
     display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100vw - 20px); }
+  /* Call-in menu: one card per call-in. */
+  #callinmenu { position: fixed; z-index: 6; display: flex; flex-direction: column; gap: 6px; width: min(340px, calc(100vw - 12px));
+    background: var(--panel); border: 1px solid var(--edge); border-radius: 6px; padding: 6px; }
+  #callinmenu button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; background: #1d2a1d; border-color: #5a7a56; min-height: 44px; }
+  #callinmenu button:disabled { opacity: .45; cursor: default; }
+  #callinmenu .note { font-size: 11px; color: var(--dim); padding: 0 2px; }
+  #q-callin.ready { border-color: #ffd25a; color: #ffe9a8; }
+  #q-callin b { font-variant-numeric: tabular-nums; }
+  #uplink-stat .pips { display: inline-flex; gap: 3px; vertical-align: 1px; }
+  #uplink-stat .pips i { display: inline-block; width: 10px; height: 10px; transform: rotate(45deg); }
+  #uplink-stat b { font-size: 13px; white-space: nowrap; }
   #armymenu button { background: #1d2a1d; border-color: #5a7a56; min-height: 38px; }
   #armymenu button:disabled { opacity: .4; cursor: default; }
   #armymenu .n { color: var(--dim); margin-left: 4px; font-variant-numeric: tabular-nums; }
@@ -195,11 +206,44 @@
   .pace { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 2px; min-height: 52px; }
   .pace.active { border-color: var(--accent); background: #1f2f1f; box-shadow: 0 0 0 1px var(--accent) inset; }
   #wardrop { z-index: 12; }
+  /* Landing zone choice: the battlefield on the left, a card per zone on the right. */
+  .card.lzbox { max-width: 980px; padding: 16px 20px; }
+  .lzbody { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 12px; margin-top: 10px; align-items: start; }
+  #lz-map { width: 100%; height: auto; border: 1px solid var(--edge); border-radius: 6px; image-rendering: pixelated; }
+  #lz-cards { display: flex; flex-direction: column; gap: 8px; }
+  .lzcard { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; padding: 10px 12px; background: #1d2a1d; border-color: #5a7a56; }
+  .lzcard:hover { border-color: #ffd25a; }
+  .lzcard b { font-size: 15px; }
+  .lzk { display: inline-block; width: 22px; height: 22px; line-height: 22px; text-align: center; border-radius: 50%; background: rgba(255,210,90,.25); border: 2px solid #ffd25a; color: #ffd25a; margin-right: 4px; }
   .dropbar { height: 10px; border-radius: 5px; background: #222; overflow: hidden; margin-top: 14px; }
   .dropbar div { height: 100%; width: 0; background: var(--accent); transition: width .1s; }
   @media (max-width: 860px) {
     .war-body { grid-template-columns: 1fr; }
     .war-head h1 { font-size: 21px; }
+  }
+  /* Phones held sideways (little height): war map and landing zone side by
+     side with their details, everything sized to fit without scrolling. */
+  @media (max-height: 520px) {
+    #war { padding-top: calc(6px + var(--safe-t)); padding-bottom: calc(6px + var(--safe-b)); }
+    .war-head h1 { font-size: 18px; }
+    .war-head { gap: 4px 12px; }
+    #war-pace button { min-height: 28px; padding: 2px 8px; }
+    .war-body { grid-template-columns: minmax(0, 1fr) 290px; gap: 8px; margin-top: 4px; }
+    #war-map { max-height: calc(100vh - 92px); }
+    .war-legend { display: none; }
+    .war-side { max-height: calc(100vh - 92px); overflow-y: auto; gap: 6px; }
+    #war-detail, #war-logbox { padding: 8px 10px; font-size: 13px; }
+    .war-actions button { min-height: 40px; padding: 6px 10px; }
+    .card.lzbox { padding: 10px 14px; }
+    .card.lzbox h1 { font-size: 20px; }
+    .lzbody { margin-top: 6px; gap: 8px; }
+    #lz-map { max-height: calc(100vh - 120px); width: auto; max-width: 100%; }
+    .lzcard { padding: 6px 10px; }
+    .lzcard .dim { font-size: 11px; }
+    .card.menu { padding: 12px 18px; }
+    .card.menu h1 { font-size: 22px; }
+    .card.menu h2 { margin: 8px 0 4px; }
+    .faction canvas { aspect-ratio: 300 / 80; }
   }
   @media (max-width: 460px) {
     #war { padding-left: calc(10px + var(--safe-l)); padding-right: calc(10px + var(--safe-r)); }
@@ -208,6 +252,12 @@
 
   /* Reinforcing: the scrap and workers are the allied commander's, not yours. */
   body.reinforce #scrap-stat, body.reinforce #income-stat { display: none; }
+  /* Landscape only on phones and tablets: held upright, this covers everything. */
+  #rotate { display: none; position: fixed; inset: 0; z-index: 100; background: #0b0d0a; flex-direction: column; align-items: center;
+    justify-content: center; gap: 10px; text-align: center; padding: 24px; font-size: 17px; }
+  #rotate .rot-phone { transform-origin: 60px 58px; animation: rotphone 2.4s ease-in-out infinite; }
+  @keyframes rotphone { 0%, 30% { transform: rotate(0deg); } 60%, 100% { transform: rotate(-90deg); } }
+  @media (orientation: portrait) { body.touch #rotate { display: flex; } }
   #end-title.win { color: var(--accent); }
   #end-title.lose { color: var(--bad); }
   #end-stats { border-collapse: collapse; margin-top: 10px; }
@@ -300,6 +350,15 @@
 </head>
 <body>
 <canvas id="game"></canvas>
+<!-- Phones and tablets: the game is played sideways. -->
+<div id="rotate">
+  <svg viewBox="0 0 120 120" width="120" height="120" aria-hidden="true">
+    <rect x="38" y="18" width="44" height="80" rx="7" fill="none" stroke="#8cffa0" stroke-width="4" class="rot-phone"/>
+    <path d="M24 74 A40 40 0 0 1 46 26" fill="none" stroke="#dfe8da" stroke-width="3"/><path d="M40 20 l8 6 l-9 5" fill="none" stroke="#dfe8da" stroke-width="3"/>
+  </svg>
+  <b>Turn your device sideways</b>
+  <span class="dim">Scrapline Command is played in landscape.</span>
+</div>
 
 <div id="topbar">
   <div class="stat" id="scrap-stat"><span class="label">Scrap</span><b id="scrap">0</b></div>
@@ -313,10 +372,12 @@
   </div>
   <div id="quickbar">
     <button id="q-army" title="Select your combat vehicles: all, or one kind">Army ▾</button>
+    <button id="q-callin" title="Call-ins: supply drops and reinforcements">Call-in <b id="callin-n">1</b></button>
     <button id="q-base" title="Jump to your Recycler (H)">Base</button>
     <button id="q-idle" title="Find an idle worker (X)">Idle<span class="wide"> worker</span></button>
     <button id="q-clear" title="Deselect (Esc)">Deselect</button>
   </div>
+  <div class="stat hidden" id="uplink-stat"></div>
   <div class="spacer"></div>
   <b id="clock">0:00</b>
   <button id="speedbtn" title="Game speed"><span class="wide">Speed </span><span id="speedval">×1</span></button>
@@ -347,6 +408,7 @@
   <div id="selinfo"></div>
   <div id="commands"></div>
 </div>
+<div id="callinmenu" class="hidden"></div>
 <div id="armymenu" class="hidden">
   <button data-army="all">All combat <span class="n">0</span></button>
   <button data-army="scout"><span class="lbl" data-plural="Scouts">Scouts</span> <span class="n">0</span></button>
@@ -377,6 +439,11 @@
       </button>
     </div>
     <div class="dim small">Both factions fight by the same rules; only their look and names differ. The enemy fields the other one.</div>
+    <h2>Battle</h2>
+    <div class="row" style="margin-top:4px">
+      <button data-mode="recycler" class="active" title="Win by destroying the enemy Recycler">Destroy the Recycler</button>
+      <button data-mode="uplinks" title="Three uplinks: hold two of them for 3 minutes to win (or destroy their Recycler)">Capture the uplinks</button>
+    </div>
     <h2>Difficulty</h2>
     <div class="row">
       <button data-difficulty="easy">Easy</button>
@@ -430,7 +497,7 @@
     <div>
       <svg id="war-map" viewBox="-4 -2 108 69" preserveAspectRatio="xMidYMid meet"></svg>
       <div class="war-legend"><i style="background:var(--blue)"></i>Your side<i style="background:var(--red)"></i>Enemy
-        · ⚔ battle (ring: blue = going your way) · dashed ring: you can attack · ★ home ground</div>
+        · ⚔ battle (ring: blue = going your way) · dashed ring: you can attack · ★ home ground · ◆ capture and hold</div>
     </div>
     <div class="war-side">
       <div id="war-detail"></div>
@@ -440,6 +507,17 @@
         <div class="row"><button id="war-newbtn" class="small">New campaign</button></div>
       </div>
     </div>
+  </div>
+</div>
+<div id="lz" class="overlay hidden">
+  <div class="card lzbox">
+    <h1 id="lz-title">Landing <span>zone</span></h1>
+    <div id="lz-sub" class="dim small"></div>
+    <div class="lzbody">
+      <canvas id="lz-map"></canvas>
+      <div id="lz-cards"></div>
+    </div>
+    <div class="row"><button id="lz-back">Back to the war map</button></div>
   </div>
 </div>
 <div id="wardrop" class="overlay hidden">
@@ -554,6 +632,9 @@
       <li>The enemy attacks in waves. Towers and a few tanks at home keep your Recycler safe while your army is away.</li>
       <li>Constructors can repair damaged buildings: select one and tap or right-click the building.</li>
       <li><b>Save</b> from the pause screen (three slots, plus an autosave every 3 minutes and whenever you leave the page). <b>Load game</b> is on the pause and start screens. You can also download a save as a file.</li>
+      <li><b>Call-in</b> (top bar): a <b>Supply drop</b> (300 scrap at your Recycler) or <b>Reinforcements</b> (2 Tanks and 2 Hornets where you tap). You get one per battle; every uplink you hold earns another every 2 minutes.</li>
+      <li><b>Uplinks</b> (capture and hold battles): park combat vehicles by an uplink mast to capture it. Once they're online (5:00), hold two of the three for 3 minutes to win.</li>
+      <li><b>Campaign landings</b>: whoever holds a battlefield has a base there. Attacking, pick a landing zone: an unclaimed geyser, or one of theirs to liberate (destroy the Extractor, then deploy on its geyser). Supply crates come down with you.</li>
       <li><b>Campaign</b>: fight a war across fifteen battlefields. On the war map, tap a battlefield. <b>Attack</b> an enemy one next to yours, or join a battle your side is fighting: <b>Take command</b> of the allied base and army, or <b>Reinforce</b> with a strike force (gold markers) while the allied commander runs the base and sends you every third vehicle it builds. Each neighbouring battlefield your side holds adds vehicles to your start. <b>Leave battle</b> on the pause screen hands the fight back to the allied commander.</li>
       <li><b>Music</b> follows the battle: it builds up when fighting breaks out near your forces. Turn it on or off on the start or pause screen.</li>
     </ul>

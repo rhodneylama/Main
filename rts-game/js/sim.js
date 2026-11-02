@@ -36,7 +36,10 @@ const turnToward = (cur, target, maxStep) => {
 // while every fight there plays out differently) and `bonus`: extra
 // vehicles per side, { 1: ['tank', 'hornet'], 2: [...] }, from the
 // neighbouring battlefields that side holds.
-function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams = [2], factions = {}, mapSeed = seed, bonus = {} } = {}) {
+// `uplinks`: three capture-and-hold points (hold two for UPLINK_WIN seconds
+// to win). `tempo`: campaign battles run their economy and production this
+// much faster, so a battle takes 10–15 minutes rather than half an hour.
+function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams = [2], factions = {}, mapSeed = seed, bonus = {}, uplinks = false, tempo = 1 } = {}) {
   const map = generateMap(mapSeed);
   const game = {
     map, seed, difficulty, aiTeams,
@@ -48,6 +51,7 @@ function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams
     scrap: map.scrap, geysers: map.geysers,
     packs: {}, nextPackId: 1,
     teams: {},
+    tempo, drops: [],
     winner: 0,
     ai: {},
   };
@@ -59,7 +63,8 @@ function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams
     game.teams[t] = {
       id: t, scrap: CONFIG.START_SCRAP, faction: FACTIONS[factions[t]] ? factions[t] : 'scrapline',
       vis: new Uint8Array(map.W * map.H), explored: new Uint8Array(map.W * map.H),
-      incomeMult: aiTeams.includes(t) ? DIFFICULTY[difficulty].incomeMult : 1,
+      incomeMult: (aiTeams.includes(t) ? DIFFICULTY[difficulty].incomeMult : 1) * tempo,
+      callins: CONFIG.CALLIN_START, callinProgress: 0,
       stats: { built: 0, lost: 0, killed: 0, scrapGathered: 0 },
       research: {},  // key -> true once researched
       pings: [],     // active radar reveals: { x, y, r, until }
@@ -75,6 +80,7 @@ function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams
     spawn('scout', 4, -3); spawn('scout', 5, -2); spawn('tank', 5, -4);
     (bonus[t] || []).forEach((type, i) => addUnitNear(game, type, t, home.x + (2 + (i % 4) * 1.6) * dir * CONFIG.TILE, home.y - (5.5 + Math.floor(i / 4) * 1.6) * dir * CONFIG.TILE));
   }
+  if (uplinks) placeUplinks(game);
   updateVisibility(game);
   for (const e of game.entities) if (e.kind === 'unit' && e.def.role === 'harvester') autoHarvest(game, e);
   return game;
@@ -347,6 +353,27 @@ function issueCommand(game, team, cmd) {
       }
       break;
     }
+    case 'callin': {
+      // Call-ins: a supply drop (scrap, at your Recycler) or reinforcements
+      // (vehicles dropped where you choose, on ground your side has explored).
+      const tm = game.teams[team], kind = CALLINS[cmd.kind];
+      if (!kind || tm.callins < 1) { pushEvent(game, team, 'No call-ins ready', 'warn'); return; }
+      let x = cmd.x, y = cmd.y;
+      if (cmd.kind === 'supply') {
+        const hq = game.entities.find(e => e.team === team && (e.type === 'recycler' || e.type === 'mobileRecycler'));
+        if (!hq) return;
+        const a = angleTo(hq, { x: game.map.W * CONFIG.TILE / 2, y: game.map.H * CONFIG.TILE / 2 });
+        x = hq.x + Math.cos(a) * 110; y = hq.y + Math.sin(a) * 110;
+      } else {
+        const T = CONFIG.TILE, tx = Math.floor(x / T), ty = Math.floor(y / T);
+        if (!(x >= 0 && y >= 0) || !tm.explored[ty * game.map.W + tx] || isBlockedTile(game, tx, ty)) { pushEvent(game, team, 'Reinforcements can only land on open ground you have explored', 'warn'); return; }
+      }
+      tm.callins--;
+      game.drops.push({ team, kind: cmd.kind, x, y, at: game.time + CONFIG.CALLIN_DELAY, cmdr: !!cmd.cmdr });
+      game.effects.push({ kind: 'droppod', x, y, t: 0, life: CONFIG.CALLIN_DELAY + 0.6, team });
+      pushEvent(game, team, `${kind.name} inbound`, 'good', x, y);
+      break;
+    }
     case 'stance': {
       // How vehicles behave on the move and when idle (see stanceOf).
       if (!['aggressive', 'return', 'stealth'].includes(cmd.stance)) return;
@@ -572,6 +599,8 @@ function stepGame(game) {
     else updateUnit(game, e, dt);
   }
   separateUnits(game);
+  if (game.uplinks && game.tick % 6 === 0) updateUplinks(game, dt * 6);
+  if (game.drops && game.drops.length) updateDrops(game);
   updateProjectiles(game, dt);
   removeDead(game);
   if (game.tick % 3 === 0) updateVisibility(game);
@@ -605,7 +634,7 @@ function updateBuilding(game, b, dt) {
   if (b.upgrading !== null) {
     // Upgrading: production waits until it's done.
     const up = upgradeOf(b);
-    b.upgrading += dt;
+    b.upgrading += dt * (game.tempo || 1);
     if (b.upgrading >= up.time) {
       b.upgrading = null; b.level = 2;
       b.hp += up.hp - b.maxHp; b.maxHp = up.hp;
@@ -620,7 +649,7 @@ function updateBuilding(game, b, dt) {
   }
   if (b.researching) {
     const r = RESEARCH[b.researching.key];
-    b.researching.t += dt;
+    b.researching.t += dt * (game.tempo || 1);
     if (b.researching.t >= r.time) {
       game.teams[b.team].research[b.researching.key] = true;
       pushEvent(game, b.team, `${r.name} researched. Build them at a Factory II.`, 'good', b.x, b.y);
@@ -653,7 +682,7 @@ function updateBuilding(game, b, dt) {
     else if (count >= CONFIG.UNIT_CAP) { b.blocked = true; }
     else {
       b.blocked = false;
-      b.prodTime += dt;
+      b.prodTime += dt * (game.tempo || 1);
       if (b.prodTime >= def.buildTime) {
         b.prodTime = 0; b.paid = false;
         const type = b.queue.shift();
@@ -1579,7 +1608,7 @@ function updateBuilder(game, u, dt) {
   u.angle = turnToward(u.angle, angleTo(u, b), 4 * dt);
   if (game.tick % 5 === 0) game.effects.push({ kind: 'weld', x: b.x + (Math.random() - 0.5) * b.radius * 1.4, y: b.y + (Math.random() - 0.5) * b.radius * 1.4, t: 0, life: 0.3 });
   if (b.built < 1) {
-    const step = dt / b.def.buildTime;
+    const step = dt * (game.tempo || 1) / b.def.buildTime;
     b.built = Math.min(1, b.built + step);
     b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.9 * step);
     if (b.built >= 1) {
@@ -1624,7 +1653,98 @@ function updateVisibility(game) {
   for (const e of game.entities) if (e.kind === 'building') for (const t of [1, 2]) if (t !== e.team && isVisibleTo(game, t, e)) e.seen[t] = true;
 }
 
+// ---------------------------------------------------------------------------
+// Uplinks: three capture-and-hold points, the middle of the map and two
+// mirror-image points either side of it. Combat vehicles standing on one
+// capture it (faster with more, up to three); both sides there: no change.
+// Hold two at once for UPLINK_WIN seconds to win. Each one held also earns
+// call-ins.
+// ---------------------------------------------------------------------------
+
+function placeUplinks(game) {
+  const T = CONFIG.TILE, W = game.map.W, H = game.map.H;
+  const c = { x: W / 2, y: H / 2 };
+  const b1 = game.map.bases[1], b2 = game.map.bases[2];
+  // Across the line between the two corners, a third of the way to the edge.
+  let px = -(b2.y - b1.y), py = b2.x - b1.x;
+  const n = Math.hypot(px, py) || 1; px /= n; py /= n;
+  const reach = Math.min(W, H) * 0.3;
+  const spots = [c, { x: c.x + px * reach, y: c.y + py * reach }, { x: c.x - px * reach, y: c.y - py * reach }];
+  game.uplinks = spots.map((p, i) => {
+    const t = nearestOpenTile(game, Math.floor(p.x), Math.floor(p.y), 12) || { x: Math.floor(p.x), y: Math.floor(p.y) };
+    return { id: i + 1, x: (t.x + 0.5) * T, y: (t.y + 0.5) * T, owner: 0, p: 0, contested: false };
+  });
+  game.uplinkHold = { team: 0, since: 0 };
+}
+
+function updateUplinks(game, dt) {
+  const R = CONFIG.UPLINK_RADIUS;
+  for (const u of game.uplinks) {
+    const n = { 1: 0, 2: 0 };
+    forUnitsNear(game, u.x, u.y, R, e => { if (e.hp > 0 && e.def.role === 'combat' && dist(e, u) <= R) n[e.team]++; });
+    u.contested = n[1] > 0 && n[2] > 0;
+    const was = u.owner;
+    if (!u.contested && (n[1] || n[2])) {
+      const t = n[1] ? 1 : 2, sign = t === 1 ? 1 : -1;
+      u.p = Math.max(-1, Math.min(1, u.p + sign * Math.min(3, n[t]) * dt / CONFIG.UPLINK_CAPTURE));
+      if (u.p >= 1) u.owner = 1; else if (u.p <= -1) u.owner = 2;
+      else if ((u.owner === 1 && u.p <= 0) || (u.owner === 2 && u.p >= 0)) u.owner = 0;
+    }
+    if (u.owner !== was) {
+      if (u.owner) { pushEvent(game, u.owner, 'Uplink captured', 'good', u.x, u.y); pushEvent(game, 3 - u.owner, 'Uplink lost to the enemy', 'bad', u.x, u.y); }
+      else if (was) pushEvent(game, was, 'Uplink lost', 'bad', u.x, u.y);
+    }
+  }
+  for (const t of [1, 2]) {
+    const tm = game.teams[t], held = game.uplinks.filter(u => u.owner === t).length;
+    // Call-ins earned by the uplinks held.
+    if (held && tm.callins < CONFIG.CALLIN_MAX) {
+      tm.callinProgress += held * dt / CONFIG.CALLIN_EARN;
+      if (tm.callinProgress >= 1) { tm.callinProgress -= 1; tm.callins++; pushEvent(game, t, 'Call-in ready', 'good'); }
+    }
+  }
+  const holder = game.time < CONFIG.UPLINK_ONLINE ? 0 : [1, 2].find(t => game.uplinks.filter(u => u.owner === t).length >= 2) || 0;
+  if (!game.uplinksOnline && game.time >= CONFIG.UPLINK_ONLINE) {
+    game.uplinksOnline = true;
+    for (const t of [1, 2]) pushEvent(game, t, 'Uplinks online: hold two of the three to win', 'info');
+  }
+  if (holder !== game.uplinkHold.team) {
+    game.uplinkHold = { team: holder, since: game.time };
+    if (holder) { pushEvent(game, holder, 'You hold two uplinks: keep them to win', 'good'); pushEvent(game, 3 - holder, 'The enemy holds two uplinks: take one back!', 'bad'); }
+  }
+}
+
+// Call-ins land a few seconds after they're called.
+function updateDrops(game) {
+  for (const d of game.drops) {
+    if (game.time < d.at) continue;
+    d.done = true;
+    if (d.kind === 'supply') {
+      const amount = CALLINS.supply.scrap, banked = bankScrap(game, d.team, amount, true);
+      if (amount - banked > 0) game.scrap.push({ id: 400000 + game.nextId++, x: d.x, y: d.y, amount: amount - banked, max: amount - banked, wreck: true });
+      pushEvent(game, d.team, `Supply drop: +${amount} scrap`, 'good', d.x, d.y);
+    } else {
+      const ids = CALLINS.reinforce.units.map((type, i) => {
+        const a = i * Math.PI / 2;
+        const u = addUnitNear(game, type, d.team, d.x + Math.cos(a) * 30, d.y + Math.sin(a) * 30);
+        if (d.cmdr) u.cmdr = 'player';
+        return u.id;
+      });
+      pushEvent(game, d.team, 'Reinforcements have landed', 'good', d.x, d.y);
+      game.lastDrop = { team: d.team, ids, at: game.time };
+    }
+    game.effects.push({ kind: 'boom', x: d.x, y: d.y, size: 40, t: 0, life: 0.6 });
+  }
+  game.drops = game.drops.filter(d => !d.done);
+}
+
 function checkVictory(game) {
+  const hold = game.uplinkHold;
+  if (hold && hold.team && game.time - hold.since >= CONFIG.UPLINK_WIN) {
+    game.winner = hold.team;
+    game.endReason = `${sideName(game, hold.team)} held two uplinks for ${Math.round(CONFIG.UPLINK_WIN / 60 * 10) / 10} minutes.`;
+    return;
+  }
   for (const t of [1, 2]) {
     // The one rule of victory: destroy the enemy Recycler.
     if (!game.entities.some(e => e.team === t && (e.type === 'recycler' || e.type === 'mobileRecycler'))) {

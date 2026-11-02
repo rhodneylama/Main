@@ -141,7 +141,7 @@ const War = (() => {
         svg.push(`<circle cx="${s.x}" cy="${s.y}" r="${R + 0.6}" class="pulse ${yours ? 'yours' : ''}"/>`);
         svg.push(`<text x="${s.x}" y="${s.y + 1}" class="glyph">⚔</text>`);
       } else if (s.capital) svg.push(`<text x="${s.x}" y="${s.y + 1.1}" class="glyph">★</text>`);
-      svg.push(`<text x="${s.x}" y="${s.y + r + 4}" class="label">${s.name}</text>`);
+      svg.push(`<text x="${s.x}" y="${s.y + r + 4}" class="label">${s.uplinks ? '◆ ' : ''}${s.name}</text>`);
       svg.push('</g>');
     });
     $('war-map').innerHTML = svg.join('');
@@ -172,6 +172,8 @@ const War = (() => {
       parts.push(`<h2>${s.name}${s.capital ? ' ★' : ''}</h2><div class="small">Held by ${owner}${s.capital ? (s.capital === 'ally' ? ' · your home ground' : ' · their home ground') : ''}</div>`);
       const nb = neighbours(i), nA = nb.filter(j => c.owner[j] === 'ally').length;
       parts.push(`<div class="small dim">Borders ${nb.map(sectorName).join(', ')} (${nA} of ${nb.length} yours)</div>`);
+      parts.push(`<div class="small">${s.uplinks ? '◆ <b>Capture and hold:</b> three uplinks; hold two for 3 minutes to win, or destroy their Recycler.' : '<b>Destroy the Recycler</b> to win.'}
+        ${ownerSide === 'ally' ? 'Your side' : 'They'} hold a base here (level ${fortification(c, i)} of 4); ${ownerSide === 'ally' ? 'the enemy lands' : 'you land'} to attack it.</div>`);
       if (b) {
         const since = c.report - b.since;
         parts.push(`<div class="front-bar"><div style="width:${b.p}%"></div></div>
@@ -209,16 +211,24 @@ const War = (() => {
     }
   }
 
-  // Start your battle on battlefield i (see battleSetup in campaign.js).
+  // Start your battle on battlefield i (see battleSetup in campaign.js). The
+  // side holding it has a base there; the other side lands. Leading an
+  // attack, you pick the landing zone first.
   async function fight(i, mode) {
     busy = true;
     catchUp(c);
     if (mode !== 'lead' && !c.battles[i]) { busy = false; $('war-note').textContent = `The battle for ${sectorName(i)} ended before you got there.`; render(); return; }
     const setup = battleSetup(c, i, mode);
+    const prep = prepareBattle(setup, mode === 'lead' ? [2] : [1, 2]);
+    let zone = prep.zones[0];
+    if (mode === 'lead') {
+      zone = await chooseZone(prep, i);
+      if (!zone) { busy = false; return; }
+    }
     beginBattle(c, i, mode);
-    const g = createGame({ seed: setup.seed, mapSeed: setup.mapSeed, difficulty: setup.difficulty,
-      aiTeams: mode === 'lead' ? [2] : [1, 2], factions: setup.factions, bonus: setup.bonus });
-    g.teams[1].incomeMult = 1;   // the enemy's difficulty handicap is theirs alone
+    save();
+    landAttacker(prep, setup, zone);
+    const g = prep.game;
     if (setup.fastForward) {
       // The battle has been going for a while: let the two commanders play it
       // on, a slice per frame so the page stays responsive.
@@ -263,15 +273,69 @@ const War = (() => {
     view.cam.zoom = Math.max(0.55, Math.min(1, Math.min(view.screenW, view.screenH) / 700));
     if (mode === 'reinforce') { centerOn(force[0]); select(force); }
     else { centerOn(hq); select([hq]); }
-    const where = sectorName(i);
-    logMessage(mode === 'lead' ? `Attack on ${where}: drive your Recycler onto a geyser and deploy it.`
-      : mode === 'command' ? `You have command at ${where}. The base and army are yours.`
-      : `You've landed at ${where}. You command the vehicles with gold markers; the allied commander runs the base and sends you more.`, 'info');
-    if (setup.bonus[1].length) logMessage(`Support from neighbouring battlefields: ${describeUnits(setup.bonus[1], c.faction)}`, 'good');
+    const where = sectorName(i), goal = setup.uplinks ? ' Hold two of the three uplinks, or destroy their Recycler.' : '';
+    logMessage(mode === 'lead' ? `Landed at ${where}. Deploy your Recycler on a free geyser (or liberate theirs), then take the fight to their base.${goal}`
+      : mode === 'command' ? `You have command at ${where}. The base and army are yours.${goal}`
+      : `You've landed at ${where}. You command the vehicles with gold markers; the allied commander runs the base and sends you more.${goal}`, 'info');
+    const extra = setup.bonus[1];
+    if (extra.length) logMessage(`Support from neighbouring battlefields: ${describeUnits(extra, c.faction)}`, 'good');
     refreshPanel();
     busy = false;
     await save();
     saveTo('warbattle', true);
+  }
+
+  // Before an attack you lead: the battlefield with what's known of the enemy
+  // base, and a card per landing zone. Resolves with the zone, or null (Back).
+  function chooseZone(prep, i) {
+    const g = prep.game, cv = $('lz-map'), ctx = cv.getContext('2d'), T = CONFIG.TILE, { W, H } = g.map;
+    cv.width = W * 2; cv.height = H * 2;
+    const k = cv.width / (W * T);
+    const img = ctx.createImageData(W, H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const t = g.map.tiles[y * W + x], o = (y * W + x) * 4;
+      const [r, gg, b] = t === TILE_ROCK ? [70, 72, 66] : t === TILE_WATER ? [30, 58, 88] : [44 + (x * 7 + y * 13) % 9, 60 + (x * 5 + y * 3) % 9, 38];
+      img.data[o] = r; img.data[o + 1] = gg; img.data[o + 2] = b; img.data[o + 3] = 255;
+    }
+    const tmp = document.createElement('canvas'); tmp.width = W; tmp.height = H; tmp.getContext('2d').putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = false; ctx.drawImage(tmp, 0, 0, cv.width, cv.height);
+    for (const gy of g.geysers) {
+      if (geyserTaken(g, gy)) continue;
+      ctx.strokeStyle = '#e8cf82'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(gy.x * k, gy.y * k, 5, 0, Math.PI * 2); ctx.stroke();
+    }
+    if (g.uplinks) for (const u of g.uplinks) {
+      ctx.fillStyle = '#c8d0c0'; ctx.beginPath();
+      ctx.moveTo(u.x * k, u.y * k - 8); ctx.lineTo(u.x * k + 8, u.y * k); ctx.lineTo(u.x * k, u.y * k + 8); ctx.lineTo(u.x * k - 8, u.y * k); ctx.fill();
+    }
+    // What's known of their base: the Recycler and Extractors.
+    for (const b of g.entities) if (b.team === prep.defender && (b.type === 'recycler' || b.type === 'extractor')) {
+      const s = b.size * T * k;
+      ctx.fillStyle = TEAMS[2].color; ctx.fillRect(b.x * k - s / 2, b.y * k - s / 2, s, s);
+      if (b.type === 'recycler') { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(b.x * k - s / 2 - 3, b.y * k - s / 2 - 3, s + 6, s + 6); }
+    }
+    prep.zones.forEach((z, n) => {
+      const x = z.x * k, y = z.y * k;
+      ctx.strokeStyle = '#ffd25a'; ctx.fillStyle = 'rgba(255,210,90,0.25)'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(x, y, 18, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ffd25a'; ctx.font = 'bold 20px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('AB'[n], x, y + 1);
+    });
+    $('lz-title').innerHTML = `Landing <span>zone</span>`;
+    const hq = g.entities.find(b => b.team === prep.defender && b.type === 'recycler');
+    $('lz-sub').textContent = `${sectorName(i)} · their base: level ${battleSetup(c, i, 'lead').fort} of 4` +
+      (g.uplinks ? ' · capture and hold: three uplinks (◆), hold two to win' : ' · destroy their Recycler (red, outlined) to win');
+    const box = $('lz-cards'); box.innerHTML = '';
+    return new Promise(resolve => {
+      prep.zones.forEach((z, n) => {
+        const b = document.createElement('button'); b.className = 'lzcard';
+        b.innerHTML = `<b><span class="lzk">${'AB'[n]}</span> ${z.name}</b><span class="small dim">${z.desc}</span>
+          <span class="small">${(dist(z, hq) / CONFIG.TILE / 10).toFixed(1)} km from their Recycler</span>`;
+        b.onclick = () => { $('lz').classList.add('hidden'); resolve(z); };
+        box.appendChild(b);
+      });
+      $('lz-back').onclick = () => { $('lz').classList.add('hidden'); resolve(null); };
+      $('lz').classList.remove('hidden');
+    });
   }
 
   // Your campaign battle ended (from showEnd). Returns a line for the end screen.

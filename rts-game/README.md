@@ -55,7 +55,7 @@ Towers, and more Scouts if you rely on Artillery.
 
 ## Playing on a phone or tablet
 
-The game works on touch screens. Turning your phone sideways gives the best view.
+The game works on touch screens and is played sideways (landscape): held upright, it asks you to turn the device, and a battle pauses.
 
 | Action | How |
 | --- | --- |
@@ -140,10 +140,35 @@ On the war map, tap a battlefield:
   while the allied commander runs the base and sends you every third
   vehicle it builds.
 
+**Bases and landings.** Whoever holds a battlefield already has a base
+there; the other side lands. Leading an attack, you choose your **landing
+zone**: beside an unclaimed geyser, clear of their defences, or close to one
+of their outlying Extractors, to destroy it and **liberate** the geyser. You
+land with your Recycler on wheels, workers, a strike force and supply crates
+of scrap. Bases held longer, or with more friendly ground around them, are
+more built up. Campaign battles run faster, for about 10–15 minutes.
+
+Five battlefields (marked ◆) are **capture and hold**: hold two of the
+three uplinks for 3 minutes to win (or destroy their Recycler).
+
 Every neighbouring battlefield your side holds gives you extra vehicles at
-the start of a battle (up to 8); the enemy gets the same from its own.
+the start of a battle; the enemy gets the same from its own.
 Win a battle and the battlefield is yours. **Leave battle** on the pause
 screen hands it back to the allied commander. Hold all fifteen to win.
+
+## Uplinks and call-ins
+
+**Uplinks** (capture and hold): three masts on the map. Park combat vehicles
+next to one to capture it (15 seconds with one, faster with more; nothing
+happens while both sides are there). Once the uplinks come online at 5:00,
+holding two of them for 3 minutes wins the battle. Choose **Capture the
+uplinks** on the start screen for a single battle like this.
+
+**Call-ins:** you start every battle with one; each uplink you hold earns
+another every 2 minutes. Press **Call-in** in the top bar:
+
+- **Supply drop:** 300 scrap, dropped beside your Recycler.
+- **Reinforcements:** 2 Tanks and 2 Hornets, dropped where you tap.
 
 ## Saving your game
 

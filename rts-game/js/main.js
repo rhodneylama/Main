@@ -9,6 +9,13 @@ const $ = id => document.getElementById(id);
 // Phones and tablets get touch controls and touch wording in the help text.
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 document.body.classList.toggle('touch', isTouch);
+// Played sideways on phones and tablets: held upright, a "turn your device"
+// screen covers the game (index.html) and a battle pauses. Where the browser
+// allows it, the screen is also asked to stay in landscape.
+if (isTouch) {
+  addEventListener('pointerdown', () => { try { screen.orientation.lock('landscape').catch(() => {}); } catch (err) { /* not supported */ } }, { once: true });
+  matchMedia('(orientation: portrait)').addEventListener('change', e => { if (e.matches && game && !game.winner && !paused) togglePause(); });
+}
 const canvas = $('game'), ctx = canvas.getContext('2d');
 const mini = $('minimap'), miniCtx = mini.getContext('2d');
 
@@ -29,7 +36,7 @@ function startGame(difficulty, watch = false) {
   const seed = Number(new URLSearchParams(location.search).get('seed')) || Math.floor(Math.random() * 99999);
   // You play the faction you picked; the enemy fields the other one.
   const other = chosenFaction === 'kethra' ? 'scrapline' : 'kethra';
-  game = createGame({ seed, difficulty, aiTeams: watch ? [1, 2] : [2], factions: { 1: chosenFaction, 2: other } });
+  game = createGame({ seed, difficulty, aiTeams: watch ? [1, 2] : [2], factions: { 1: chosenFaction, 2: other }, uplinks: chosenMode === 'uplinks' });
   enterBattle(watch);
   input.groups = {}; view.groupOf = new Map();
   // Small screens start zoomed out so more of the battlefield fits.
@@ -59,7 +66,7 @@ function enterBattle(watch, war = null) {
   view.selected = []; view.placing = null; view.revealAll = watch; view.pings = []; view.alerts = [];
   view.lastAutosave = game.time;
   resize();
-  for (const id of ['menu', 'end', 'saves', 'paused', 'help', 'war', 'warnew']) $(id).classList.add('hidden');
+  for (const id of ['menu', 'end', 'saves', 'paused', 'help', 'war', 'warnew', 'lz', 'wardrop']) $(id).classList.add('hidden');
   $('log').innerHTML = '';
   paused = false; speed = 1; $('speedval').textContent = '×1';
   Music.play('battle', mine_); Music.duck(false);
@@ -342,6 +349,13 @@ function aimAt(w, pad) {
     const b = mine(view.selected).find(e => e.kind === 'building');
     if (b) issueCommand(game, view.team, { type: 'rally', buildingId: b.id, x: w.x, y: w.y });
     ping(w, '#8cffa0');
+  } else if (view.aim === 'callin') {
+    const T = CONFIG.TILE;
+    if (!game.teams[view.team].explored[Math.floor(w.y / T) * game.map.W + Math.floor(w.x / T)] || isBlockedAt(game, w.x, w.y)) {
+      logMessage('Reinforcements can only land on open ground you have explored', 'warn'); sound('error'); return;
+    }
+    issueCommand(game, view.team, { type: 'callin', kind: 'reinforce', x: w.x, y: w.y, cmdr: view.reinforce });
+    ping(w, '#ffd25a');
   } else if (view.aim === 'deploy') {
     const g = geyserAt(w.x, w.y, pad);
     if (!g) { logMessage('Tap a free, glowing scrap geyser', 'warn'); sound('error'); return; }
@@ -394,6 +408,37 @@ function toggleArmyMenu() {
   menu.style.left = `${Math.max(6, Math.min(r.left, window.innerWidth - 200))}px`;
   menu.style.top = `${r.bottom + 6}px`;
   menu.classList.remove('hidden');
+}
+
+// Call-ins: a menu of what can be called down.
+function toggleCallinMenu() {
+  const menu = $('callinmenu');
+  if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
+  $('armymenu').classList.add('hidden');
+  const n = game.teams[view.team].callins;
+  menu.innerHTML = '';
+  for (const [k, ci] of Object.entries(CALLINS)) {
+    if (k === 'supply' && view.reinforce) continue;   // the scrap would be the allied commander's
+    const b = document.createElement('button');
+    b.innerHTML = `<b>${ci.name}</b><span class="dim small">${factionText(game.teams[view.team].faction, ci.desc)}</span>`;
+    b.disabled = n < 1;
+    onPress(b, () => {
+      menu.classList.add('hidden');
+      if (game.teams[view.team].callins < 1) return;
+      if (k === 'supply') { issueCommand(game, view.team, { type: 'callin', kind: 'supply' }); sound('ack'); return; }
+      view.placing = null; view.attackMode = false; view.aim = 'callin';
+      logMessage(`${isTouch ? 'Tap' : 'Click'} where the reinforcements should land (open ground you have explored)`, 'info');
+    });
+    menu.appendChild(b);
+  }
+  const note = document.createElement('div'); note.className = 'note';
+  note.textContent = n < 1 ? (game.uplinks ? 'None ready. Every uplink you hold earns another.' : 'None ready. You get one per battle (more for holding uplinks).')
+    : game.uplinks ? 'Every uplink you hold earns another.' : 'You get one per battle; uplink battles earn more.';
+  menu.appendChild(note);
+  const r = $('q-callin').getBoundingClientRect();
+  menu.style.top = `${r.bottom + 6}px`;
+  menu.classList.remove('hidden');
+  menu.style.left = `${Math.max(6, Math.min(r.left, window.innerWidth - menu.offsetWidth - 6))}px`;
 }
 
 function selectArmyType(type) {
@@ -703,7 +748,7 @@ function select(list) {
   const units = list.filter(e => e.kind === 'unit');
   view.selected = units.length ? units : list.slice(0, 1);
   view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
-  $('armymenu').classList.add('hidden');
+  $('armymenu').classList.add('hidden'); $('callinmenu').classList.add('hidden');
   if (view.selected.length && isMine(view.selected[0])) sound('select');
   refreshPanel();
 }
@@ -1038,6 +1083,19 @@ function updateHud() {
   const known = theirs && (spectating || (theirs.seen && theirs.seen[view.team]));
   $('hq-foe').textContent = known ? `${Math.round(pct(theirs))}%` : '?';
   $('hq-foe-bar').style.width = known ? `${pct(theirs)}%` : '0%';
+  // Call-ins in hand (and progress toward the next, from uplinks).
+  const tmc = game.teams[view.team];
+  $('callin-n').textContent = tmc.callins;
+  $('q-callin').classList.toggle('ready', tmc.callins > 0 && !spectating);
+  // Uplinks: who holds each, and the countdown to a win.
+  $('uplink-stat').classList.toggle('hidden', !game.uplinks);
+  if (game.uplinks) {
+    const pips = game.uplinks.map(u => `<i style="background:${u.owner ? TEAMS[u.owner].color : '#555'}${u.contested ? ';outline:2px solid #ffd25a' : ''}"></i>`).join('');
+    const h = game.uplinkHold, clock = sec => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+    const txt = game.time < CONFIG.UPLINK_ONLINE ? `online in ${clock(CONFIG.UPLINK_ONLINE - game.time)}`
+      : h.team ? `${h.team === view.team ? 'win' : 'loss'} in ${clock(CONFIG.UPLINK_WIN - (game.time - h.since))}` : 'hold two';
+    $('uplink-stat').innerHTML = `<span class="label">Uplinks</span><b><span class="pips">${pips}</span> <span class="${h.team && h.team !== view.team ? 'warn' : ''}">${txt}</span></b>`;
+  }
   const m = Math.floor(game.time / 60), s = Math.floor(game.time % 60);
   $('clock').textContent = `${m}:${String(s).padStart(2, '0')}${speed > 1 ? ` ×${speed}` : ''}`;
 }
@@ -1168,7 +1226,11 @@ function frame(now) {
 // Menu buttons
 // -----------------------------------------------------------------------------
 
-let chosenDifficulty = 'normal', chosenFaction = 'scrapline';
+let chosenDifficulty = 'normal', chosenFaction = 'scrapline', chosenMode = 'recycler';
+document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
+  chosenMode = b.dataset.mode;
+  document.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('active', x === b));
+}));
 try { if (FACTIONS[localStorage.getItem('scrapline.faction')]) chosenFaction = localStorage.getItem('scrapline.faction'); } catch (err) { /* optional */ }
 document.querySelectorAll('[data-faction]').forEach(b => {
   b.classList.toggle('active', b.dataset.faction === chosenFaction);
@@ -1248,7 +1310,8 @@ function setMinimapCollapsed(on) {
 }
 try { setMinimapCollapsed(localStorage.getItem('scrapline.minimapCollapsed') === '1'); } catch (err) { setMinimapCollapsed(false); }
 onPress($('maptoggle'), () => setMinimapCollapsed(!minimapCollapsed));
-onPress($('q-army'), () => { if (!game) return; toggleArmyMenu(); });
+onPress($('q-army'), () => { if (!game) return; $('callinmenu').classList.add('hidden'); toggleArmyMenu(); });
+onPress($('q-callin'), () => game && !spectating && toggleCallinMenu());
 for (const b of document.querySelectorAll('#armymenu button')) onPress(b, () => game && selectArmyType(b.dataset.army));
 onPress($('q-base'), () => game && centerOn(findHQ(view.team)));
 onPress($('q-idle'), () => game && idleWorker());

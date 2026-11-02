@@ -1058,6 +1058,123 @@ allied commander**. The campaign itself is saved as slot `campaign`.
 Hold all fifteen battlefields to win the theater; lose all fifteen and the
 war is lost. **New campaign** (pressed twice) starts over.
 
+### Campaign battlefields: bases and landings
+
+In a campaign battle the side **holding** the battlefield already has a
+base there, in its corner; the other side **lands** (`establishBase`,
+`landingZones` and `landAt` in `campaign.js`).
+
+**The holder's base** is built to a **fortification level** of 1–4:
+`1 + floor(support / 3)`, +1 on home ground (Westgate, Eastgate), +1 if
+held for 6 war reports or more (`heldSince` records when each battlefield
+last changed hands). Each level adds to the ones below:
+
+| Level | Extractors | Gun Towers | Base Silos | Scavengers | Garrison | Dug-in Sentries | Also |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1 | 1 | 0 | 3 | 2 | 0 | Recycler, Factory, Constructor |
+| 2 | 2 (one an outpost 1200–2400 px out) | 2 | 1 | 4 | 4 | 1 | |
+| 3 | 2 | 3 | 1 | 5 | 6 | 1 | Recycler II, Repair Pad |
+| 4 | 3 | 4 | 2 | 6 | 9 | 2 | Research Lab |
+
+The garrison is drawn in order from Tank, Tank, Scout, Hornet, Hornet,
+Tank, Artillery, Tank, Hornet, and stands 220 px in front of the base; the
+first tower goes there, the others at the outposts. It starts with
+150 + 50 × level scrap, and its **first attack wave waits until 8:00**
+(`DEFENDER_FIRST_WAVE`); it still defends, and strikes back after beating
+an attack off. Its support bonus counts two levels fewer than usual
+(its support already shows in the fortification).
+
+**Landing zones.** The attacker can land at:
+
+- **Unclaimed geyser:** beside a free geyser at least 1100 px from any of
+  the holder's buildings, the nearest such to their Recycler (geysers with
+  loose scrap within 900 px count as 600 px nearer).
+- **Liberate a geyser:** about 600 px back from the holder's outpost
+  Extractor (from level 2): destroy it and deploy on its geyser.
+- (**Far flank:** a second unclaimed geyser on the other side, when there's
+  no outpost to liberate.)
+
+Leading an attack, you choose: the **Landing zone** screen shows the
+battlefield with free geysers (gold rings), uplinks (◆), what's known of
+their base (their Recycler, outlined, and Extractors: the attacker always
+knows where these are) and the zones A and B with their distance from the
+enemy Recycler. An AI attacker always takes the first zone.
+
+**The landing:** the Recycler on wheels (holding the usual 300 scrap), 2
+Scavengers, a Constructor, a landing force of 2 Tanks, 2 Hornets and 2
+Scouts, plus the support bonus, set out in rows facing the enemy; **4
+supply crates** of 250 scrap each just behind, so the Scavengers have work
+straight away; and **two extra call-ins** (three in all) as support for the
+landing. An AI lander's first wave waits until 7:00
+(`LANDER_FIRST_WAVE`).
+
+**Pace:** campaign battles run economy, production, construction,
+upgrades and research **1.35× faster** (`CAMPAIGN_TEMPO`), aiming at
+10–15 minute battles. Twenty AI-vs-AI battles (seeds 1–5, four
+battlefields: The Crucible, Old Foundry, Broken Spire, Gallows Pass, all at
+base level 2) lasted **8–13.6 minutes**. The holder won **19 of 20** (all
+ten destroy-the-Recycler battles, nine of ten uplink battles): the AI
+attacker spends its army against the defences piecemeal. An established
+base is meant to be hard to crack; a human attacker has the landing
+zone choice, three call-ins and better judgement. **Open question:** if
+that proves too hard in play, the next levers are a smaller garrison
+(`FORT.garrisonSize`) or a later first wave (`DEFENDER_FIRST_WAVE`).
+
+Take command and Reinforce work as before: the battle (base and landing)
+is played on by the two AI commanders first.
+
+### Uplinks
+
+Capture-and-hold battles (on the campaign map: Rustwater, Gallows Pass, The
+Crucible, Black Mire and Shard Basin, marked ◆; in a single battle, choose
+**Capture the uplinks** on the start screen) have three **uplinks**: the
+middle of the map, and two mirror-image points either side of it, across
+the line between the two corners, 30% of the map's height out
+(`placeUplinks` in `sim.js`).
+
+- **Capturing:** combat vehicles within 130 px of an uplink capture it: 15
+  seconds for one vehicle, faster with more (up to three times). With both
+  sides there it's **contested** and nothing changes. An uplink held by the
+  other side has to be brought back to neutral first.
+- **Winning:** hold **two at once for 3 minutes** (`UPLINK_WIN`). Holding
+  only counts once the uplinks come **online at 5:00** (`UPLINK_ONLINE`), so a
+  side that has just landed can get going. Destroying the enemy Recycler
+  still wins too.
+- **Call-ins:** each uplink held earns a call-in every 2 minutes.
+- Shown on the map as a mast in a dashed circle in the holder's colour (gold
+  when contested) with a ring for capture progress; on the minimap as
+  diamonds; in the top bar as three diamonds and the countdown ("online
+  in", "win in", "loss in").
+- **The computer opponent** puts up to three vehicles (not Artillery) on
+  duty at each uplink, nearest first, keeping at least two for its usual
+  tactics; if you hold two, everything it has goes to retake the nearest.
+
+### Call-ins
+
+Every side starts each battle with **one call-in**; on uplink battles each
+uplink held earns another every 2 minutes (at most 5 in hand). The
+**Call-in** button in the top bar (gold when one is ready) opens the menu:
+
+| Call-in | What it does |
+| --- | --- |
+| Supply drop | 300 scrap, dropped beside your Recycler. What doesn't fit in storage is left there as a pile to collect. (Not when reinforcing an allied commander.) |
+| Reinforcements | 2 Tanks and 2 Hornets, dropped where you tap, on open ground you have explored. Reinforcing an allied commander, they're yours (gold markers). |
+
+A pod falls on a beam of light and lands 4 seconds later. The computer
+opponent uses its call-ins too: reinforcements on open ground nearest its
+rally point after 2:00 (at most one a minute), or a supply drop when its
+bank is nearly empty. (A first version aimed them at the rally point
+itself, which is often rock, so they were always refused; in 30 AI-vs-AI
+games that left team 2 winning 20 to 10, against 17 to 14 once fixed.
+Uplink battles: 13 to 11 over 24 games, 8–29 minutes, median about 15.)
+
+### Landscape only
+
+On phones and tablets the game is played sideways: held upright, a "Turn
+your device sideways" screen covers everything and a battle in progress
+pauses. Where the browser allows, the screen is also asked to stay in
+landscape (`screen.orientation.lock`).
+
 ### Music
 
 Composed live by `js/music.js` with Web Audio (no audio files): a four-bar
@@ -1225,7 +1342,7 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `js/campaign.js` | The campaign's rules: the theater, war reports, support, starting bonuses, battle results (section 16, "Campaign") |
 | `js/war.js` | The war map screen and starting campaign battles (drop-in, Take command, Reinforce) |
 | `js/saves.js` | Where saved games are kept: the published page's private per-person store, or this browser (see section 16, "Saving") |
-| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (107 checks). |
+| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (130 checks). |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
 tables), `ROADMAP.md` (planned stages), `ECONOMY_TEST_REPORT.md` (the October
@@ -1277,7 +1394,7 @@ rebuilt.
 
 | Test type | Method | What it checks |
 | --- | --- | --- |
-| **Rules tests** (`tests/rules.js`, 107 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Orders** (Aggressive by default: an enemy beside the route is attacked, then they carry on to where they were sent; Stealth holds fire and arrives sooner; Return fire shoots in passing and keeps going; Hunt as a pack destroys a known enemy building across the map and keeps together; Hunt with nothing known goes searching; a guard goes after whoever attacks what it guards, even out of its range, then returns to its post; an idle vehicle helps a friend under fire nearby; a group attacking one target fans out in an arc; 100 units a side; 200 vehicles fighting take well under a second per battle second); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused); **Campaign** (fifteen battlefields all joined up; each side starts with its half and two battles under way; only neighbouring enemy battlefields can be attacked; more neighbours held means more starting vehicles, and they appear in the battle; each battlefield keeps its own map; war reports come in on time at the chosen pace, at most 12 while away, none on Hold; on Normal the AI commanders alone don't decide the war in 60 reports; winning takes the battlefield; leaving puts it back on paper from how it stood; Reinforce: the allied commander never moves your strike force and sends you some of what it builds). |
+| **Rules tests** (`tests/rules.js`, 130 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Orders** (Aggressive by default: an enemy beside the route is attacked, then they carry on to where they were sent; Stealth holds fire and arrives sooner; Return fire shoots in passing and keeps going; Hunt as a pack destroys a known enemy building across the map and keeps together; Hunt with nothing known goes searching; a guard goes after whoever attacks what it guards, even out of its range, then returns to its post; an idle vehicle helps a friend under fire nearby; a group attacking one target fans out in an arc; 100 units a side; 200 vehicles fighting take well under a second per battle second); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused); **Campaign** (fifteen battlefields all joined up; each side starts with its half and two battles under way; only neighbouring enemy battlefields can be attacked; more neighbours held means more starting vehicles, and they appear in the battle; each battlefield keeps its own map; war reports come in on time at the chosen pace, at most 12 while away, none on Hold; on Normal the AI commanders alone don't decide the war in 60 reports; winning takes the battlefield; leaving puts it back on paper from how it stood; Reinforce: the allied commander never moves your strike force and sends you some of what it builds); **Uplinks and call-ins** (three uplinks on open ground, the middle in the middle, the sides mirrored; one vehicle captures in about 15 s, three three times as fast; contested means no change; holding two counts only once online; hold two for 3 minutes to win; uplinks earn call-ins; everyone starts with one call-in; the computer opponent uses its call-ins; supply drop lands with 300 scrap; none left, nothing called; reinforcements land where chosen, only on explored ground); **Campaign battlefields** (the holder starts with a base; more support and time held means more built up; two landing zones clear of the defences, one to liberate from level 2; you land where you chose with a strike force, three call-ins, supply crates and knowledge of their Recycler; campaign battles run faster; some battlefields are capture-and-hold). |
 | **AI duels** (`tests/balance/duels.sh`) | The current opponent plays an earlier version of itself (`tests/balance/ai_previous.js`, the first one; `ai_v2.js` with `OPP=v2`, the 18 October one) on many seeds, 4 games at a time, up to 60 minutes each. With `BOTHOLD=1` both sides use the previous version, giving the baseline for the same seeds. | Whether a change to the opponent actually makes it stronger. Each tactic was tried alone, then in combinations; see the results below. |
 | **AI-vs-AI batches** | Run 30 to 120 full games between two computer players on different seeds. | Games end, typical length, and **fairness** by team and by corner. |
 | **AI tech progression** | Log when the AI reaches each milestone at each difficulty. | The AI actually upgrades, researches and fields Mk II units. |
@@ -1699,3 +1816,11 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     fire. Groups **fan out** round a target and **fall in** behind friends
     going the same way. Seen enemy buildings can be attacked out of sight.
     Unit limit 100 a side, with a neighbour grid so big battles stay fast.
+27. **Bases and landings, uplinks, call-ins, landscape** (2 November 2026):
+    in campaign battles the holder has a base (fortification 1–4) and the
+    attacker lands at a landing zone you choose (an unclaimed geyser, or one
+    to liberate), with supply crates; campaign battles run 1.35× faster, for
+    10–15 minutes. Capture-and-hold battles with three uplinks (five campaign
+    battlefields, or chosen for a single battle). Call-ins: supply drops and
+    reinforcements, one per battle plus more for uplinks held. Phones and
+    tablets play in landscape only.
