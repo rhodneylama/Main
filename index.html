@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Scrapline Command</title>
+<!-- Installable as an app ("Add to Home Screen"): then it opens full screen. -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="theme-color" content="#0b0d0a">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  :root {
+    --panel: rgba(16, 20, 16, 0.88);
+    --edge: #3a4a38;
+    --text: #dfe8da;
+    --dim: #93a08e;
+    --accent: #8cffa0;
+    --warn: #f0c040;
+    --bad: #ff6a5a;
+    --blue: #4aa3ff;
+    --red: #ff5a4a;
+    --top-h: 45px;
+    --panel-h: 133px;
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d0a; color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; user-select: none; -webkit-user-select: none;
+    overscroll-behavior: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  canvas#game { position: fixed; inset: 0; display: block; touch-action: none; }
+  button { touch-action: manipulation; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  body.touch .only-mouse, body:not(.touch) .only-touch { display: none !important; }
+  .hidden { display: none !important; }
+  .dim { color: var(--dim); }
+  .small { font-size: 12px; }
+  .warn { color: var(--warn); }
+  button { font: inherit; color: var(--text); background: #243024; border: 1px solid var(--edge);
+    border-radius: 4px; padding: 6px 10px; cursor: pointer; }
+  button:hover { background: #2f3f2e; border-color: #5a7a56; }
+  button.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+
+  /* Top bar */
+  #topbar { position: fixed; top: 0; left: 0; right: 0; min-height: 44px; display: flex; align-items: center; gap: 22px;
+    padding: var(--safe-t) calc(14px + var(--safe-r)) 0 calc(14px + var(--safe-l)); background: var(--panel); border-bottom: 1px solid var(--edge); z-index: 5; }
+  .stat { display: flex; flex-direction: column; line-height: 1.1; }
+  .stat b { font-size: 17px; }
+  .stat .label { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+  #scrap { color: #e8cf82; font-variant-numeric: tabular-nums; }
+  #scrap.full { color: var(--warn); }
+  .bases { display: flex; align-items: center; gap: 8px; }
+  .tbar { width: 110px; height: 8px; background: #222; border-radius: 4px; overflow: hidden; }
+  .tbar div { height: 100%; transition: width .3s; }
+  #topbar .spacer { flex: 1; }
+  #topbar button { padding: 4px 9px; font-size: 12px; }
+  #pausebtn .picon { display: none; width: 11px; height: 13px; margin: 0 2px; vertical-align: -2px;
+    border-left: 4px solid currentColor; border-right: 4px solid currentColor; }
+
+  /* Bottom panel */
+  #panel { position: fixed; left: 0; bottom: 0; right: 232px; height: calc(132px + var(--safe-b)); display: flex; gap: 12px;
+    padding: 10px 14px calc(10px + var(--safe-b)) calc(14px + var(--safe-l));
+    background: var(--panel); border-top: 1px solid var(--edge); z-index: 5; }
+  #selinfo { width: 260px; flex-shrink: 0; overflow: hidden; }
+  .selname { font-weight: 700; font-size: 16px; }
+  .selname .hp { font-weight: 400; font-size: 13px; color: var(--text); margin-left: 6px; }
+  #commands { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; }
+  #commands > button { display: flex; flex-direction: column; align-items: flex-start; min-width: 104px; padding: 5px 9px; position: relative; }
+  #commands > button.poor .cost { color: var(--bad); }
+  #commands > button.primary { background: #2c4a2c; border-color: var(--accent); }
+  #commands > button.danger { background: #4a2420; border-color: var(--bad); }
+  .hk { position: absolute; top: 3px; right: 6px; font-size: 10px; color: var(--dim); }
+  .lbl { font-weight: 600; }
+  .cost { font-size: 12px; color: #e8cf82; }
+  .note { font-size: 11px; color: var(--dim); }
+  .cost::after { content: " scrap"; color: var(--dim); }
+  /* Production buttons: a fill shows the build progress of the vehicle being
+     made, and the − corner removes one from the queue. */
+  #commands > button > * { position: relative; }
+  #commands > button > .prog { position: absolute; left: 0; top: 0; bottom: 0; border-radius: inherit;
+    background: rgba(140, 255, 160, 0.28); border-right: 2px solid var(--accent); pointer-events: none; }
+  #commands > button > .hk { position: absolute; }
+  #commands > button > .row { align-self: stretch; display: flex; flex-wrap: nowrap; align-items: center; gap: 5px; white-space: nowrap; }
+  #commands > button .minus { margin-left: auto; width: 26px; height: 20px; display: flex; align-items: center; justify-content: center;
+    font-size: 17px; font-weight: 700; color: var(--text); background: rgba(255, 90, 74, 0.4); border-radius: 4px; }
+  #commands > button .minus:hover { background: rgba(255, 90, 74, 0.6); }
+  .badge { display: inline-block; min-width: 20px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: #102010; font-size: 12px; font-weight: 700; text-align: center; }
+  .tip { width: 100%; }
+  #minimap-wrap { position: fixed; right: 0; bottom: 0; width: calc(232px + var(--safe-r)); height: auto;
+    padding: 8px calc(8px + var(--safe-r)) calc(8px + var(--safe-b)) 8px; background: var(--panel);
+    border-top: 1px solid var(--edge); border-left: 1px solid var(--edge); z-index: 5; }
+  #minimap { width: 216px; height: 162px; display: block; cursor: pointer; image-rendering: auto; touch-action: none; }
+  #maptoggle { display: block; padding: 2px 9px; margin-bottom: 4px; font-size: 12px; }
+  /* Collapsed: only the small Map button stays. */
+  #minimap-wrap.collapsed { width: auto; height: auto; padding: 6px calc(6px + var(--safe-r)) calc(6px + var(--safe-b)) 6px; }
+  #minimap-wrap.collapsed #minimap { display: none; }
+  #minimap-wrap.collapsed #maptoggle { margin-bottom: 0; }
+  #quickbar { display: flex; gap: 6px; }
+  #q-callin.ready { border-color: #ffd25a; color: #ffe9a8; }
+  #q-callin b { font-variant-numeric: tabular-nums; }
+  #uplink-stat .pips { display: inline-flex; gap: 3px; vertical-align: 1px; }
+  #uplink-stat .pips i { display: inline-block; width: 10px; height: 10px; transform: rotate(45deg); }
+  #uplink-stat b { font-size: 13px; white-space: nowrap; }
+
+  /* Messages */
+  #log { position: fixed; top: calc(var(--top-h) + 10px); left: calc(14px + var(--safe-l)); max-width: 60vw; z-index: 4; pointer-events: none; display: flex; flex-direction: column; gap: 3px; }
+  .msg { background: rgba(0,0,0,.6); padding: 3px 9px; border-radius: 3px; border-left: 3px solid var(--dim); transition: opacity 1s; }
+  .msg.good { border-color: var(--accent); }
+  .msg.bad { border-color: var(--bad); }
+  .msg.warn { border-color: var(--warn); }
+  .msg.fade { opacity: 0; }
+  #paused { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 7;
+    background: rgba(0,0,0,.35); }
+  .pausebox { text-align: center; background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; padding: 18px 26px; }
+  .pausebox .row { justify-content: center; }
+  .music-row { margin-top: 10px; align-items: center; gap: 12px; }
+  .music-row input { vertical-align: middle; width: 120px; accent-color: var(--accent); }
+  .pausetitle { font-size: 34px; font-weight: 800; letter-spacing: .2em; color: rgba(255,255,255,.9); }
+
+  /* Overlays */
+  /* The card centres itself with auto margins, so a card taller than the
+     screen scrolls from its top instead of being cut off. */
+  .overlay { position: fixed; inset: 0; z-index: 10; display: flex;
+    background: radial-gradient(ellipse at center, rgba(20,30,20,.9), rgba(5,7,5,.97)); overflow-y: auto; padding: 20px; }
+  .card { margin: auto; max-width: 720px; width: 100%; background: #131913; border: 1px solid var(--edge); border-radius: 8px; padding: 26px 30px; }
+  .card h1 { margin: 0 0 4px; font-size: 34px; letter-spacing: .06em; text-transform: uppercase; }
+  .card h1 span { color: var(--accent); }
+  .card h2 { margin: 18px 0 6px; font-size: 15px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); }
+  .card p, .card li { color: #c6d1c1; }
+  .card ul { margin: 4px 0; padding-left: 20px; }
+  /* Start screen: the two faction cards side by side. */
+  .card.menu { max-width: 640px; }
+  /* Save / load: a row per slot. */
+  .card.saves { max-width: 560px; }
+  #saves-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .slot { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--edge); border-radius: 6px; background: #182018; }
+  .slot .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .slot .info b { font-size: 15px; }
+  .slot button { min-height: 38px; }
+  .factions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .faction { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 8px 10px 10px; text-align: left; }
+  .faction canvas { width: 100%; height: auto; aspect-ratio: 300 / 110; border-radius: 5px; background: #0d120d; }
+  .faction b { font-size: 16px; }
+  .faction.active { border-color: var(--accent); background: #1f2f1f; box-shadow: 0 0 0 1px var(--accent) inset; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .big { font-size: 17px; padding: 10px 22px; background: #2c4a2c; border-color: #5c9a5a; }
+  .big:hover { background: #386038; }
+  kbd { background: #2a322a; border: 1px solid #4a5a48; border-radius: 3px; padding: 0 5px; font: 12px ui-monospace, monospace; }
+  #help { background: rgba(5,7,5,.85); }
+  #help table { border-collapse: collapse; width: 100%; }
+  #help td { padding: 3px 8px 3px 0; vertical-align: top; }
+  #help td:first-child { white-space: nowrap; }
+  /* Campaign: the war map */
+  #war { position: fixed; inset: 0; z-index: 10; overflow-y: auto; background: radial-gradient(ellipse at 50% 40%, #142014, #070907 75%);
+    padding: calc(10px + var(--safe-t)) calc(16px + var(--safe-r)) calc(14px + var(--safe-b)) calc(16px + var(--safe-l)); }
+  .war-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
+  .war-head h1 { margin: 0; font-size: 26px; letter-spacing: .06em; text-transform: uppercase; }
+  .war-head h1 span { color: var(--accent); }
+  #war-pace { display: flex; gap: 4px; flex-wrap: wrap; }
+  #war-pace button { padding: 4px 9px; font-size: 12px; min-height: 32px; }
+  .war-body { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 14px; margin-top: 10px; align-items: start; }
+  #war-map { width: 100%; height: auto; display: block; background: rgba(10, 16, 10, .6); border: 1px solid var(--edge); border-radius: 8px; }
+  #war-map .link { stroke: #3c4c3a; stroke-width: .45; }
+  #war-map .front { stroke: #e0a040; stroke-width: .6; stroke-dasharray: 1.2 .9; }
+  #war-map .sector { cursor: pointer; }
+  #war-map .node { stroke: #0b0d0a; stroke-width: .5; }
+  #war-map .node.capital { stroke: #f0e0a0; stroke-width: .6; }
+  #war-map .ring { fill: none; stroke-width: 1.1; }
+  #war-map .pulse { fill: none; stroke: #fff; stroke-width: .3; opacity: .6; animation: warpulse 1.6s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+  #war-map .pulse.yours { stroke: #ffd25a; stroke-width: .5; opacity: 1; }
+  #war-map .target { fill: none; stroke: #fff; stroke-width: .35; stroke-dasharray: .9 .7; opacity: .85; }
+  #war-map .sel { fill: rgba(140, 255, 160, .12); stroke: var(--accent); stroke-width: .5; }
+  #war-map .label { fill: #dfe8da; font-size: 2.5px; text-anchor: middle; paint-order: stroke; stroke: #070907; stroke-width: .6px; pointer-events: none; }
+  #war-map .glyph { fill: #fff; font-size: 3px; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
+  @keyframes warpulse { from { transform: scale(1); opacity: .7; } to { transform: scale(1.6); opacity: 0; } }
+  .war-side { display: flex; flex-direction: column; gap: 10px; }
+  #war-detail, #war-logbox { background: #131913; border: 1px solid var(--edge); border-radius: 8px; padding: 12px 14px; }
+  #war-detail h2 { margin: 0 0 4px; font-size: 16px; color: var(--accent); }
+  #war-detail p { margin: 6px 0; }
+  #war-detail > div { margin-top: 5px; }
+  .front-bar { height: 9px; border-radius: 5px; background: var(--red); overflow: hidden; margin-top: 8px !important; }
+  .front-bar div { height: 100%; background: var(--blue); }
+  .war-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+  .war-actions button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 8px 12px; min-height: 44px; }
+  .war-actions button.big { background: #2c4a2c; border-color: #5c9a5a; font-size: 15px; }
+  #war-log { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+  .wl { font-size: 13px; padding-left: 8px; border-left: 3px solid var(--dim); }
+  .wl.good { border-color: var(--accent); } .wl.bad { border-color: var(--bad); } .wl.warn { border-color: var(--warn); }
+  #war-note { color: var(--warn); font-size: 13px; min-height: 0; }
+  .war-legend { font-size: 12px; color: var(--dim); margin-top: 6px; }
+  .war-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin: 0 3px 0 8px; }
+  #warnew-pace { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+  .pace { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 2px; min-height: 52px; }
+  .pace.active { border-color: var(--accent); background: #1f2f1f; box-shadow: 0 0 0 1px var(--accent) inset; }
+  #wardrop { z-index: 12; }
+  /* Landing zone choice: the battlefield on the left, a card per zone on the right. */
+  .card.lzbox { max-width: 980px; padding: 16px 20px; }
+  .lzbody { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 12px; margin-top: 10px; align-items: start; }
+  #lz-map { width: 100%; height: auto; border: 1px solid var(--edge); border-radius: 6px; image-rendering: pixelated; }
+  #lz-cards { display: flex; flex-direction: column; gap: 8px; }
+  .lzcard { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; padding: 10px 12px; background: #1d2a1d; border-color: #5a7a56; }
+  .lzcard:hover { border-color: #ffd25a; }
+  .lzcard b { font-size: 15px; }
+  .lzk { display: inline-block; width: 22px; height: 22px; line-height: 22px; text-align: center; border-radius: 50%; background: rgba(255,210,90,.25); border: 2px solid #ffd25a; color: #ffd25a; margin-right: 4px; }
+  .dropbar { height: 10px; border-radius: 5px; background: #222; overflow: hidden; margin-top: 14px; }
+  .dropbar div { height: 100%; width: 0; background: var(--accent); transition: width .1s; }
+  @media (max-width: 640px) {
+    .lzbody { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 860px) {
+    .war-body { grid-template-columns: 1fr; }
+    .war-head h1 { font-size: 21px; }
+  }
+  /* Phones held sideways (little height): war map and landing zone side by
+     side with their details, everything sized to fit without scrolling. */
+  @media (max-height: 520px) {
+    #war { padding-top: calc(6px + var(--safe-t)); padding-bottom: calc(6px + var(--safe-b)); }
+    .war-head h1 { font-size: 18px; }
+    .war-head { gap: 4px 12px; }
+    #war-pace button { min-height: 28px; padding: 2px 8px; }
+    .war-body { grid-template-columns: minmax(0, 1fr) 290px; gap: 8px; margin-top: 4px; }
+    #war-map { max-height: calc(100vh - 92px); }
+    .war-legend { display: none; }
+    .war-side { max-height: calc(100vh - 92px); overflow-y: auto; gap: 6px; }
+    #war-detail, #war-logbox { padding: 8px 10px; font-size: 13px; }
+    .war-actions button { min-height: 40px; padding: 6px 10px; }
+    .card.lzbox { padding: 10px 14px; }
+    .card.lzbox h1 { font-size: 20px; }
+    .lzbody { margin-top: 6px; gap: 8px; }
+    #lz-map { max-height: calc(100vh - 120px); width: auto; max-width: 100%; }
+    .lzcard { padding: 6px 10px; }
+    .lzcard .dim { font-size: 11px; }
+    .card.menu { padding: 12px 18px; }
+    .card.menu h1 { font-size: 22px; }
+    .card.menu h2 { margin: 8px 0 4px; }
+    .faction canvas { aspect-ratio: 300 / 80; }
+  }
+  @media (max-width: 460px) {
+    #war { padding-left: calc(10px + var(--safe-l)); padding-right: calc(10px + var(--safe-r)); }
+    #war-map .label { font-size: 3px; }
+  }
+
+  /* Reinforcing: the scrap and workers are the allied commander's, not yours. */
+  body.reinforce #scrap-stat, body.reinforce #income-stat { display: none; }
+  /* Drop-down menus (Army, Call-in, Hunt, Stance, Orders, More). */
+  #popmenu { position: fixed; z-index: 20; display: flex; flex-direction: column; gap: 4px; min-width: 200px; max-width: min(340px, calc(100vw - 12px));
+    max-height: calc(100vh - 12px); overflow-y: auto; background: rgba(16, 20, 16, 0.97); border: 1px solid var(--edge); border-radius: 6px; padding: 5px; }
+  #popmenu button { display: flex; flex-direction: column; align-items: stretch; gap: 1px; text-align: left; background: #1d2a1d; border-color: #3f553d; min-height: 40px; padding: 5px 10px; }
+  #popmenu button.active { border-color: var(--accent); background: #24402a; }
+  #popmenu button:disabled { opacity: .45; cursor: default; }
+  #popmenu .poplbl { display: flex; justify-content: space-between; gap: 10px; }
+  #popmenu .n { color: var(--dim); font-variant-numeric: tabular-nums; }
+  #popmenu .pophead { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; padding: 4px 4px 0; }
+  select { font: inherit; color: var(--text); background: #243024; border: 1px solid var(--edge); border-radius: 4px; padding: 6px 8px; min-height: 38px; }
+  .opts label { display: flex; align-items: center; gap: 8px; color: var(--dim); }
+  #pausebtn .picon { display: inline-block; }
+  #toast { position: fixed; left: 50%; bottom: calc(18px + var(--safe-b)); transform: translateX(-50%); z-index: 30; max-width: min(520px, calc(100vw - 24px));
+    background: rgba(20, 26, 20, .97); border: 1px solid var(--warn); border-radius: 6px; padding: 10px 14px; font-size: 14px; }
+  #end-title.win { color: var(--accent); }
+  #end-title.lose { color: var(--bad); }
+  #end-stats { border-collapse: collapse; margin-top: 10px; }
+  #end-stats td, #end-stats th { padding: 4px 14px 4px 0; text-align: left; }
+
+  .stat b, #quickbar button { white-space: nowrap; }
+  /* Mid-size screens: drop the extras so the top bar stays on one row. */
+  @media (max-width: 1150px) {
+    #income-stat, .tbar { display: none; }
+    #topbar { gap: 12px; }
+  }
+  @media (max-width: 900px) {
+    #selinfo { width: 160px; }
+    #topbar { gap: 10px; }
+    #quickbar button, #topbar button { padding: 4px 7px; }
+  }
+
+  /* Phones: minimap moves to the top corner, the panel spans the full width,
+     and buttons get bigger so they are easy to hit with a thumb. */
+  @media (max-width: 760px), (max-height: 520px) {
+    #topbar { gap: 10px; min-height: 38px; flex-wrap: wrap; row-gap: 2px; padding-bottom: 3px; }
+    .stat b { font-size: 15px; }
+    .stat .label { font-size: 9px; }
+    #income-stat, .tbar, .wide { display: none; }
+    .bases { gap: 10px; }
+    #topbar button { padding: 6px 9px; }
+    /* The quick buttons get their own row in the top bar. */
+    #quickbar button { min-height: 36px; padding: 4px 9px; font-size: 13px; }
+    /* Panel: a short summary line on top, then every action button in rows
+       that wrap, so nothing has to be scrolled to. */
+    #panel { right: 0; height: auto; max-height: 38vh; flex-direction: column; gap: 5px;
+      padding: 6px 10px calc(6px + var(--safe-b)) calc(10px + var(--safe-l)); overflow-y: auto; }
+    #selinfo { width: 100%; max-width: none; font-size: 12px; line-height: 1.3; }
+    .selname { font-size: 14px; }
+    #selinfo .small { display: none; }
+    #selinfo .extra { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #commands { gap: 5px; }
+    #commands > button { flex: 0 1 calc(33.3% - 4px); min-width: 0; min-height: 38px; padding: 3px 7px; font-size: 13px; text-align: left; }
+    #commands > button .lbl { line-height: 1.15; }
+    #commands > button > .row { gap: 4px; }
+    #commands > button > .row .cost::after { content: none; }
+    #commands > button .minus { width: 24px; }
+    #commands > button .hk { display: none; }
+    #commands .tip { width: 100%; }
+    .tip { font-size: 11px; }
+    #minimap-wrap { top: calc(var(--top-h) + 6px); bottom: auto; right: calc(6px + var(--safe-r)); width: auto; height: auto; padding: 4px;
+      border: 1px solid var(--edge); border-radius: 4px; }
+    #minimap { width: 132px; height: 99px; }
+    #maptoggle { padding: 4px 9px; min-height: 30px; }
+    #minimap-wrap.collapsed { padding: 4px; }
+    #log { font-size: 12px; max-width: calc(100vw - 170px); }
+    #log .msg:nth-last-child(n+4) { display: none; }   /* only the latest three */
+    .card { padding: 18px 18px; }
+    .card h1 { font-size: 26px; }
+  }
+  /* Phone held sideways: little height to spare, so the quick buttons stack
+     down the left edge instead of covering the middle of the map. */
+  @media (max-height: 520px) {
+    /* Keep the top bar to one row: no clock, Pause as a symbol. */
+    #clock { display: none; }
+    #pausebtn .ptext { display: none; }
+    #pausebtn .picon { display: inline-block; }
+    /* Sideways there's room for the quick buttons on the top bar's one row. */
+    #quickbar button { flex: none; min-height: 32px; padding: 4px 9px; font-size: 12px; }
+      #log { font-size: 11px; }
+    /* Summary on the left, buttons wrapping beside it. */
+    #panel { flex-direction: row; max-height: 45vh; }
+    #selinfo { width: 150px; flex-shrink: 0; }
+    #selinfo .extra { white-space: normal; }
+    #commands { flex: 1; }
+    #commands > button { flex: 0 1 auto; min-width: 92px; min-height: 38px; }
+    #log .msg:nth-last-child(n+3) { display: none; }  /* only the latest two */
+    /* Instructions float just above the panel instead of making it taller. */
+    #commands .tip { position: fixed; left: calc(10px + var(--safe-l)); right: 150px; bottom: calc(var(--panel-h) + 6px);
+      width: auto; background: rgba(0,0,0,.7); padding: 4px 9px; border-radius: 4px; pointer-events: none; z-index: 6; }
+  }
+  @media (max-width: 460px) {
+    #topbar { gap: 7px; padding-left: calc(10px + var(--safe-l)); padding-right: calc(8px + var(--safe-r)); }
+    #clock { display: none; }
+    #topbar button { padding: 6px 7px; }
+    #topbar .spacer { display: none; }
+    /* Narrow phones: Pause shrinks to a symbol so it stays on the first row. */
+    #pausebtn .ptext { display: none; }
+    #pausebtn .picon { display: inline-block; }
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="topbar">
+  <div class="stat" id="scrap-stat"><span class="label">Scrap</span><b id="scrap">0</b></div>
+  <div class="stat"><span class="label">Units</span><b id="units">0</b></div>
+  <div class="bases">
+    <div class="stat"><span class="label" style="color:var(--blue)"><span class="wide">Your </span>base</span><b id="hq-me">100%</b></div>
+    <div class="tbar"><div id="hq-me-bar" style="background:var(--blue)"></div></div>
+    <div class="tbar"><div id="hq-foe-bar" style="background:var(--red)"></div></div>
+    <div class="stat"><span class="label" style="color:var(--red)">Enemy<span class="wide"> base</span></span><b id="hq-foe">?</b></div>
+  </div>
+  <div class="stat hidden" id="uplink-stat"></div>
+  <div class="spacer"></div>
+  <div id="quickbar">
+    <button id="q-army" title="Select your combat vehicles, or jump to an idle worker or your base">Army ▾</button>
+    <button id="q-callin" title="Call-ins: supply drops and reinforcements">Call-in <b id="callin-n">1</b></button>
+  </div>
+  <b id="clock">0:00</b>
+  <button id="pausebtn" title="Pause and menu (P)" aria-label="Pause and menu"><span class="picon"></span></button>
+</div>
+
+<div id="log"></div>
+<div id="paused" class="hidden">
+  <div class="pausebox">
+    <div class="pausetitle">PAUSED</div>
+    <div class="row"><button id="resumebtn" class="big">Resume</button></div>
+    <div class="row">
+      <button id="savebtn">Save</button>
+      <button class="loadbtn">Load</button>
+      <button id="helpbtn">Help</button>
+      <button class="fullbtn">Full screen</button>
+    </div>
+    <div class="row music-row">
+      <label class="dim small">Speed <select id="speedsel"><option value="1">×1</option><option value="2">×2</option><option value="4">×4</option></select></label>
+      <button class="musicbtn">Music: On</button>
+      <label class="dim small">Volume <input id="musicvol" type="range" min="0" max="100" value="50"></label>
+    </div>
+    <div class="row">
+      <button id="leavebtn" class="hidden" title="Back to the war map. The battle goes on without you, on paper">Leave battle</button>
+      <button id="quitbtn" title="End this battle and go back to the start screen">Quit to menu</button>
+    </div>
+  </div>
+</div>
+
+<div id="panel">
+  <div id="selinfo"></div>
+  <div id="commands"></div>
+</div>
+<div id="popmenu" class="hidden"></div>
+<div id="toast" class="hidden" role="status"></div>
+<div id="minimap-wrap">
+  <button id="maptoggle" aria-expanded="true" title="Show or hide the minimap">Map ▾</button>
+  <canvas id="minimap" width="216" height="162"></canvas>
+</div>
+
+<!-- Title screen -->
+<div id="menu" class="overlay">
+  <div class="card menu">
+    <h1>Scrapline <span>Command</span></h1>
+    <div class="dim">Gather scrap. Build your base. Destroy theirs.</div>
+    <h2>Your faction</h2>
+    <div class="factions">
+      <button class="faction active" data-faction="scrapline">
+        <canvas width="300" height="110"></canvas>
+        <b>Scrapline</b><span class="dim small">Tracked steel war machines built from scrap</span>
+      </button>
+      <button class="faction" data-faction="kethra">
+        <canvas width="300" height="110"></canvas>
+        <b>Kethra Concord</b><span class="dim small">Hovering alien constructs on gravity rings</span>
+      </button>
+    </div>
+    <div class="row opts">
+      <label>Battle <select id="modesel" title="How a single battle is won">
+        <option value="recycler">Destroy the Recycler</option><option value="uplinks">Capture the uplinks</option></select></label>
+      <label>Difficulty <select id="diffsel"><option value="easy">Easy</option><option value="normal" selected>Normal</option><option value="hard">Hard</option></select></label>
+    </div>
+    <div class="row" style="margin-top:16px">
+      <button id="start" class="big">Start battle</button>
+      <button id="campaign" class="big">Campaign</button>
+      <button class="loadbtn">Load game</button>
+      <button id="menumore">More ▾</button>
+    </div>
+  </div>
+</div>
+
+<!-- Campaign: start a new one -->
+<div id="warnew" class="overlay hidden">
+  <div class="card">
+    <h1>New <span>campaign</span></h1>
+    <p>Fifteen battlefields in <b>The Cinder Reach</b>, fought over by allied and enemy commanders. Your side holds the west;
+      the enemy holds the east. Join any battle your side is fighting, or attack an enemy battlefield next to one you hold.
+      Every neighbouring battlefield your side holds gives you extra vehicles when a battle starts. Hold all fifteen to win.</p>
+    <p id="warnew-who" class="small dim"></p>
+    <h2>War pace</h2>
+    <p class="small dim">The battles you're not in are fought on paper as real time passes. Pick how fast. You can change it at any time.
+      While you're away the war moves at most 12 reports, so it can't be decided without you.</p>
+    <div id="warnew-pace"></div>
+    <div class="row" style="margin-top:18px">
+      <button id="warnew-begin" class="big">Begin the war</button>
+      <button id="warnew-back">Back</button>
+    </div>
+  </div>
+</div>
+
+<!-- Campaign: the war map -->
+<div id="war" class="hidden">
+  <div class="war-head">
+    <h1 id="war-title">The Cinder Reach</h1>
+    <div id="war-held" class="small"></div>
+    <div class="spacer" style="flex:1"></div>
+    <button id="war-menu">Main menu</button>
+  </div>
+  <div class="war-head" style="margin-top:6px">
+    <b id="war-clock" class="small"></b>
+    <div id="war-pace" title="War pace: how fast the battles you're not in are fought"></div>
+  </div>
+  <div id="war-note"></div>
+  <div class="war-body">
+    <div>
+      <svg id="war-map" viewBox="-4 -2 108 69" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="war-legend"><i style="background:var(--blue)"></i>Your side<i style="background:var(--red)"></i>Enemy
+        · ⚔ battle (ring: blue = going your way) · dashed ring: you can attack · ★ home ground · ◆ capture and hold</div>
+    </div>
+    <div class="war-side">
+      <div id="war-detail"></div>
+      <div id="war-logbox">
+        <h2 style="margin:0 0 6px;font-size:13px;color:var(--accent);text-transform:uppercase;letter-spacing:.08em">War reports</h2>
+        <div id="war-log"></div>
+        <div class="row"><button id="war-newbtn" class="small">New campaign</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="lz" class="overlay hidden">
+  <div class="card lzbox">
+    <h1 id="lz-title">Landing <span>zone</span></h1>
+    <div id="lz-sub" class="dim small"></div>
+    <div class="lzbody">
+      <canvas id="lz-map"></canvas>
+      <div id="lz-cards"></div>
+    </div>
+    <div class="row"><button id="lz-back">Back to the war map</button></div>
+  </div>
+</div>
+<div id="wardrop" class="overlay hidden">
+  <div class="card" style="max-width:480px">
+    <h1>Dropping <span>in</span></h1>
+    <div id="wardrop-text" class="dim"></div>
+    <div class="dropbar"><div id="wardrop-bar"></div></div>
+  </div>
+</div>
+
+<!-- Save and load -->
+<div id="saves" class="overlay hidden">
+  <div class="card saves">
+    <h1 id="saves-title">Save <span>game</span></h1>
+    <div id="saves-where" class="dim small"></div>
+    <div id="saves-list"></div>
+    <div class="row" style="margin-top:14px">
+      <button id="save-file">Download this game</button>
+      <button id="load-file">Load from a file…</button>
+      <input id="load-file-input" type="file" accept=".json,application/json" hidden>
+      <button id="saves-close" class="big">Back</button>
+    </div>
+  </div>
+</div>
+
+<!-- Help -->
+<div id="help" class="overlay hidden">
+  <div class="card">
+    <h1>How to <span>play</span></h1>
+    <h2>Your mission</h2>
+    <ul>
+      <li><b>Deploy your base.</b> You start with your Recycler on wheels. Drive it onto a glowing scrap geyser and
+        press <b>Deploy base</b>. It becomes your headquarters and slowly pumps that geyser.</li>
+      <li><b>Collect scrap.</b> Scavengers gather loose scrap automatically. Scrap pays for everything.</li>
+      <li><b>Upgrade your Recycler</b> to Recycler II. Only its <b>Scavenger IIs</b> can deploy on geysers, and only its <b>Constructor IIs</b> can repair.</li>
+      <li><b>Claim more geysers.</b> Send a Scavenger II to another geyser to turn it into an <b>Extractor</b>. Its scrap flows straight into your total.</li>
+      <li><b>Mind your storage.</b> You can only hold as much scrap as you have room for (300 to start).
+        Build <b>Base Silos</b> next to your Recycler to hold more.</li>
+      <li><b>Protect your Recycler</b> at all costs. If it falls, you lose.
+        <b>Destroy the enemy Recycler</b> to win.</li>
+    </ul>
+    <h2>Factions</h2>
+    <p class="small">This manual uses Scrapline names. The <b>Kethra Concord</b> fights by exactly the same rules under its own names:
+      Recycler = <b>Nexus</b> (on wheels: <b>Monad</b>), Scavenger = <b>Skimmer</b>, Constructor = <b>Loom</b>, Scout = <b>Shard</b>,
+      Hornet = <b>Talon</b>, Tank = <b>Bulwark</b>, Sentry = <b>Pylon</b>, Artillery = <b>Spire</b>, Factory = <b>Assembler</b>,
+      Extractor = <b>Siphon</b>, Base Silo = <b>Vault Orb</b>, Gun Tower = <b>Prism Tower</b>, Research Lab = <b>Archive</b>,
+      Radar = <b>Sensor Array</b>, Repair Pad = <b>Mending Lattice</b>.</p>
+    <h2>Vehicles</h2>
+    <ul>
+      <li><b>Scout</b>: fast, sees far, light gun. <b>Hornet</b>: light rocket tank between a Scout and a Tank: much faster and cheaper than a Tank, less armour, hard-hitting rockets.</li>
+      <li><b>Tank</b>: tough, steady damage. <b>Sentry</b>: a purely defensive turret on tracks. Drive it into place and press <b>Deploy</b>: it digs in and fires a rapid stream at anything in range, never moving or chasing. <b>Pack up</b> (or any move order) to move it again; packed up it cannot fire.</li>
+      <li><b>Artillery</b>: huge range and splash, but must stop to fire and only hits what your side can see.</li>
+    </ul>
+    <h2>Controls</h2>
+    <table class="only-touch">
+      <tr><td><b>Tap your vehicle</b></td><td>Select it. Tap the same kind twice quickly to select all of that kind on screen.</td></tr>
+      <tr><td><b>Tap the map</b></td><td>With vehicles selected: move there (fighting on the way, unless set to Return fire or Stealth) · tap an enemy to attack · tap scrap to gather (scavengers) · tap a damaged building to repair (constructor) · with a Factory selected, set where new vehicles go</td></tr>
+      <tr><td><b>Press, hold, drag</b></td><td>Draw a box to select a group</td></tr>
+      <tr><td><b>One-finger drag</b></td><td>Scroll the map</td></tr>
+      <tr><td><b>Pinch</b></td><td>Zoom in and out</td></tr>
+      <tr><td><b>Attack-move</b></td><td>Press the button, then tap: vehicles travel there and fight anything on the way</td></tr>
+      <tr><td><b>Army ▾ · Call-in · ❚❚</b></td><td>Top bar. <b>Army</b> selects all fighters or one kind, and jumps to an idle worker or your base. <b>❚❚</b> pauses: speed, save, help, full screen, quit.</td></tr>
+      <tr><td><b>Hunt ▾ · Stance ▾ · Orders ▾</b></td><td>With vehicles selected: seek and destroy; how they behave (Aggressive, Return fire, Stealth); Guard, Patrol, Scout, Go repair.</td></tr>
+      <tr><td><b>Aggressive · Return fire · Stealth</b></td><td>How selected vehicles behave. <b>Aggressive</b> (the default): fight anything met on the way, chase a little, then carry on; idle, they help friends under fire nearby. <b>Return fire</b>: shoot what comes in range but keep going. <b>Stealth</b>: hold fire and just get there.</td></tr>
+      <tr><td><b>Hunt</b></td><td>Seek and destroy: go after the nearest enemy you know of, or search for one. <b>Hunt as pack</b> keeps the group together; <b>Hunt solo</b> sends each on its own.</td></tr>
+      <tr><td><b>Building</b></td><td>Pick a building, tap where it should go, then press <b>Build here</b></td></tr>
+          <tr><td><b>Scout</b></td><td>Scouts explore on their own. With several selected, <b>Scout as pack</b> keeps them together; <b>Scout solo</b> spreads them out.</td></tr>
+      <tr><td><b>Patrol</b></td><td>Tanks loop around your buildings and fight anything they meet.</td></tr>
+      <tr><td><b>Guard</b></td><td>Any armed vehicle: press Guard, then pick one of your buildings or vehicles. Guards stay beside it, follow it if it moves, and the moment it is attacked they go after the attacker, then come back.</td></tr>
+      <tr><td><b>Deploy on geyser</b></td><td>A Scavenger drives onto a scrap geyser and becomes an Extractor.</td></tr>
+      <tr><td><b>Waypoint</b></td><td>Select your Recycler, a Factory or a Repair Pad, press Set waypoint, then pick a spot. New vehicles (or, for a Repair Pad, repaired ones) drive there. Clear waypoint removes it.</td></tr>
+      <tr><td><b>Demolish</b></td><td>Select a building and press Demolish, then Confirm. Half its cost is left on the ground as scrap for Scavengers.</td></tr>
+      <tr><td><b>Upgrades</b></td><td>Select your Recycler or a Factory and press Upgrade. Recycler II builds Scavenger IIs (the only ones that can deploy on geysers) and Constructor IIs (the only ones that can repair). Factory II builds researched Mk II vehicles, each clearly stronger with one signature edge (Scout sees further, Hornet fires a third rocket, Tank and dug-in Sentry outrange a basic Tank, Artillery reaches further with a bigger blast). A Gun Tower can upgrade once: an <b>Artillery Tower</b> (long range, splash, needs your side to see the target) or a <b>Heavy Gun Tower</b> (tougher, faster).</td></tr>
+      <tr><td><b>Research</b></td><td>Build a Research Lab and research Advanced Scouts, Tanks or Artillery, one at a time. Mk II vehicles have more armour, damage and speed.</td></tr>
+      <tr><td><b>Building vehicles</b></td><td>Press a vehicle's button once per vehicle; it shows how many are queued. No limit: each is paid for when it starts. The button fills up as it builds; tap its red − to remove one.</td></tr>
+      <tr><td><b>Go repair</b></td><td>Sends damaged vehicles to your nearest Repair Pad. Every kind of vehicle parked on the pad is repaired; workers wait there until they're fixed.</td></tr>
+      <tr><td><b>Recycle</b></td><td>Only on a Repair Pad. Select a vehicle parked on the pad (or the pad itself), press Recycle, then Confirm recycle. You get back half its cost. The Recycler can't be recycled.</td></tr>
+</table>
+    <table class="only-mouse">
+      <tr><td><b>Left-click / drag</b></td><td>Select vehicles. Double-click selects all of that type on screen. Hold <kbd>Shift</kbd> to add.</td></tr>
+      <tr><td><b>Right-click</b></td><td>Move · attack an enemy · gather scrap (scavengers) · repair (constructor) · set rally point (buildings)</td></tr>
+      <tr><td><kbd>A</kbd> then click</td><td>Attack-move: travel there, fighting anything met on the way</td></tr>
+      <tr><td><kbd>S</kbd></td><td>Stop</td></tr>
+      <tr><td><kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd></td><td>The command buttons in the bottom panel</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>1</kbd>–<kbd>9</kbd></td><td>Save the selection as a group. Press the number to reselect; press twice to jump to it.</td></tr>
+      <tr><td><b>Aggressive · Return fire · Stealth</b></td><td>How selected vehicles behave on the move and when idle (Aggressive is the default).</td></tr>
+      <tr><td><b>Hunt</b></td><td>Seek and destroy, as a pack or each on its own.</td></tr>
+      <tr><td><kbd>H</kbd> / <kbd>Space</kbd></td><td>Jump to your base / to the selection</td></tr>
+      <tr><td><kbd>X</kbd></td><td>Find an idle worker</td></tr>
+      <tr><td>Arrows · edge · middle-drag</td><td>Scroll the map. Mouse wheel zooms.</td></tr>
+      <tr><td><kbd>P</kbd> · <kbd>M</kbd> · <kbd>Esc</kbd></td><td>Pause · mute · cancel</td></tr>
+          <tr><td><b>Scout</b></td><td>Scouts explore on their own. With several selected, <b>Scout as pack</b> keeps them together; <b>Scout solo</b> spreads them out.</td></tr>
+      <tr><td><b>Patrol</b></td><td>Tanks loop around your buildings and fight anything they meet.</td></tr>
+      <tr><td><b>Guard</b></td><td>Any armed vehicle: press Guard, then pick one of your buildings or vehicles. Guards stay beside it, follow it if it moves, and the moment it is attacked they go after the attacker, then come back.</td></tr>
+      <tr><td><b>Deploy on geyser</b></td><td>A Scavenger drives onto a scrap geyser and becomes an Extractor.</td></tr>
+      <tr><td><b>Waypoint</b></td><td>Select your Recycler, a Factory or a Repair Pad, press Set waypoint, then pick a spot. New vehicles (or, for a Repair Pad, repaired ones) drive there. Clear waypoint removes it.</td></tr>
+      <tr><td><b>Demolish</b></td><td>Select a building and press Demolish, then Confirm. Half its cost is left on the ground as scrap for Scavengers.</td></tr>
+      <tr><td><b>Upgrades</b></td><td>Select your Recycler or a Factory and press Upgrade. Recycler II builds Scavenger IIs (the only ones that can deploy on geysers) and Constructor IIs (the only ones that can repair). Factory II builds researched Mk II vehicles, each clearly stronger with one signature edge (Scout sees further, Hornet fires a third rocket, Tank and dug-in Sentry outrange a basic Tank, Artillery reaches further with a bigger blast). A Gun Tower can upgrade once: an <b>Artillery Tower</b> (long range, splash, needs your side to see the target) or a <b>Heavy Gun Tower</b> (tougher, faster).</td></tr>
+      <tr><td><b>Research</b></td><td>Build a Research Lab and research Advanced Scouts, Tanks or Artillery, one at a time. Mk II vehicles have more armour, damage and speed.</td></tr>
+      <tr><td><b>Go repair</b></td><td>Sends damaged vehicles to your nearest Repair Pad. Every kind of vehicle parked on the pad is repaired; workers wait there until they're fixed.</td></tr>
+      <tr><td><b>Recycle</b></td><td>Only on a Repair Pad. Select a vehicle parked on the pad (or the pad itself), press Recycle, then Confirm recycle. You get back half its cost. The Recycler can't be recycled.</td></tr>
+</table>
+    <h2>Tips</h2>
+    <ul>
+      <li><b>Scouts</b> are fast and see far: send one to find the enemy base.</li>
+      <li><b>Artillery</b> hits from very far, but only what your side can see. Pair it with scouts.</li>
+      <li>Destroyed vehicles leave <b>salvage</b>. Scavengers can collect it.</li>
+      <li>You can only build near your own buildings. Extractors on geysers push that area outward.</li>
+      <li>Loose scrap runs out. Geysers never do, so upgrade your Recycler and claim them early.</li>
+      <li>A <b>Radar</b> pings every 30 seconds, briefly revealing a wide area. Artillery can fire at anything the ping shows.</li>
+      <li>Research at a <b>Research Lab</b>, then upgrade a Factory to <b>Factory II</b> to build Mk II vehicles.</li>
+      <li>The scrap counter shows what you hold and how much room you have. When it turns yellow you're full, and scrap waits outside until you spend some or build a Base Silo.</li>
+      <li>The enemy attacks in waves. Towers and a few tanks at home keep your Recycler safe while your army is away.</li>
+      <li>Constructors can repair damaged buildings: select one and tap or right-click the building.</li>
+      <li><b>Save</b> from the pause screen (three slots, plus an autosave every 3 minutes and whenever you leave the page). <b>Load game</b> is on the pause and start screens. You can also download a save as a file.</li>
+      <li><b>Call-in</b> (top bar): a <b>Supply drop</b> (300 scrap at your Recycler) or <b>Reinforcements</b> (2 Tanks and 2 Hornets where you tap). You get one per battle; every uplink you hold earns another every 2 minutes.</li>
+      <li><b>Uplinks</b> (capture and hold battles): park combat vehicles by an uplink mast to capture it. Once they're online (5:00), hold two of the three for 3 minutes to win.</li>
+      <li><b>Campaign landings</b>: whoever holds a battlefield has a base there. Attacking, pick a landing zone: an unclaimed geyser, or one of theirs to liberate (destroy the Extractor, then deploy on its geyser). Supply crates come down with you.</li>
+      <li><b>Campaign</b>: fight a war across fifteen battlefields. On the war map, tap a battlefield. <b>Attack</b> an enemy one next to yours, or join a battle your side is fighting: <b>Take command</b> of the allied base and army, or <b>Reinforce</b> with a strike force (gold markers) while the allied commander runs the base and sends you every third vehicle it builds. Each neighbouring battlefield your side holds adds vehicles to your start. <b>Leave battle</b> on the pause screen hands the fight back to the allied commander.</li>
+      <li><b>Music</b> follows the battle: it builds up when fighting breaks out near your forces. Turn it on or off on the start or pause screen.</li>
+    </ul>
+    <div class="row"><button id="helpclose" class="big">Back</button></div>
+  </div>
+</div>
+
+<!-- End screen -->
+<div id="end" class="overlay hidden">
+  <div class="card">
+    <h1 id="end-title">Victory</h1>
+    <div id="end-reason" class="dim"></div>
+    <table id="end-stats"></table>
+    <div class="row" style="margin-top:20px"><button id="again" class="big">Play again</button></div>
+  </div>
+</div>
+
+<!-- The game code. Order matters: each file uses things from the ones above it. -->
+<script src="js/config.js"></script>
+<script src="js/map.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/campaign.js"></script>
+<script src="js/sprites.js"></script>
+<script src="js/sprites_kethra.js"></script>
+<script src="js/render.js"></script>
+<script src="js/saves.js"></script>
+<script src="js/music.js"></script>
+<script src="js/main.js"></script>
+<script src="js/war.js"></script>
+</body>
+</html>
