@@ -937,30 +937,42 @@ Recycler at its first attack.
 | Pause / mute / help / cancel | `P` / `M` / `F1` / `Esc` |
 | Confirm building placement | `Enter` |
 
-The game speed button cycles through ×1, ×2 and ×4.
+Game speed (×1, ×2, ×4) is chosen on the pause screen.
 
 ---
 
 ## 16. Screen layout
 
-- **Top bar:** scrap held / capacity, workers, units / 100, your base's
-  health %, the enemy base's health % (or `?`), the quick buttons, clock,
-  speed and pause. On a narrow phone the clock is hidden, Pause becomes a ❚❚
-  symbol, and the quick buttons get their own second row.
-- **Quick buttons (in the top bar):** Army ▾ (its menu drops down under
-  it), Base, Idle worker, Deselect.
-- **Pause screen:** Resume and **Help**. Help is only reachable from here
-  (or `F1` on a keyboard, which also pauses).
+The aim is the most battlefield and the fewest buttons: everyday orders are
+buttons, everything else sits in drop-down menus (`openPop` in `main.js`).
+Phones work held upright or sideways.
+
+- **Top bar:** scrap held / capacity, units / 100, your base's health %,
+  the enemy base's health % (or `?`), the uplink status (uplink battles),
+  then **Army ▾**, **Call-in**, the clock and the ❚❚ pause/menu button. On
+  narrow screens the health bars and clock are hidden.
+- **Army ▾:** select all combat vehicles or one kind (with counts), or jump
+  to an idle worker, your base, or deselect.
+- **Call-in:** a drop-down of the call-ins (see "Call-ins").
+- **Pause screen (❚❚):** Resume; Save, Load, Help, Full screen; game speed,
+  music and volume; Leave battle (campaign) or Quit to menu (pressed twice).
 - **Bottom panel:** the selected unit or building's details, plus its
-  command buttons. On phones the details shrink to a one- or two-line summary
-  and the buttons wrap into rows of three (portrait) or sit beside the
-  summary (sideways), so nothing needs scrolling.
+  commands. Armed vehicles get **Attack-move**, **Hunt ▾** (as pack / solo),
+  the stance drop-down (shows the current stance: **Aggressive ▾**, **Return
+  fire ▾**, **Stealth ▾**), **Orders ▾** (Guard, Patrol, Scout as pack /
+  solo, Go repair) and **Stop**; deploy buttons appear when they apply.
+  Buildings keep their production and upgrade buttons. On phones the details
+  shrink to a short summary and the panel takes at most 38% of the height.
 - **Minimap:** bottom-right corner (top-right on phones). Shows fog, units,
   buildings, geysers and alerts. Tap it to move the camera. The **Map**
-  button above it folds it down to a small tab; the choice is remembered on
-  that device.
+  button above it folds it down to a small tab; on small screens it starts
+  folded; the choice is remembered on that device.
 - **Message log:** top-left. Shows the latest messages, or only the latest
-  two on a sideways phone.
+  three on a phone.
+- **Start screen:** faction cards, then **Battle** (Destroy the Recycler /
+  Capture the uplinks) and **Difficulty** as drop-downs, then Start battle,
+  Campaign, Load game and **More ▾** (How to play, Full screen, Music, Watch
+  AI vs AI).
 - **On the map:** health bars appear on damaged or selected things. Under a
   building's health bar, a blue bar shows unit production, an amber bar shows
   upgrade or research progress, and a gold bar shows a tank's fill.
@@ -1168,12 +1180,17 @@ itself, which is often rock, so they were always refused; in 30 AI-vs-AI
 games that left team 2 winning 20 to 10, against 17 to 14 once fixed.
 Uplink battles: 13 to 11 over 24 games, 8–29 minutes, median about 15.)
 
-### Landscape only
+### Full screen and installing
 
-On phones and tablets the game is played sideways: held upright, a "Turn
-your device sideways" screen covers everything and a battle in progress
-pauses. Where the browser allows, the screen is also asked to stay in
-landscape (`screen.orientation.lock`).
+**Full screen** (pause screen, or More ▾ on the start screen) uses the
+browser's full-screen mode. Inside claude.ai's artifact viewer, and on
+iPhones, that usually isn't allowed: then a message explains how to get the
+whole screen instead. The game is also **installable**
+(`manifest.webmanifest`, `icon.svg`, `icon-192.png`, `icon-512.png`,
+`icon-180.png` for iPhones): opened from its own web page, "Add to Home
+Screen" (or "Install app") makes a home-screen icon that opens the game full
+screen, in either orientation. `STANDALONE_URL` in `config.js` is the
+address of that page, when there is one.
 
 ### Music
 
@@ -1824,3 +1841,11 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     battlefields, or chosen for a single battle). Call-ins: supply drops and
     reinforcements, one per battle plus more for uplinks held. Phones and
     tablets play in landscape only.
+28. **Portrait again, simpler menus, full screen** (7 November 2026): phones
+    play upright or sideways again. The top bar is down to scrap, units,
+    base health, Army ▾, Call-in, clock and pause; Base, Idle worker and
+    Deselect moved into Army ▾, and game speed onto the pause screen (with a
+    new Quit to menu). Vehicle orders are Attack-move, Hunt ▾, a stance
+    drop-down, Orders ▾ and Stop. The start screen uses drop-downs for battle
+    type and difficulty, with the extras under More ▾. Full screen button,
+    and the game can be installed as an app.

@@ -9,13 +9,6 @@ const $ = id => document.getElementById(id);
 // Phones and tablets get touch controls and touch wording in the help text.
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 document.body.classList.toggle('touch', isTouch);
-// Played sideways on phones and tablets: held upright, a "turn your device"
-// screen covers the game (index.html) and a battle pauses. Where the browser
-// allows it, the screen is also asked to stay in landscape.
-if (isTouch) {
-  addEventListener('pointerdown', () => { try { screen.orientation.lock('landscape').catch(() => {}); } catch (err) { /* not supported */ } }, { once: true });
-  matchMedia('(orientation: portrait)').addEventListener('change', e => { if (e.matches && game && !game.winner && !paused) togglePause(); });
-}
 const canvas = $('game'), ctx = canvas.getContext('2d');
 const mini = $('minimap'), miniCtx = mini.getContext('2d');
 
@@ -56,11 +49,6 @@ function enterBattle(watch, war = null) {
   $('leavebtn').classList.toggle('hidden', !war);
   for (const b of document.querySelectorAll('#paused .loadbtn')) b.classList.toggle('hidden', !!war);
   const mine_ = game.teams[watch ? 1 : view.team].faction;
-  // The Army menu in your faction's words (Shards, Bulwarks...).
-  for (const l of document.querySelectorAll('#armymenu .lbl')) {
-    const type = l.parentElement.dataset.army;
-    l.textContent = mine_ === 'scrapline' ? l.dataset.plural : factionName(mine_, UNIT_TYPES[type].name) + 's';
-  }
   buildTerrain(game);
   minimapBase = null;
   view.selected = []; view.placing = null; view.revealAll = watch; view.pings = []; view.alerts = [];
@@ -68,7 +56,8 @@ function enterBattle(watch, war = null) {
   resize();
   for (const id of ['menu', 'end', 'saves', 'paused', 'help', 'war', 'warnew', 'lz', 'wardrop']) $(id).classList.add('hidden');
   $('log').innerHTML = '';
-  paused = false; speed = 1; $('speedval').textContent = '×1';
+  paused = false; speed = 1; $('speedsel').value = '1';
+  $('quitbtn').classList.toggle('hidden', !!war);
   Music.play('battle', mine_); Music.duck(false);
 }
 
@@ -393,56 +382,45 @@ function recallGroup(key) {
   select(g);
 }
 
-// The Army button opens a menu: everyone, or just one kind of vehicle.
+// The Army button: select everyone, or one kind of vehicle, or jump to an
+// idle worker or your base.
 function toggleArmyMenu() {
-  const menu = $('armymenu');
-  if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
   const all = mine(game.entities).filter(u => u.kind === 'unit' && u.def.role === 'combat');
-  for (const b of menu.querySelectorAll('button')) {
-    const t = b.dataset.army;
-    const n = t === 'all' ? all.length : all.filter(u => baseType(u) === t).length;
-    b.querySelector('.n').textContent = n;
-    b.disabled = n === 0;
-  }
-  const r = $('q-army').getBoundingClientRect();
-  menu.style.left = `${Math.max(6, Math.min(r.left, window.innerWidth - 200))}px`;
-  menu.style.top = `${r.bottom + 6}px`;
-  menu.classList.remove('hidden');
+  const faction = game.teams[view.team].faction;
+  const plural = t => faction === 'scrapline' ? { scout: 'Scouts', hornet: 'Hornets', tank: 'Tanks', sentry: 'Sentries', artillery: 'Artillery' }[t]
+    : factionName(faction, UNIT_TYPES[t].name) + 's';
+  openPop($('q-army'), [
+    { label: 'All combat vehicles', count: all.length, disabled: !all.length, onClick: () => selectArmyType('all') },
+    ...['scout', 'hornet', 'tank', 'sentry', 'artillery'].map(t => {
+      const n = all.filter(u => baseType(u) === t).length;
+      return n ? { label: plural(t), count: n, onClick: () => selectArmyType(t) } : null;
+    }).filter(Boolean),
+    { heading: 'Jump to' },
+    { label: 'Idle worker', onClick: idleWorker },
+    { label: 'Your base', onClick: () => centerOn(findHQ(view.team)) },
+    { label: 'Deselect', onClick: () => select([]) },
+  ]);
 }
 
 // Call-ins: a menu of what can be called down.
 function toggleCallinMenu() {
-  const menu = $('callinmenu');
-  if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
-  $('armymenu').classList.add('hidden');
   const n = game.teams[view.team].callins;
-  menu.innerHTML = '';
+  const items = [];
   for (const [k, ci] of Object.entries(CALLINS)) {
     if (k === 'supply' && view.reinforce) continue;   // the scrap would be the allied commander's
-    const b = document.createElement('button');
-    b.innerHTML = `<b>${ci.name}</b><span class="dim small">${factionText(game.teams[view.team].faction, ci.desc)}</span>`;
-    b.disabled = n < 1;
-    onPress(b, () => {
-      menu.classList.add('hidden');
+    items.push({ label: ci.name, note: factionText(game.teams[view.team].faction, ci.desc), disabled: n < 1, onClick: () => {
       if (game.teams[view.team].callins < 1) return;
       if (k === 'supply') { issueCommand(game, view.team, { type: 'callin', kind: 'supply' }); sound('ack'); return; }
       view.placing = null; view.attackMode = false; view.aim = 'callin';
       logMessage(`${isTouch ? 'Tap' : 'Click'} where the reinforcements should land (open ground you have explored)`, 'info');
-    });
-    menu.appendChild(b);
+    } });
   }
-  const note = document.createElement('div'); note.className = 'note';
-  note.textContent = n < 1 ? (game.uplinks ? 'None ready. Every uplink you hold earns another.' : 'None ready. You get one per battle (more for holding uplinks).')
-    : game.uplinks ? 'Every uplink you hold earns another.' : 'You get one per battle; uplink battles earn more.';
-  menu.appendChild(note);
-  const r = $('q-callin').getBoundingClientRect();
-  menu.style.top = `${r.bottom + 6}px`;
-  menu.classList.remove('hidden');
-  menu.style.left = `${Math.max(6, Math.min(r.left, window.innerWidth - menu.offsetWidth - 6))}px`;
+  items.push({ heading: n < 1 ? (game.uplinks ? 'None ready. Every uplink you hold earns another.' : 'None ready. One per battle; uplinks earn more.')
+    : `${n} ready.${game.uplinks ? ' Every uplink you hold earns another.' : ''}` });
+  openPop($('q-callin'), items);
 }
 
 function selectArmyType(type) {
-  $('armymenu').classList.add('hidden');
   if (type === 'all') { selectArmy(); return; }
   const list = mine(game.entities).filter(u => u.kind === 'unit' && baseType(u) === type);
   if (!list.length) { logMessage(`You have no ${UNIT_TYPES[type].name}s`, 'info'); return; }
@@ -692,6 +670,7 @@ window.addEventListener('keydown', e => {
   input.keys.add(e.key);
   const key = e.key.toUpperCase();
   if (e.key === 'Escape') {
+    if (!$('popmenu').classList.contains('hidden')) { closePop(); return; }
     if (view.placing || view.attackMode || view.aim || view.confirmDemolish || view.confirmRecycle) cancelModes();
     else if (!$('help').classList.contains('hidden')) $('help').classList.add('hidden');
     else select([]);
@@ -748,7 +727,7 @@ function select(list) {
   const units = list.filter(e => e.kind === 'unit');
   view.selected = units.length ? units : list.slice(0, 1);
   view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
-  $('armymenu').classList.add('hidden'); $('callinmenu').classList.add('hidden');
+  closePop();
   if (view.selected.length && isMine(view.selected[0])) sound('select');
   refreshPanel();
 }
@@ -886,6 +865,12 @@ function refreshPanel() {
     }
     onPress(b, () => { onClick(); sound('click'); });
     cmds.appendChild(b);
+    return b;
+  };
+  // A button that opens a drop-down of further orders.
+  const addMenu = (label, hotkey, items, opts = {}) => {
+    const b = addBtn(`${label} ▾`, null, hotkey, () => openPop(b, items.filter(Boolean).map(it => ({ ...it, label: own_(it.label), note: own_(it.note) }))), opts);
+    return b;
   };
 
   const first = sel[0];
@@ -1000,66 +985,88 @@ function refreshPanel() {
     cmds.appendChild(tip);
     return;
   }
-  // Special orders for each kind of vehicle in the selection.
+  // Orders for the selection: the everyday ones as buttons, the rest in
+  // drop-downs (Hunt ▾, Stance ▾, Orders ▾) so the panel stays small.
   const keys = [...HOTKEYS];
-  const scouts = ofType(sel, 'scout'), tanks = ofType(sel, 'tank'), arty = ofType(sel, 'artillery'), scavs = ofType(sel, 'scavenger');
+  const scouts = ofType(sel, 'scout'), tanks = ofType(sel, 'tank'), scavs = ofType(sel, 'scavenger');
   const order = (type, list, extra = {}) => { issueCommand(game, view.team, { type, ids: list.map(u => u.id), ...extra }); sound('ack'); };
-  if (scouts.length > 1) {
-    addBtn('Scout as pack', null, keys.shift(), () => order('scout', scouts, { pack: true }), { title: 'The scouts roam the map together' });
-    addBtn('Scout solo', null, keys.shift(), () => order('scout', scouts, { pack: false }), { title: 'Each scout explores on its own' });
-  } else if (scouts.length) addBtn('Scout', null, keys.shift(), () => order('scout', scouts), { title: 'Explore the map on its own' });
-  // Hunt: seek and destroy, as a pack or each on its own.
-  const hunters = sel.filter(e => e.kind === 'unit' && e.def.weapon && !e.def.deployable);
-  if (hunters.length > 1) {
-    addBtn('Hunt as pack', null, keys.shift(), () => order('hunt', hunters, { pack: true }),
-      { active: hunters.every(u => u.order.type === 'hunt' && u.order.packId), title: 'Seek and destroy together: go after the nearest enemy you know of, or search for one. The pack keeps together.' });
-    addBtn('Hunt solo', null, keys.shift(), () => order('hunt', hunters, { pack: false }),
-      { active: hunters.every(u => u.order.type === 'hunt' && !u.order.packId), title: 'Seek and destroy: each vehicle goes after enemies on its own' });
-  } else if (hunters.length) addBtn('Hunt', null, keys.shift(), () => order('hunt', hunters),
-    { active: hunters[0].order.type === 'hunt', title: 'Seek and destroy: go after the nearest enemy you know of, or search for one' });
-  if (tanks.length) addBtn('Patrol', null, keys.shift(), () => order('patrol', tanks), { title: 'Loop around your buildings, fighting anything met' });
+  const mobileHq = ofType(sel, 'mobileRecycler');
+  if (mobileHq.length) addBtn('Deploy base', null, keys.shift(), () => { view.aim = 'deploy'; refreshPanel(); },
+    { primary: !view.aim, active: view.aim === 'deploy', title: 'Drive onto a scrap geyser and set up your base there' });
+  else if (scavs.some(u => u.def.canDeploy)) addBtn('Deploy on geyser', null, keys.shift(), () => { view.aim = 'deploy'; refreshPanel(); },
+    { active: view.aim === 'deploy', title: 'Turn into an Extractor on a scrap geyser' });
   // Sentries are purely defensive: Deploy digs them in where they stand.
   const sentries = sel.filter(e => e.kind === 'unit' && e.def.deployable);
   if (sentries.some(u => !u.deployed)) addBtn('Deploy', null, keys.shift(), () => order('dig', sentries.filter(u => !u.deployed)),
     { primary: true, title: 'Dig in where it stands: it guards this spot and never moves or chases until packed up' });
   if (sentries.some(u => u.deployed)) addBtn('Pack up', null, keys.shift(), () => order('packup', sentries.filter(u => u.deployed)),
     { title: 'Fold the legs away so it can move. A packed-up Sentry cannot fire.' });
-  if (sel.some(e => e.kind === 'unit' && e.def.weapon && !e.def.deployable)) addBtn('Guard', null, keys.shift(), () => { view.aim = 'guard'; refreshPanel(); },
-    { active: view.aim === 'guard', title: 'Then pick one of your buildings or vehicles to protect' });
+  const armed = sel.filter(e => e.kind === 'unit' && e.def.weapon && !e.def.deployable);
+  if (armed.length) {
+    addBtn('Attack-move', null, 'A', () => { view.attackMode = true; refreshPanel(); }, { active: view.attackMode, title: 'Move, but stop to fight anything on the way' });
+    // Hunt: seek and destroy, as a pack or each on its own.
+    const hunting = armed.every(u => u.order.type === 'hunt');
+    addMenu('Hunt', keys.shift(), [
+      armed.length > 1 && { label: 'Hunt as pack', note: 'Together: the nearest enemy you know of, or search for one', active: hunting && armed.every(u => u.order.packId), onClick: () => order('hunt', armed, { pack: true }) },
+      { label: armed.length > 1 ? 'Hunt solo' : 'Hunt', note: armed.length > 1 ? 'Each goes after enemies on its own' : 'Go after the nearest enemy you know of, or search for one', active: hunting && armed.every(u => !u.order.packId), onClick: () => order('hunt', armed, { pack: false }) },
+    ], { active: hunting, title: 'Seek and destroy' });
+    // How they behave on the move and when idle.
+    const now = new Set(armed.map(u => stanceOf(game, u)));
+    const cur = now.size === 1 ? STANCES.find(st => now.has(st[0])) : null;
+    addMenu(cur ? cur[1] : 'Stance', keys.shift(), STANCES.map(([k, label, tip]) => ({ label, note: tip, active: !!cur && cur[0] === k, onClick: () => { order('stance', armed, { stance: k }); refreshPanel(); } })),
+      { title: 'Stance: how they behave on the move and when idle' });
+  }
+  // Everything else.
   const hurt = sel.filter(e => e.kind === 'unit' && e.hp < e.maxHp);
-  if (hurt.length && game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1))
-    addBtn('Go repair', null, keys.shift(), () => order('gorepair', hurt), { title: 'Drive to the nearest Repair Pad' });
+  const more = [
+    armed.length && { label: 'Guard', note: 'Then pick one of your buildings or vehicles to protect', onClick: () => { view.aim = 'guard'; refreshPanel(); } },
+    tanks.length && { label: 'Patrol', note: 'Loop around your buildings, fighting anything met', onClick: () => order('patrol', tanks) },
+    scouts.length > 1 && { label: 'Scout as pack', note: 'The scouts roam the map together', onClick: () => order('scout', scouts, { pack: true }) },
+    scouts.length && { label: scouts.length > 1 ? 'Scout solo' : 'Scout', note: 'Explore the map', onClick: () => order('scout', scouts, { pack: false }) },
+    hurt.length && game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1) &&
+      { label: 'Go repair', note: 'Drive to the nearest Repair Pad', onClick: () => order('gorepair', hurt) },
+  ].filter(Boolean);
+  if (more.length) addMenu('Orders', keys.shift(), more);
   const parked = recycleCandidates(sel);
   const recycleTip = document.createElement('div'); recycleTip.className = 'dim small tip';
   if (parked.length) addRecycleButtons(addBtn, parked, recycleTip, keys);
-  const mobileHq = ofType(sel, 'mobileRecycler');
-  if (mobileHq.length) addBtn('Deploy base', null, keys.shift(), () => { view.aim = 'deploy'; refreshPanel(); },
-    { active: view.aim === 'deploy', title: 'Drive onto a scrap geyser and set up your base there' });
-  else if (scavs.some(u => u.def.canDeploy)) addBtn('Deploy on geyser', null, keys.shift(), () => { view.aim = 'deploy'; refreshPanel(); },
-    { active: view.aim === 'deploy', title: 'Turn into an Extractor on a scrap geyser' });
-  if (view.aim) {
+  if (sel.some(e => e.kind === 'unit')) addBtn('Stop', null, 'S', () => issueCommand(game, view.team, { type: 'stop', ids: sel.map(e => e.id) }));
+  if (view.aim || view.attackMode) {
     addBtn('Cancel', null, 'Esc', cancelModes);
     const tip = document.createElement('div'); tip.className = 'dim small tip';
-    tip.textContent = view.aim === 'guard' ? `${isTouch ? 'Tap' : 'Click'} one of your buildings or vehicles. Armed vehicles in the selection will guard it.`
+    tip.textContent = view.attackMode ? `${isTouch ? 'Tap' : 'Click'} where to go. They fight anything on the way.`
+      : view.aim === 'guard' ? `${isTouch ? 'Tap' : 'Click'} one of your buildings or vehicles. Armed vehicles in the selection will guard it.`
       : mobileHq.length ? `${isTouch ? 'Tap' : 'Click'} a glowing scrap geyser. Your Recycler drives there and deploys as your base.`
       : `${isTouch ? 'Tap' : 'Click'} a glowing scrap geyser. The Scavenger drives there and becomes an Extractor.`;
     tip.textContent = own_(tip.textContent);
     cmds.appendChild(tip);
   }
-  if (sel.some(e => e.kind === 'unit' && e.def.weapon && !e.def.deployable)) {
-    addBtn('Attack-move', null, 'A', () => { view.attackMode = true; refreshPanel(); }, { active: view.attackMode, title: 'Move, but stop to fight anything on the way' });
-    if (view.attackMode) addBtn('Cancel', null, 'Esc', () => { view.attackMode = false; refreshPanel(); });
-  }
-  if (sel.some(e => e.kind === 'unit')) addBtn('Stop', null, 'S', () => issueCommand(game, view.team, { type: 'stop', ids: sel.map(e => e.id) }));
-  // How they behave on the move and when idle.
-  const armed = sel.filter(e => e.kind === 'unit' && e.def.weapon && !e.def.deployable);
-  if (armed.length) {
-    const now = new Set(armed.map(u => stanceOf(game, u)));
-    for (const [k, label, tip] of STANCES)
-      addBtn(label, null, null, () => { order('stance', armed, { stance: k }); refreshPanel(); }, { active: now.size === 1 && now.has(k), title: tip });
-  }
   if (recycleTip.textContent) cmds.appendChild(recycleTip);
 }
+
+// A drop-down list beside a button: items are { label, note, count, active,
+// disabled, onClick }, or { heading }. Opens upward from buttons in the lower
+// half of the screen.
+function openPop(anchor, items) {
+  const pop = $('popmenu');
+  if (!pop.classList.contains('hidden') && pop.anchor === anchor) { closePop(); return; }
+  pop.innerHTML = ''; pop.anchor = anchor;
+  for (const it of items) {
+    if (it.heading) { const h = document.createElement('div'); h.className = 'pophead'; h.textContent = it.heading; pop.appendChild(h); continue; }
+    const b = document.createElement('button');
+    b.innerHTML = `<span class="poplbl"><b>${it.label}</b>${it.count !== undefined ? `<span class="n">${it.count}</span>` : ''}</span>${it.note ? `<span class="dim small">${it.note}</span>` : ''}`;
+    if (it.active) b.classList.add('active');
+    if (it.disabled) b.disabled = true;
+    onPress(b, () => { if (b.disabled) return; closePop(); it.onClick(); });
+    pop.appendChild(b);
+  }
+  pop.classList.remove('hidden');
+  const r = anchor.getBoundingClientRect(), h = pop.offsetHeight, w = pop.offsetWidth;
+  const top = r.top > window.innerHeight / 2 ? r.top - h - 6 : r.bottom + 6;
+  pop.style.top = `${Math.max(6, Math.min(top, window.innerHeight - h - 6))}px`;
+  pop.style.left = `${Math.max(6, Math.min(r.left, window.innerWidth - w - 6))}px`;
+}
+function closePop() { const pop = $('popmenu'); pop.classList.add('hidden'); pop.anchor = null; }
 
 // -----------------------------------------------------------------------------
 // Top bar, message log, sound
@@ -1072,7 +1079,6 @@ function updateHud() {
   const cap = scrapCapacity(game, view.team);
   $('scrap').textContent = `${Math.floor(me.scrap)} / ${cap}`;
   $('scrap').classList.toggle('full', me.scrap >= cap - 1);
-  $('income').textContent = `${scavs} scavenger${scavs === 1 ? '' : 's'}`;
   $('units').textContent = `${units} / ${CONFIG.UNIT_CAP}`;
   // Base health bars. You only know the enemy's once you have seen it.
   const hq = findHQ;
@@ -1227,10 +1233,7 @@ function frame(now) {
 // -----------------------------------------------------------------------------
 
 let chosenDifficulty = 'normal', chosenFaction = 'scrapline', chosenMode = 'recycler';
-document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
-  chosenMode = b.dataset.mode;
-  document.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('active', x === b));
-}));
+$('modesel').addEventListener('change', e => { chosenMode = e.target.value; });
 try { if (FACTIONS[localStorage.getItem('scrapline.faction')]) chosenFaction = localStorage.getItem('scrapline.faction'); } catch (err) { /* optional */ }
 document.querySelectorAll('[data-faction]').forEach(b => {
   b.classList.toggle('active', b.dataset.faction === chosenFaction);
@@ -1255,12 +1258,15 @@ function drawFactionPreviews(time) {
     });
   }
 }
-document.querySelectorAll('[data-difficulty]').forEach(b => b.addEventListener('click', () => {
-  chosenDifficulty = b.dataset.difficulty;
-  document.querySelectorAll('[data-difficulty]').forEach(x => x.classList.toggle('active', x === b));
-}));
+$('diffsel').addEventListener('change', e => { chosenDifficulty = e.target.value; });
 $('start').onclick = () => startGame(chosenDifficulty);
-$('howto').onclick = () => openHelp();
+// More ▾ on the start screen: the less used choices.
+onPress($('menumore'), () => openPop($('menumore'), [
+  { label: 'How to play', onClick: openHelp },
+  { label: 'Full screen', note: 'Use the whole screen for the game', onClick: toggleFullscreen },
+  { label: `Music: ${Music.isOn() ? 'On' : 'Off'}`, onClick: () => { Music.setOn(!Music.isOn()); unlockAudio(); updateMusicButtons(); } },
+  { label: 'Watch AI vs AI', note: 'Two computer commanders fight it out', onClick: () => startGame(chosenDifficulty, true) },
+]));
 $('savebtn').onclick = () => (view.war ? saveTo('warbattle') : openSaves('save'));
 $('leavebtn').onclick = () => War.leaveBattle();
 for (const b of document.querySelectorAll('.loadbtn')) b.onclick = () => openSaves('load');
@@ -1280,12 +1286,40 @@ $('load-file-input').onchange = async e => {
 };
 // Autosave when the page is hidden (phones close background tabs).
 document.addEventListener('visibilitychange', () => { if (document.hidden && game && !game.winner) saveTo('auto', true); });
-$('watch').onclick = () => startGame(chosenDifficulty, true);
+// Quit a single battle (twice to confirm) and go back to the start screen.
+$('quitbtn').onclick = () => {
+  const b = $('quitbtn');
+  if (b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'Sure? Quit'; setTimeout(() => { b.dataset.sure = ''; b.textContent = 'Quit to menu'; }, 3000); return; }
+  b.dataset.sure = ''; b.textContent = 'Quit to menu';
+  game = null; paused = false;
+  for (const id of ['paused', 'help', 'end']) $(id).classList.add('hidden');
+  $('menu').classList.remove('hidden'); Music.play('menu', chosenFaction); Music.duck(false);
+};
 $('again').onclick = () => {
   $('end').classList.add('hidden');
   if (view.war) { game = null; War.open(); return; }
   $('menu').classList.remove('hidden'); Music.play('menu', chosenFaction);
 };
+// Full screen: the browser's own full-screen mode where it's allowed. Inside
+// claude.ai, or on an iPhone, it usually isn't: then say how to get the
+// whole screen instead (the game's own page, added to the Home Screen).
+function toggleFullscreen() {
+  const d = document, el = d.documentElement;
+  const on = d.fullscreenElement || d.webkitFullscreenElement;
+  const go = on ? (d.exitFullscreen || d.webkitExitFullscreen) : (el.requestFullscreen || el.webkitRequestFullscreen);
+  const help = () => logOrAlert(STANDALONE_URL && !location.href.startsWith(STANDALONE_URL)
+    ? `Full screen isn't allowed here. Open the game on its own page, ${STANDALONE_URL}, and use Full screen there (on an iPhone: Share, then Add to Home Screen).`
+    : 'Full screen isn\'t available in this browser. On an iPhone, use Share, then Add to Home Screen, and open the game from there.');
+  if (!go) { help(); return; }
+  try { const p = go.call(on ? d : el); if (p && p.catch) p.catch(help); } catch (err) { help(); }
+}
+// A message that shows over any screen for a few seconds.
+function logOrAlert(text) {
+  const t = $('toast');
+  t.textContent = text; t.classList.remove('hidden');
+  clearTimeout(t.timer); t.timer = setTimeout(() => t.classList.add('hidden'), 9000);
+}
+
 // Help lives on the pause screen, so opening it always pauses the battle.
 function openHelp() {
   const fromMenu = !$('menu').classList.contains('hidden');
@@ -1308,15 +1342,15 @@ function setMinimapCollapsed(on) {
   $('maptoggle').setAttribute('aria-expanded', String(!on));
   try { localStorage.setItem('scrapline.minimapCollapsed', on ? '1' : '0'); } catch (err) { /* storage is optional */ }
 }
-try { setMinimapCollapsed(localStorage.getItem('scrapline.minimapCollapsed') === '1'); } catch (err) { setMinimapCollapsed(false); }
+// Unless chosen before, the minimap starts folded away on small screens.
+try { const m = localStorage.getItem('scrapline.minimapCollapsed'); setMinimapCollapsed(m === null ? window.innerWidth < 700 : m === '1'); } catch (err) { setMinimapCollapsed(window.innerWidth < 700); }
 onPress($('maptoggle'), () => setMinimapCollapsed(!minimapCollapsed));
-onPress($('q-army'), () => { if (!game) return; $('callinmenu').classList.add('hidden'); toggleArmyMenu(); });
+onPress($('q-army'), () => game && toggleArmyMenu());
 onPress($('q-callin'), () => game && !spectating && toggleCallinMenu());
-for (const b of document.querySelectorAll('#armymenu button')) onPress(b, () => game && selectArmyType(b.dataset.army));
-onPress($('q-base'), () => game && centerOn(findHQ(view.team)));
-onPress($('q-idle'), () => game && idleWorker());
-onPress($('q-clear'), () => game && select([]));
-$('speedbtn').onclick = () => { speed = speed === 1 ? 2 : speed === 2 ? 4 : 1; $('speedval').textContent = `×${speed}`; };
+$('speedsel').addEventListener('change', e => { speed = +e.target.value; });
+for (const b of document.querySelectorAll('.fullbtn')) b.onclick = toggleFullscreen;
+canvas.addEventListener('pointerdown', closePop);
+$('minimap').addEventListener('pointerdown', closePop);
 
 resize();
 requestAnimationFrame(frame);

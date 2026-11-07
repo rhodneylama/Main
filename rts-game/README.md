@@ -55,7 +55,7 @@ Towers, and more Scouts if you rely on Artillery.
 
 ## Playing on a phone or tablet
 
-The game works on touch screens and is played sideways (landscape): held upright, it asks you to turn the device, and a battle pauses.
+The game works on touch screens, held upright or sideways. For the whole screen, use **Full screen** (pause screen, or **More ▾** on the start screen); on an iPhone, or inside claude.ai where full screen isn't allowed, open the game on its own web page and use Share → **Add to Home Screen**: it then opens full screen like an app.
 
 | Action | How |
 | --- | --- |
@@ -66,7 +66,9 @@ The game works on touch screens and is played sideways (landscape): held upright
 | Stance and Hunt | **Aggressive**, **Return fire** or **Stealth** sets how selected vehicles behave; **Hunt** sends them to seek and destroy (see "Orders and stances"). |
 | Scroll / zoom | Drag one finger / pinch |
 | Build | Select the Constructor, pick a building, tap where it goes, then press **Build here** |
-| Deselect, jump home, find an idle worker | **Deselect**, **Base**, **Idle worker** buttons in the top bar |
+| Select your army, jump home, find an idle worker, deselect | **Army ▾** in the top bar |
+| Hunt, stance, guard, patrol | **Hunt ▾**, the stance drop-down (e.g. **Aggressive ▾**) and **Orders ▾** in the bottom panel |
+| Game speed, save, help, full screen, quit | **❚❚** (pause) |
 | Help | Press **Pause**, then **Help** |
 | Hide or show the minimap | **Map** button above it |
 
