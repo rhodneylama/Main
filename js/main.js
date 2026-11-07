@@ -1264,9 +1264,11 @@ $('start').onclick = () => startGame(chosenDifficulty);
 onPress($('menumore'), () => openPop($('menumore'), [
   { label: 'How to play', onClick: openHelp },
   { label: 'Full screen', note: 'Use the whole screen for the game', onClick: toggleFullscreen },
+  STANDALONE_URL && !location.href.startsWith(STANDALONE_URL) && { label: 'Open on its own page', note: 'Outside Claude, for full screen and Add to Home Screen',
+    onClick: () => { const w = window.open(STANDALONE_URL, '_blank', 'noopener'); if (!w) logOrAlert(`Open this address in your browser: ${STANDALONE_URL}`); } },
   { label: `Music: ${Music.isOn() ? 'On' : 'Off'}`, onClick: () => { Music.setOn(!Music.isOn()); unlockAudio(); updateMusicButtons(); } },
   { label: 'Watch AI vs AI', note: 'Two computer commanders fight it out', onClick: () => startGame(chosenDifficulty, true) },
-]));
+].filter(Boolean)));
 $('savebtn').onclick = () => (view.war ? saveTo('warbattle') : openSaves('save'));
 $('leavebtn').onclick = () => War.leaveBattle();
 for (const b of document.querySelectorAll('.loadbtn')) b.onclick = () => openSaves('load');
