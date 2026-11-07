@@ -1190,7 +1190,12 @@ whole screen instead. The game is also **installable**
 `icon-180.png` for iPhones): opened from its own web page, "Add to Home
 Screen" (or "Install app") makes a home-screen icon that opens the game full
 screen, in either orientation. `STANDALONE_URL` in `config.js` is the
-address of that page, when there is one.
+address of that page: **https://rhodneylama.github.io/Main/**, served by
+GitHub Pages from the `gh-pages` branch, which holds a copy of the game
+files (`index.html`, `js/`, the manifest and icons). Inside claude.ai,
+**More ▾ → Open on its own page** opens it. Saves there are kept in that
+browser, separate from the ones on claude.ai (download a save to move it).
+To update it, copy those files from `rts-game/` onto the `gh-pages` branch.
 
 ### Music
 

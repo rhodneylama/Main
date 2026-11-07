@@ -281,7 +281,7 @@ const BUILDING_TYPES = {
 // Hotkeys for the command buttons, in the order the buttons appear.
 // The game's own page outside claude.ai, if it has one (null if not): the
 // Full screen button points players there when full screen isn't allowed.
-const STANDALONE_URL = null;
+const STANDALONE_URL = 'https://rhodneylama.github.io/Main/';
 
 // Call-ins (CONFIG.CALLIN_*).
 const CALLINS = {

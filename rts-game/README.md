@@ -53,6 +53,14 @@ workers; it pulls back from fights it's losing and may leave a trap for
 whatever chases it; and it builds more Artillery if you build lots of Gun
 Towers, and more Scouts if you rely on Artillery.
 
+## Play it full screen
+
+The game has its own page: **https://rhodneylama.github.io/Main/**. Open it
+in your phone's browser, then Share → **Add to Home Screen** (iPhone) or
+**Install app** (Android): the icon opens the game full screen. Saves there
+are separate from the ones in Claude; use **Download this game** and **Load
+from a file…** to move one across.
+
 ## Playing on a phone or tablet
 
 The game works on touch screens, held upright or sideways. For the whole screen, use **Full screen** (pause screen, or **More ▾** on the start screen); on an iPhone, or inside claude.ai where full screen isn't allowed, open the game on its own web page and use Share → **Add to Home Screen**: it then opens full screen like an app.
