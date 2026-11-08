@@ -64,7 +64,7 @@
     border-left: 4px solid currentColor; border-right: 4px solid currentColor; }
 
   /* Bottom panel */
-  #panel { position: fixed; left: 0; bottom: 0; right: 232px; height: calc(132px + var(--safe-b)); display: flex; gap: 12px;
+  #panel { position: fixed; left: 0; bottom: 0; right: 0; height: calc(132px + var(--safe-b)); display: flex; gap: 12px;
     padding: 10px 14px calc(10px + var(--safe-b)) calc(14px + var(--safe-l));
     background: var(--panel); border-top: 1px solid var(--edge); z-index: 5; }
   #selinfo { width: 260px; flex-shrink: 0; overflow: hidden; }
@@ -92,15 +92,12 @@
   #commands > button .minus:hover { background: rgba(255, 90, 74, 0.6); }
   .badge { display: inline-block; min-width: 20px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: #102010; font-size: 12px; font-weight: 700; text-align: center; }
   .tip { width: 100%; }
-  #minimap-wrap { position: fixed; right: 0; bottom: 0; width: calc(232px + var(--safe-r)); height: auto;
-    padding: 8px calc(8px + var(--safe-r)) calc(8px + var(--safe-b)) 8px; background: var(--panel);
-    border-top: 1px solid var(--edge); border-left: 1px solid var(--edge); z-index: 5; }
+  /* The minimap drops down from the Map button, tucked under the top bar's
+     right-hand corner. Folded away, nothing is left on the battlefield. */
+  #minimap-wrap { position: fixed; top: calc(var(--top-h) + 4px); right: calc(6px + var(--safe-r)); padding: 4px; background: var(--panel);
+    border: 1px solid var(--edge); border-radius: 4px; z-index: 5; }
   #minimap { width: 216px; height: 162px; display: block; cursor: pointer; image-rendering: auto; touch-action: none; }
-  #maptoggle { display: block; padding: 2px 9px; margin-bottom: 4px; font-size: 12px; }
-  /* Collapsed: only the small Map button stays. */
-  #minimap-wrap.collapsed { width: auto; height: auto; padding: 6px calc(6px + var(--safe-r)) calc(6px + var(--safe-b)) 6px; }
-  #minimap-wrap.collapsed #minimap { display: none; }
-  #minimap-wrap.collapsed #maptoggle { margin-bottom: 0; }
+  #minimap-wrap.collapsed { display: none; }
   #quickbar { display: flex; gap: 6px; }
   #q-callin.ready { border-color: #ffd25a; color: #ffe9a8; }
   #q-callin b { font-variant-numeric: tabular-nums; }
@@ -307,12 +304,8 @@
     #commands > button .hk { display: none; }
     #commands .tip { width: 100%; }
     .tip { font-size: 11px; }
-    #minimap-wrap { top: calc(var(--top-h) + 6px); bottom: auto; right: calc(6px + var(--safe-r)); width: auto; height: auto; padding: 4px;
-      border: 1px solid var(--edge); border-radius: 4px; }
-    #minimap { width: 132px; height: 99px; }
-    #maptoggle { padding: 4px 9px; min-height: 30px; }
-    #minimap-wrap.collapsed { padding: 4px; }
-    #log { font-size: 12px; max-width: calc(100vw - 170px); }
+    #minimap { width: 160px; height: 120px; }
+    #log { font-size: 12px; max-width: calc(100vw - 200px); }
     #log .msg:nth-last-child(n+4) { display: none; }   /* only the latest three */
     .card { padding: 18px 18px; }
     .card h1 { font-size: 26px; }
@@ -366,6 +359,8 @@
   <div id="quickbar">
     <button id="q-army" title="Select your combat vehicles, or jump to an idle worker or your base">Army ▾</button>
     <button id="q-callin" title="Call-ins: supply drops and reinforcements">Call-in <b id="callin-n">1</b></button>
+    <button id="q-clear" title="Deselect (Esc)">Deselect</button>
+    <button id="maptoggle" aria-expanded="true" title="Show or hide the minimap">Map ▴</button>
   </div>
   <b id="clock">0:00</b>
   <button id="pausebtn" title="Pause and menu (P)" aria-label="Pause and menu"><span class="picon"></span></button>
@@ -401,7 +396,6 @@
 <div id="popmenu" class="hidden"></div>
 <div id="toast" class="hidden" role="status"></div>
 <div id="minimap-wrap">
-  <button id="maptoggle" aria-expanded="true" title="Show or hide the minimap">Map ▾</button>
   <canvas id="minimap" width="216" height="162"></canvas>
 </div>
 
@@ -608,7 +602,8 @@
       <li>Constructors can repair damaged buildings: select one and tap or right-click the building.</li>
       <li><b>Save</b> from the pause screen (three slots, plus an autosave every 3 minutes and whenever you leave the page). <b>Load game</b> is on the pause and start screens. You can also download a save as a file.</li>
       <li><b>Shots can miss</b>: fast movers are hard to hit, and so is anything far away. Vehicles keep moving while they fight, which makes them harder to hit.</li>
-      <li><b>Shields</b>: build a <b>Power Generator</b>, then <b>Shield Projectors</b> (one Generator powers 4; each costs a little scrap to run). Press <b>Rotate</b> (F) while placing to point the forcefield at the threat; build them side by side for a longer wall. The field stops enemy fire from the front only, goes blue → orange → red as it weakens, and when it collapses it takes 15 s to reboot.</li>
+      <li><b>Radar</b>: can be built anywhere you've explored, and you can build around it, so a lone Radar can anchor Gun Towers far from home. Upgrade it to ping every 15 s (Radar II), then to a constant feed (Radar III).</li>
+      <li><b>Shields</b>: research <b>Forcefield Tech</b> at a Research Lab, build a <b>Power Generator</b>, then <b>Shield Projectors</b> (one Generator powers 4; each costs a little scrap to run). Press <b>Rotate</b> (F) while placing to point the forcefield at the threat; build them side by side for a longer wall. The field stops enemy fire from the front only, goes blue → orange → red as it weakens, and when it collapses it takes 15 s to reboot.</li>
       <li><b>Call-in</b> (top bar): a <b>Supply drop</b> (300 scrap at your Recycler) or <b>Reinforcements</b> (2 Tanks and 2 Hornets where you tap). You get one per battle; every uplink you hold earns another every 2 minutes.</li>
       <li><b>Uplinks</b> (capture and hold battles): park combat vehicles by an uplink mast to capture it. Once they're online (5:00), hold two of the three for 3 minutes to win.</li>
       <li><b>Campaign landings</b>: whoever holds a battlefield has a base there. Attacking, pick a landing zone: an unclaimed geyser, or one of theirs to liberate (destroy the Extractor, then deploy on its geyser). Supply crates come down with you.</li>

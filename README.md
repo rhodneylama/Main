@@ -168,7 +168,7 @@ screen hands it back to the allied commander. Hold all fifteen to win.
 
 ## Shields
 
-Build a **Power Generator**, then **Shield Projectors** near it. Each
+Research **Forcefield Tech** at a Research Lab, build a **Power Generator**, then **Shield Projectors** (180 scrap) near it. Each
 projector throws a forcefield wall in front of it that stops enemy fire from
 that side (vehicles and shots from behind pass through). While placing one,
 press **Rotate ↻** (or `F`) to point it at the threat; build several side by
@@ -176,6 +176,15 @@ side for a long wall. One Generator powers four projectors, and each burns a
 little scrap (6 a minute) while running. The field turns from blue to orange
 to red as it weakens; when it collapses, the projector is exposed for 15
 seconds while it reboots.
+
+## Radar
+
+A **Radar** can be built anywhere you've explored, not just inside your
+territory, and you can build around it (a small area), so a hidden Radar out
+in the field can anchor a few Gun Towers. It pings every 30 seconds,
+revealing a wide circle. Upgrade it to **Radar II** (pings every 15 seconds,
+250 scrap) and then **Radar III** (a constant feed: the circle stays
+revealed, 500 scrap).
 
 ## Hit and miss
 

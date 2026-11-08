@@ -78,7 +78,7 @@ const FACTIONS = {
       'Factory': 'Assembler', 'Factory II': 'Assembler II', 'Extractor': 'Siphon', 'Base Silo': 'Vault Orb',
       'Gun Tower': 'Prism Tower', 'Artillery Tower': 'Prism Lancer', 'Heavy Gun Tower': 'Heavy Prism',
       'Research Lab': 'Archive', 'Radar': 'Sensor Array', 'Repair Pad': 'Mending Lattice',
-      'Power Generator': 'Flux Well', 'Shield Projector': 'Aegis Pylon',
+      'Power Generator': 'Flux Well', 'Shield Projector': 'Aegis Pylon', 'Radar II': 'Sensor Array II', 'Radar III': 'Sensor Array III',
       'Advanced Scouts': 'Advanced Shards', 'Advanced Tanks': 'Advanced Bulwarks', 'Advanced Artillery': 'Advanced Spires',
       'Advanced Hornets': 'Advanced Talons', 'Advanced Sentries': 'Advanced Pylons',
     },
@@ -219,6 +219,8 @@ const RESEARCH = {
   artillery2: { name: 'Advanced Artillery', cost: 250, time: 75 },
   hornet2:    { name: 'Advanced Hornets',   cost: 175, time: 50 },
   sentry2:    { name: 'Advanced Sentries',  cost: 175, time: 50 },
+  // Unlocks a building rather than a vehicle (BUILDING_TYPES.shield.requires).
+  shields:    { name: 'Forcefield Tech',    cost: 250, time: 60, unlocks: 'Shield Projectors' },
 };
 
 // size is in map squares. produces = units this building can make.
@@ -257,14 +259,22 @@ const BUILDING_TYPES = {
   },
   lab: {
     name: 'Research Lab', cost: 200, buildTime: 20, hp: 900, size: 2, sight: 200, buildRadius: 6,
-    researches: ['scout2', 'tank2', 'artillery2', 'hornet2', 'sentry2'],
-    desc: 'Researches Mk II vehicles, one at a time. A Factory II can then build them.',
+    researches: ['scout2', 'tank2', 'artillery2', 'hornet2', 'sentry2', 'shields'],
+    desc: 'Researches Mk II vehicles (a Factory II can then build them) and Forcefield Tech (Shield Projectors), one at a time.',
   },
   // Every `every` seconds it pings, revealing a wide circle for `lasts` seconds.
   radar: {
-    name: 'Radar', cost: 150, buildTime: 16, hp: 600, size: 2, sight: 220, buildRadius: 6,
+    // Can be built anywhere you have explored, not just in your territory,
+    // and gives a small territory of its own (as small as a Lab's), so a
+    // lone Radar can anchor Gun Towers far from home.
+    name: 'Radar', cost: 150, buildTime: 16, hp: 600, size: 2, sight: 220, buildRadius: 6, anywhere: true,
     ping: { every: 30, radius: 750, lasts: 4 },
-    desc: 'Every 30 seconds, a radar ping briefly reveals everything in a wide circle (2.5 times normal sight).',
+    // Upgraded twice, each dearer: pings twice as often, then a constant feed.
+    levels: [
+      { name: 'Radar II', cost: 250, time: 30, hp: 800, pingEvery: 15, desc: 'Pings every 15 seconds instead of 30.' },
+      { name: 'Radar III', cost: 500, time: 45, hp: 1000, continuous: true, desc: 'A constant radar feed: everything in its circle stays revealed.' },
+    ],
+    desc: 'Every 30 seconds, a radar ping briefly reveals everything in a wide circle (2.5 times normal sight). Can be built anywhere you have explored, and lets you build around it. Upgrades: pings every 15 s, then a constant feed.',
   },
   // A flat pad vehicles drive onto. Anything parked on it is repaired.
   repairpad: {
@@ -298,9 +308,9 @@ const BUILDING_TYPES = {
   // stops enemy shots coming from that side (vehicles drive straight
   // through, and shots from behind pass). Needs power from a Generator.
   shield: {
-    name: 'Shield Projector', cost: 120, buildTime: 12, hp: 450, size: 2, sight: 200, facing: true,
+    name: 'Shield Projector', cost: 180, buildTime: 12, hp: 450, size: 2, sight: 200, facing: true, requires: 'shields',
     field: { length: 200, offset: 58, hp: 1500, regen: 25, regenDelay: 4, reboot: 15, rebootHp: 0.35, vsArtillery: 1.5 },
-    desc: 'Projects a forcefield wall that stops enemy fire from the front. Turn it to face the threat while placing it. Build them side by side for a longer wall. Needs a Power Generator (one powers 4). The field can be shot down, then reboots after 15 s.',
+    desc: 'Needs Forcefield Tech (Research Lab). Projects a forcefield wall that stops enemy fire from the front. Turn it to face the threat while placing it. Build them side by side for a longer wall. Needs a Power Generator (one powers 4). The field can be shot down, then reboots after 15 s.',
   },
 };
 
