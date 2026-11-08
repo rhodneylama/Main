@@ -98,17 +98,21 @@ function aiUpdate(game, team) {
     else if (diff.secondFactory && has('factory') < 2 && game.time > 300) want = 'factory';
     // A Repair Pad, so damaged vehicles can be sent back to it.
     else if (diff.tactics && diff.tactics.repair && !has('repairpad') && game.time > diff.tactics.repair) want = 'repairpad';
+    // Normal and Hard: a Power Generator, then two Shield Projectors in front
+    // of the base, facing the middle of the map.
+    else if (diff.shieldsAfter && game.time > diff.shieldsAfter && !has('generator')) want = 'generator';
+    else if (diff.shieldsAfter && game.time > diff.shieldsAfter && has('shield') < 2) want = 'shield';
     else if (has('tower') < 1 + Math.floor(has('extractor') / (diff.towerEvery || 1)) && game.time > 200) {   // one per towerEvery Extractors
       // Guard the outpost that has the fewest towers nearby.
       want = 'tower';
       const outposts = buildings.filter(b => b.type === 'extractor' && b.built >= 1);
       near = outposts.find(s => !buildings.some(t => t.type === 'tower' && dist(t, s) < 260)) || null;
     }
-    if (want === 'factory' || want === 'basesilo' || want === 'lab' || want === 'radar' || want === 'repairpad') near = null;  // these go around the Recycler
+    if (want === 'factory' || want === 'basesilo' || want === 'lab' || want === 'radar' || want === 'repairpad' || want === 'generator') near = null;  // these go around the Recycler
     ai.saving = want === 'basesilo' && tm.scrap < BUILDING_TYPES[want].cost;
     if (want && tm.scrap >= BUILDING_TYPES[want].cost) {
       const spot = findBuildSpot(game, team, want, hq, toCenter, near);
-      if (spot) cmd({ type: 'build', ids: [builder.id], building: want, tx: spot.x, ty: spot.y });
+      if (spot) cmd({ type: 'build', ids: [builder.id], building: want, tx: spot.x, ty: spot.y, facing: snapFacing(toCenter) });
     }
   }
 
@@ -317,7 +321,7 @@ function findBuildSpot(game, team, type, hq, towardAngle, near) {
     return null;
   }
   const toward = angleTo(home, { x: W * T / 2, y: H * T / 2 });
-  const baseDist = type === 'tower' ? 8 : 5;
+  const baseDist = type === 'tower' || type === 'shield' ? 8 : 5;
   const htx = home.x / T, hty = home.y / T;
   for (let ring = 0; ring < 6; ring++) {
     for (let k = 0; k < 12; k++) {

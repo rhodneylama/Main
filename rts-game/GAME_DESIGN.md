@@ -386,7 +386,41 @@ upgraded Prism Towers carry gold markings.
 | Gun Tower | **Upgrade once:** Artillery Tower or Heavy Gun Tower (section 8) | Defensive gun (see Weapons). |
 | Research Lab | Research: Advanced Scouts, Advanced Tanks, Advanced Artillery (see section 8) | One topic at a time. The glass dome pulses while researching. |
 | Radar | — | Pings every 30 s, revealing a 750 px circle for 4 s (see section 12). |
+| Power Generator | — | Powers up to 4 Shield Projectors; each powered projector burns 0.1 scrap a second (see Shields). |
+| Shield Projector | — | A directional forcefield wall that stops enemy fire from the front (see Shields). Placed facing one of 8 directions. |
 | Repair Pad | Recycle (vehicles parked on it); Set / Clear waypoint | Vehicles drive over it (it doesn't block movement). Every kind of vehicle of yours parked on it regains 30 HP per second, and Transport shields refill at the same rate. Nothing can be built on top of it. Vehicles parked on it can be **recycled** (below). |
+
+### Shields
+
+A **Shield Projector** (Kethra: Aegis Pylon; 120 scrap, 450 HP, 2 × 2)
+throws a straight **wall of force** 200 px long across the direction it
+faces, 58 px in front of it (`fieldGeometry`, `updateShields`, `hitField`
+in `sim.js`).
+
+- **Directional:** enemy shots crossing the wall **from the front** are
+  stopped and drain it; shots from behind, friendly shots and vehicles go
+  straight through. So a projector covers itself and whatever stands behind
+  its wall from one side only; flank it to get in.
+- **Placing it:** while placing, **Rotate ↻** (or `F`) turns it 45° at a
+  time; the preview shows the wall and an arrow the way it faces. It starts
+  out facing the middle of the map. Projectors built side by side, about 6
+  tiles apart, make one continuous wall: build them in a chain.
+- **Field strength:** 1,500. Each hit takes its damage (Artillery 1.5×).
+  Untouched for 4 s it recharges at 25 a second. Its **colour shows its
+  strength**: blue above 60%, orange to 30%, red below.
+- **Collapse and reboot:** at zero the wall breaks up and the projector is
+  open; after **15 s** it reboots at 35% strength and recharges from there.
+  A faint dashed line shows where it will come back, and a gold ring on the
+  projector fills as it reboots.
+- **Power:** each finished **Power Generator** (Kethra: Flux Well; 150 scrap,
+  700 HP) powers **4** projectors (oldest first; a coil on the Generator
+  spins while it powers something). Each powered projector burns **0.1 scrap
+  a second** (6 a minute) while its field is up or rebooting. Without power,
+  or with the bank empty, the fields drop; when power returns they reboot
+  (15 s).
+- The **computer opponent** (Normal from 9:00, Hard from 7:00) builds a Power
+  Generator by its Recycler and two Shield Projectors in front of its base,
+  facing the middle of the map.
 
 ### Building lifecycle
 
@@ -489,7 +523,24 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
 
 - The turret turns at 4 radians per second, and a unit fires once its aim
   is within about 14 degrees.
-- Bullets and tank shells home in and always hit if the target is alive.
+- **Hit or miss.** Each bullet, shell or rocket rolls to hit when it is
+  fired (`hitChance` in `sim.js`, numbers in `CONFIG.ACCURACY` and `ACC_*`):
+  - base chance: bullets 97%, shells and rockets 95%;
+  - less at range: up to 12% less at full range;
+  - × 0.9 if the shooter is moving;
+  - if the target is moving, less by 0.25% per pixel a second of its speed
+    (a Scout at 98 is hit 25% less often, a Tank at 40 10% less);
+  - at least 15%, at most 98%; **buildings are always hit**.
+
+  A hit homes in as before; a miss flies a little wide (5–11°) and lands 30–90
+  px beyond the target, kicking up dust, and hurts nothing.
+- **Shooting on the move.** In range of an enemy that shoots back, combat
+  vehicles (not Artillery or Sentries, which must stop to fire) keep moving:
+  they circle it sideways at 60% speed (`STRAFE_SPEED`), switching direction
+  every 1.5–3.5 s or when blocked, drifting in or out to stay between 60% and
+  88% of their range, and fire as they go. Moving costs them a little
+  accuracy but makes them harder to hit, and fast vehicles gain the most.
+  Against things that can't shoot back they stop for a steady aim.
 - Artillery shells fly to a spot near the target (random scatter of
   20 + 6% of the distance) and damage everything in a 55-pixel radius.
   Damage falls off to 40% at the edge. Artillery does not hurt its own
@@ -1084,7 +1135,7 @@ last changed hands). Each level adds to the ones below:
 | Level | Extractors | Gun Towers | Base Silos | Scavengers | Garrison | Dug-in Sentries | Also |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 1 | 1 | 0 | 3 | 2 | 0 | Recycler, Factory, Constructor |
-| 2 | 2 (one an outpost 1200–2400 px out) | 2 | 1 | 4 | 4 | 1 | |
+| 2 | 2 (one an outpost toward the middle of the map) | 2 | 1 | 4 | 4 | 1 | |
 | 3 | 2 | 3 | 1 | 5 | 6 | 1 | Recycler II, Repair Pad |
 | 4 | 3 | 4 | 2 | 6 | 9 | 2 | Research Lab |
 
@@ -1096,14 +1147,20 @@ first tower goes there, the others at the outposts. It starts with
 an attack off. Its support bonus counts two levels fewer than usual
 (its support already shows in the fortification).
 
-**Landing zones.** The attacker can land at:
+**Landing zones** are always on the **far half** of the map from the
+holder's base (nearer the opposite corner than their Recycler, and at least
+55% of the way across):
 
-- **Unclaimed geyser:** beside a free geyser at least 1100 px from any of
-  the holder's buildings, the nearest such to their Recycler (geysers with
-  loose scrap within 900 px count as 600 px nearer).
-- **Liberate a geyser:** about 600 px back from the holder's outpost
-  Extractor (from level 2): destroy it and deploy on its geyser.
-- (**Far flank:** a second unclaimed geyser on the other side, when there's
+- **Unclaimed geyser:** beside the free geyser on the far half nearest to
+  62% of the way across from their base (geysers with loose scrap within 900
+  px count as 500 px nearer that mark), on the side away from their base. (A
+  first version used the free geyser nearest the far corner; campaign
+  battles then ran 12–60 minutes, as long as a normal battle.)
+- **Liberate a geyser:** just across the halfway line from the holder's
+  outpost Extractor (from level 2 their outpost stands 32–50% of the way
+  across, on their half), at least 600 px from any of their buildings:
+  destroy it and deploy on its geyser.
+- (**Far flank:** a second unclaimed geyser on the far half, when there's
   no outpost to liberate.)
 
 Leading an attack, you choose: the **Landing zone** screen shows the
@@ -1121,8 +1178,13 @@ landing. An AI lander's first wave waits until 7:00
 (`LANDER_FIRST_WAVE`).
 
 **Pace:** campaign battles run economy, production, construction,
-upgrades and research **1.35× faster** (`CAMPAIGN_TEMPO`), aiming at
-10–15 minute battles. Twenty AI-vs-AI battles (seeds 1–5, four
+upgrades and research **1.5× faster** (`CAMPAIGN_TEMPO`), aiming at
+10–15 minute battles. With far-half landings, hit-and-miss shooting and
+shields (8 November 2026), twelve AI-vs-AI battles (seeds 1–3, the same four
+battlefields) lasted **8–19.5 minutes** (uplink battles 8–19.5, the others
+13.5–19.5); the holder won 10 of 12. (At 1.8× the destroy-the-Recycler
+battles stalled to 50–60 minutes: both sides just built more.) Earlier
+figures, before those changes: Twenty AI-vs-AI battles (seeds 1–5, four
 battlefields: The Crucible, Old Foundry, Broken Spire, Gallows Pass, all at
 base level 2) lasted **8–13.6 minutes**. The holder won **19 of 20** (all
 ten destroy-the-Recycler battles, nine of ten uplink battles): the AI
@@ -1364,7 +1426,7 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `js/campaign.js` | The campaign's rules: the theater, war reports, support, starting bonuses, battle results (section 16, "Campaign") |
 | `js/war.js` | The war map screen and starting campaign battles (drop-in, Take command, Reinforce) |
 | `js/saves.js` | Where saved games are kept: the published page's private per-person store, or this browser (see section 16, "Saving") |
-| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (130 checks). |
+| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (145 checks). |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
 tables), `ROADMAP.md` (planned stages), `ECONOMY_TEST_REPORT.md` (the October
@@ -1416,7 +1478,7 @@ rebuilt.
 
 | Test type | Method | What it checks |
 | --- | --- | --- |
-| **Rules tests** (`tests/rules.js`, 130 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Orders** (Aggressive by default: an enemy beside the route is attacked, then they carry on to where they were sent; Stealth holds fire and arrives sooner; Return fire shoots in passing and keeps going; Hunt as a pack destroys a known enemy building across the map and keeps together; Hunt with nothing known goes searching; a guard goes after whoever attacks what it guards, even out of its range, then returns to its post; an idle vehicle helps a friend under fire nearby; a group attacking one target fans out in an arc; 100 units a side; 200 vehicles fighting take well under a second per battle second); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused); **Campaign** (fifteen battlefields all joined up; each side starts with its half and two battles under way; only neighbouring enemy battlefields can be attacked; more neighbours held means more starting vehicles, and they appear in the battle; each battlefield keeps its own map; war reports come in on time at the chosen pace, at most 12 while away, none on Hold; on Normal the AI commanders alone don't decide the war in 60 reports; winning takes the battlefield; leaving puts it back on paper from how it stood; Reinforce: the allied commander never moves your strike force and sends you some of what it builds); **Uplinks and call-ins** (three uplinks on open ground, the middle in the middle, the sides mirrored; one vehicle captures in about 15 s, three three times as fast; contested means no change; holding two counts only once online; hold two for 3 minutes to win; uplinks earn call-ins; everyone starts with one call-in; the computer opponent uses its call-ins; supply drop lands with 300 scrap; none left, nothing called; reinforcements land where chosen, only on explored ground); **Campaign battlefields** (the holder starts with a base; more support and time held means more built up; two landing zones clear of the defences, one to liberate from level 2; you land where you chose with a strike force, three call-ins, supply crates and knowledge of their Recycler; campaign battles run faster; some battlefields are capture-and-hold). |
+| **Rules tests** (`tests/rules.js`, 145 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Orders** (Aggressive by default: an enemy beside the route is attacked, then they carry on to where they were sent; Stealth holds fire and arrives sooner; Return fire shoots in passing and keeps going; Hunt as a pack destroys a known enemy building across the map and keeps together; Hunt with nothing known goes searching; a guard goes after whoever attacks what it guards, even out of its range, then returns to its post; an idle vehicle helps a friend under fire nearby; a group attacking one target fans out in an arc; 100 units a side; 200 vehicles fighting take well under a second per battle second); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused); **Campaign** (fifteen battlefields all joined up; each side starts with its half and two battles under way; only neighbouring enemy battlefields can be attacked; more neighbours held means more starting vehicles, and they appear in the battle; each battlefield keeps its own map; war reports come in on time at the chosen pace, at most 12 while away, none on Hold; on Normal the AI commanders alone don't decide the war in 60 reports; winning takes the battlefield; leaving puts it back on paper from how it stood; Reinforce: the allied commander never moves your strike force and sends you some of what it builds); **Uplinks and call-ins** (three uplinks on open ground, the middle in the middle, the sides mirrored; one vehicle captures in about 15 s, three three times as fast; contested means no change; holding two counts only once online; hold two for 3 minutes to win; uplinks earn call-ins; everyone starts with one call-in; the computer opponent uses its call-ins; supply drop lands with 300 scrap; none left, nothing called; reinforcements land where chosen, only on explored ground); **Campaign battlefields** (the holder starts with a base; more support and time held means more built up; two landing zones clear of the defences, one to liberate from level 2; you land where you chose with a strike force, three call-ins, supply crates and knowledge of their Recycler; campaign battles run faster; some battlefields are capture-and-hold; landing zones always on the far half of the map); **Hit and miss** (less likely to hit a fast mover, at long range, or on the move; buildings always hit; in a fight some shots miss; vehicles keep moving while they fire); **Shields** (no field without a Generator; with one it boots after its reboot time; a powered projector burns 6 scrap a minute; fire from the front is stopped by the field, from behind it gets through; shot down it collapses and the projector is open, then reboots after 15 s partly charged; one Generator powers four; no scrap, no shields). |
 | **AI duels** (`tests/balance/duels.sh`) | The current opponent plays an earlier version of itself (`tests/balance/ai_previous.js`, the first one; `ai_v2.js` with `OPP=v2`, the 18 October one) on many seeds, 4 games at a time, up to 60 minutes each. With `BOTHOLD=1` both sides use the previous version, giving the baseline for the same seeds. | Whether a change to the opponent actually makes it stronger. Each tactic was tried alone, then in combinations; see the results below. |
 | **AI-vs-AI batches** | Run 30 to 120 full games between two computer players on different seeds. | Games end, typical length, and **fairness** by team and by corner. |
 | **AI tech progression** | Log when the AI reaches each milestone at each difficulty. | The AI actually upgrades, researches and fields Mk II units. |
@@ -1854,3 +1916,11 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     drop-down, Orders ▾ and Stop. The start screen uses drop-downs for battle
     type and difficulty, with the extras under More ▾. Full screen button,
     and the game can be installed as an app.
+29. **Hit and miss, shooting on the move, shields, far-side landings**
+    (8 November 2026): shots roll to hit (fast movers, long range and firing
+    on the move all lower the chance; buildings are always hit); combat
+    vehicles circle armed targets while they fire. Power Generators and
+    directional Shield Projectors (one Generator powers four; scrap upkeep;
+    the field drains, collapses and reboots; blue, orange, red by strength;
+    rotate while placing; build in a chain). Campaign landings always on the
+    far half of the map; campaign tempo 1.5×.

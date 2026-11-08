@@ -19,7 +19,7 @@ function load() {
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
     'createGame, generateMap, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
-    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt });', ctx);
+    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing });', ctx);
   return ctx;
 }
 
@@ -756,6 +756,10 @@ section('Campaign battlefields');
   check('two landing zones to choose from, well clear of their defences', prep.zones.length === 2 &&
     prep.zones.every(z => Math.min(...g.entities.filter(e => e.team === def && e.kind === 'building').map(b => S.dist(b, z))) > 500), prep.zones.map(z => z.key).join(' + '));
   const lib = prep.zones.find(z => z.key === 'liberate');
+  {
+    const hqd = g.entities.find(e => e.team === def && e.type === 'recycler'), oc = g.map.bases[g.corner[3 - def]], home = { x: (oc.x + 0.5) * 32, y: (oc.y + 0.5) * 32 };
+    check('landing zones are always on the far half of the map from their base', prep.zones.every(z => S.dist(z, hqd) > S.dist(z, home)));
+  }
   check('one of them next to an Extractor of theirs to liberate (from base level 2)', setup.fort < 2 || !!lib);
   S.landAttacker(prep, setup, prep.zones[1]);
   const mob = g.entities.find(e => e.team === 1 && e.type === 'mobileRecycler');
@@ -768,6 +772,92 @@ section('Campaign battlefields');
   const up = S.THEATER.sectors.findIndex(s => s.uplinks);
   const us = S.battleSetup(c, up, 'command');
   check('some battlefields are capture-and-hold', us.uplinks && S.prepareBattle(us, [1, 2]).game.uplinks.length === 3);
+}
+
+section('Hit and miss, shooting on the move');
+{
+  const S = load();
+  const g = S.createGame({ seed: 21, aiTeams: [] });
+  for (const e of g.entities) if (e.type !== 'mobileRecycler') e.hp = 0;
+  S.stepGame(g);
+  const h = g.entities.find(e => e.team === 1 && e.type === 'mobileRecycler');
+  const tank = S.addUnitNear(g, 'tank', 1, h.x + 300, h.y - 300), scout = S.addUnitNear(g, 'scout', 2, h.x + 450, h.y - 300);
+  const still = S.hitChance(g, tank, scout, 150);
+  scout.movingTick = g.tick;
+  const moving = S.hitChance(g, tank, scout, 150), far = S.hitChance(g, tank, scout, 200);
+  tank.movingTick = g.tick;
+  const both = S.hitChance(g, tank, scout, 150);
+  check('shots can miss: less likely to hit a fast mover, at long range, or when firing on the move', still > moving && moving > far && moving > both && both > 0.3,
+    `${Math.round(still * 100)}% still, ${Math.round(moving * 100)}% moving, ${Math.round(far * 100)}% at full range, ${Math.round(both * 100)}% both moving`);
+  check('buildings are always hit', S.hitChance(g, tank, h, 150) === 1 || S.hitChance(g, tank, { kind: 'building', def: {} }, 150) === 1);
+  // Two tanks fight: some shots miss, and they keep moving while they fire.
+  const a = S.addUnitNear(g, 'tank', 1, h.x + 600, h.y - 500), b = S.addUnitNear(g, 'tank', 2, h.x + 760, h.y - 500);
+  let shots = 0, hits = 0, moved = 0;
+  const hpb = () => b.hp;
+  let last = a.lastShot, lastHp = b.hp, x0 = a.x, y0 = a.y;
+  S.issueCommand(g, 1, { type: 'attack', ids: [a.id], targetId: b.id });
+  for (let i = 0; i < 30 * 40 && b.hp > 0 && a.hp > 0; i++) {
+    S.stepGame(g);
+    if (a.lastShot !== last) { last = a.lastShot; shots++; }
+    if (b.hp < lastHp) { hits++; lastHp = b.hp; }
+    if (i % 30 === 0) { moved = Math.max(moved, Math.hypot(a.x - x0, a.y - y0)); }
+  }
+  check('in a fight some shots miss', shots > 4 && hits < shots, `${hits} hits from ${shots} shots`);
+  check('and vehicles keep moving while they fire', moved > 60, `moved ${Math.round(moved)} px while fighting`);
+}
+
+section('Shields');
+{
+  const S = load();
+  const g = deployedGame(S), rec = mine(g, 1, 'recycler')[0], T = S.CONFIG.TILE;
+  for (const e of g.entities) if (e.team === 2 && e.type !== 'recycler') e.hp = 0;
+  S.stepGame(g);
+  g.teams[1].scrap = 300;
+  const toward = Math.atan2(g.map.H * 16 - rec.y, g.map.W * 16 - rec.x);
+  const sh = placeDone(S, g, 1, 'shield', { x: rec.x + Math.cos(toward) * 200, y: rec.y + Math.sin(toward) * 200 });
+  sh.facing = S.snapFacing(toward);
+  for (let i = 0; i < 30 * 20; i++) S.stepGame(g);
+  check('a Shield Projector without a Generator has no field', !sh.powered && (!g.activeFields || !g.activeFields.length));
+  placeDone(S, g, 1, 'generator', rec);
+  for (let i = 0; i < 30 * 3; i++) S.stepGame(g);
+  check('with a Power Generator it starts up (after its reboot time)', sh.powered && sh.field.state === 'down');
+  for (let i = 0; i < 30 * (S.CONFIG.ACC_MIN + S.BUILDING_TYPES.shield.field.reboot); i++) S.stepGame(g);
+  check('then the field is up', sh.field.state === 'up' && g.activeFields.length === 1);
+  g.teams[1].incomeMult = 0;   // no income, to see the upkeep
+  const scrap0 = g.teams[1].scrap;
+  for (let i = 0; i < 30 * 10; i++) S.stepGame(g);
+  check('a powered projector burns scrap (6 a minute)', Math.abs((scrap0 - g.teams[1].scrap) - 1) < 0.2, `${(scrap0 - g.teams[1].scrap).toFixed(2)} in 10 s`);
+  // An enemy tank shoots at the projector from the front: the field takes it.
+  const fx = Math.cos(sh.facing), fy = Math.sin(sh.facing);
+  const front = S.addUnitNear(g, 'tank', 2, sh.x + fx * 200, sh.y + fy * 200);
+  for (let i = 0; i < 3; i++) S.stepGame(g);   // let it see the projector
+  const field0 = sh.field.hp, hp0 = sh.hp;
+  S.issueCommand(g, 2, { type: 'attack', ids: [front.id], targetId: sh.id });
+  for (let i = 0; i < 30 * 6; i++) S.stepGame(g);
+  check('enemy fire from the front is stopped by the field', sh.field.hp < field0 && sh.hp === hp0, `field ${Math.round(field0)} → ${Math.round(sh.field.hp)}, projector ${Math.round(sh.hp)}`);
+  // From behind it gets through.
+  front.hp = 0;
+  const back = S.addUnitNear(g, 'tank', 2, sh.x - fx * 150, sh.y - fy * 150);
+  S.issueCommand(g, 2, { type: 'attack', ids: [back.id], targetId: sh.id });
+  for (let i = 0; i < 30 * 6; i++) S.stepGame(g);
+  check('but fire from behind gets through (the field faces one way)', sh.hp < hp0);
+  back.hp = 0; S.stepGame(g);
+  // Knock it down: it collapses, then reboots.
+  sh.field.hp = 5;
+  const hammer = S.addUnitNear(g, 'tank', 2, sh.x + fx * 200, sh.y + fy * 200);
+  S.issueCommand(g, 2, { type: 'attack', ids: [hammer.id], targetId: sh.id });
+  for (let i = 0; i < 30 * 4 && sh.field.state === 'up'; i++) S.stepGame(g);
+  check('a field shot down collapses and leaves the projector open', sh.field.state === 'down' && !g.activeFields.some(f => f.b === sh));
+  hammer.hp = 0;
+  for (let i = 0; i < 30 * (S.BUILDING_TYPES.shield.field.reboot + 1); i++) S.stepGame(g);
+  check('then reboots after 15 s, partly charged', sh.field.state === 'up' && sh.field.hp < S.BUILDING_TYPES.shield.field.hp * 0.5);
+  // One Generator powers four.
+  const more = [1, 2, 3, 4].map(k => placeDone(S, g, 1, 'shield', { x: rec.x - Math.cos(toward) * (150 + k * 80), y: rec.y - Math.sin(toward) * (150 + k * 80) })).filter(Boolean);
+  S.stepGame(g);
+  const powered = g.entities.filter(e => e.type === 'shield' && e.team === 1 && e.powered).length;
+  check('one Generator powers four Shield Projectors', more.length === 4 && powered === 4, `${powered} of ${more.length + 1} powered`);
+  g.teams[1].scrap = 0; S.stepGame(g);
+  check('with no scrap the shields go down', !g.entities.some(e => e.type === 'shield' && e.powered));
 }
 
 console.log(`\n${passes} passed, ${fails} failed`);

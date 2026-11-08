@@ -30,8 +30,18 @@ const CONFIG = {
   // every CALLIN_EARN seconds (up to CALLIN_MAX in hand). They land
   // CALLIN_DELAY seconds after being called.
   CALLIN_START: 1, CALLIN_EARN: 120, CALLIN_MAX: 5, CALLIN_DELAY: 4,
+  // Accuracy: the chance a shot hits. Each weapon's base chance falls with
+  // range (up to ACC_RANGE less at full range), when the shooter is moving
+  // (× ACC_SHOOTER_MOVING) and when the target is moving (less per pixel a
+  // second of its speed). Buildings never dodge. Artillery has its own
+  // spread instead. A miss flies past and hits nothing.
+  ACCURACY: { bullet: 0.97, shell: 0.95, rocket: 0.95 },
+  ACC_RANGE: 0.12, ACC_SHOOTER_MOVING: 0.9, ACC_TARGET_SPEED: 0.0025, ACC_MIN: 0.15,
+  // Vehicles in a fight with an armed enemy keep moving (circling it at
+  // range) at this share of their speed, so they're harder to hit.
+  STRAFE_SPEED: 0.6,
   // Campaign battles: economy and production this much faster.
-  CAMPAIGN_TEMPO: 1.35,
+  CAMPAIGN_TEMPO: 1.5,
   QUEUE_MAX: 99,       // most vehicles queued at one building (each is paid for when its turn comes)
 
   WRECK_SCRAP_FRACTION: 0.3, // share of a destroyed unit's cost left as salvage
@@ -68,6 +78,7 @@ const FACTIONS = {
       'Factory': 'Assembler', 'Factory II': 'Assembler II', 'Extractor': 'Siphon', 'Base Silo': 'Vault Orb',
       'Gun Tower': 'Prism Tower', 'Artillery Tower': 'Prism Lancer', 'Heavy Gun Tower': 'Heavy Prism',
       'Research Lab': 'Archive', 'Radar': 'Sensor Array', 'Repair Pad': 'Mending Lattice',
+      'Power Generator': 'Flux Well', 'Shield Projector': 'Aegis Pylon',
       'Advanced Scouts': 'Advanced Shards', 'Advanced Tanks': 'Advanced Bulwarks', 'Advanced Artillery': 'Advanced Spires',
       'Advanced Hornets': 'Advanced Talons', 'Advanced Sentries': 'Advanced Pylons',
     },
@@ -276,6 +287,21 @@ const BUILDING_TYPES = {
         desc: 'A tougher bunker with a fast twin cannon and a little more reach (range 280).' },
     ],
   },
+  // Powers Shield Projectors: each Generator powers up to `powers` of them,
+  // and every powered projector burns `upkeep` scrap a second while its
+  // field is up or rebooting.
+  generator: {
+    name: 'Power Generator', cost: 150, buildTime: 15, hp: 700, size: 2, sight: 180, powers: 4, upkeep: 0.1,
+    desc: 'Powers up to 4 Shield Projectors. Each powered projector burns 0.1 scrap a second (6 a minute).',
+  },
+  // A directional forcefield: a wall of energy in front of the projector that
+  // stops enemy shots coming from that side (vehicles drive straight
+  // through, and shots from behind pass). Needs power from a Generator.
+  shield: {
+    name: 'Shield Projector', cost: 120, buildTime: 12, hp: 450, size: 2, sight: 200, facing: true,
+    field: { length: 200, offset: 58, hp: 1500, regen: 25, regenDelay: 4, reboot: 15, rebootHp: 0.35, vsArtillery: 1.5 },
+    desc: 'Projects a forcefield wall that stops enemy fire from the front. Turn it to face the threat while placing it. Build them side by side for a longer wall. Needs a Power Generator (one powers 4). The field can be shot down, then reboots after 15 s.',
+  },
 };
 
 // Hotkeys for the command buttons, in the order the buttons appear.
@@ -352,14 +378,14 @@ const DIFFICULTY = {
             upgradeBaseAfter: 300, labAfter: 0, radarAfter: 0, towerUpgradeAfter: 0, towerEvery: 2, tactics: null },
   normal: { label: 'Normal', incomeMult: 1.0,  firstAttack: 300, waveEvery: 150, waveBase: 5, waveGrowth: 0.8,
             maxArmy: 25, armyPerMinute: 3, maxExtractors: 6, maxBaseSilos: 2, maxScavengers: 6, thinkEvery: 1.0, artilleryAfter: 240, secondFactory: true,
-            upgradeBaseAfter: 120, labAfter: 360, radarAfter: 480, towerUpgradeAfter: 900, towerEvery: 3,
+            upgradeBaseAfter: 120, labAfter: 360, radarAfter: 480, towerUpgradeAfter: 900, towerEvery: 3, shieldsAfter: 540,
             tactics: { hold: 600, holdArmy: 2, counter: 0.6, allIn: true, flank: 0.7, feint: 0.4, retreatAt: 0.5, focus: true,
                        raid: true, raidAfter: 420, raidEvery: 240, raidSize: 3, raidWithWave: true, raidRetreat: 1, cautious: 0.5, repair: 0,
                        combined: true, flankers: 0.5, adapt: 0.5, trap: true,
                        hornetsAfter: 900, sentries: 1, sentriesAfter: 900 } },
   hard:   { label: 'Hard',   incomeMult: 1.35, firstAttack: 180, waveEvery: 100, waveBase: 6, waveGrowth: 1.5,
             maxArmy: 40, armyPerMinute: 0, maxExtractors: 7, maxBaseSilos: 3, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true,
-            upgradeBaseAfter: 90, labAfter: 240, radarAfter: 360, towerUpgradeAfter: 600, towerEvery: 3,
+            upgradeBaseAfter: 90, labAfter: 240, radarAfter: 360, towerUpgradeAfter: 600, towerEvery: 3, shieldsAfter: 420,
             tactics: { hold: 360, holdArmy: 1.2, counter: 0.6, allIn: true, flank: 0.7, feint: 0, retreatAt: 0.5, focus: true,
                        raid: true, raidAfter: 240, raidEvery: 150, raidSize: 4, raidWithWave: true, raidRetreat: 1.2, cautious: 1, repair: 0,
                        combined: true, flankers: 1, adapt: 1, trap: true,

@@ -254,6 +254,13 @@ function drawGame(ctx, game, view) {
     drawEffect(ctx, fx);
   }
 
+  // Forcefields, over the vehicles they protect.
+  for (const b of buildings) {
+    if (b.type !== 'shield' || !onScreen(b.x, b.y, 260)) continue;
+    if (b.team !== team && !view.revealAll && !visAt(b.x, b.y) && !visAt(b.x + Math.cos(b.facing) * 58, b.y + Math.sin(b.facing) * 58)) continue;
+    drawField(ctx, b, game.time);
+  }
+
   if (!view.revealAll) drawFog(ctx, game, tm);
 
   // Health bars on top of the fog so they're always readable.
@@ -361,6 +368,16 @@ function drawPlacement(ctx, game, view) {
     ctx.beginPath(); ctx.arc((tx + def.size / 2) * T, (ty + def.size / 2) * T, def.weapon.range, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
   }
+  if (def.field) {
+    // Where its wall of force will stand, and which way it faces.
+    const g = fieldGeometry({ def, facing: view.placeFacing || 0, x: (tx + def.size / 2) * T, y: (ty + def.size / 2) * T });
+    ctx.strokeStyle = 'rgba(90,184,255,0.9)'; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(g.ax, g.ay); ctx.lineTo(g.bx, g.by); ctx.stroke();
+    ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(g.cx, g.cy); ctx.lineTo(g.cx + g.dx * 30, g.cy + g.dy * 30); ctx.stroke();
+    const ax = g.cx + g.dx * 30, ay = g.cy + g.dy * 30;
+    ctx.beginPath(); ctx.moveTo(ax + g.dx * 8, ay + g.dy * 8); ctx.lineTo(ax - g.dy * 7, ay + g.dx * 7); ctx.lineTo(ax + g.dy * 7, ay - g.dx * 7); ctx.closePath();
+    ctx.fillStyle = 'rgba(90,184,255,0.9)'; ctx.fill();
+  }
 }
 
 function placementTile(world, size) {
@@ -408,14 +425,15 @@ function drawScrap(ctx, s) {
 
 // Which design from the unit sheet (js/sprites.js) each game type uses.
 // No prototype, so a type like "constructor" isn't mistaken for a built-in.
-const SPRITE_ID = Object.assign(Object.create(null), { mobileRecycler: 'recyclerV', repairpad: 'repair', basesilo: 'silo', outsilo: 'exsilo', arttower: 'towerArt', heavytower: 'towerHeavy' });
+// Power Generators and Shield Projectors are drawn here (drawPowerBuilding); they borrow the Silo's explosion and crater.
+const SPRITE_ID = Object.assign(Object.create(null), { mobileRecycler: 'recyclerV', repairpad: 'repair', basesilo: 'silo', outsilo: 'exsilo', arttower: 'towerArt', heavytower: 'towerHeavy', generator: 'silo', shield: 'silo' });
 const spriteId = type => SPRITE_ID[type] || type;
 // The Kethra Concord's designs (js/sprites_kethra.js). Its towers have one
 // design; upgraded ones are drawn with its gold markings.
 const KETHRA_ID = Object.assign(Object.create(null), {
   mobileRecycler: 'monad', recycler: 'nexus', scavenger: 'skimmer', constructor: 'loom', scout: 'shard', tank: 'bulwark',
   artillery: 'spire', hornet: 'talon', sentry: 'pylon', factory: 'assembler', repairpad: 'lattice', extractor: 'siphon',
-  basesilo: 'vault', tower: 'prism', arttower: 'prism', heavytower: 'prism', lab: 'archive', radar: 'array',
+  basesilo: 'vault', tower: 'prism', arttower: 'prism', heavytower: 'prism', lab: 'archive', radar: 'array', generator: 'vault', shield: 'vault',
 });
 // Which set of designs, and which design in it, draws a thing of a given faction.
 const artFor = faction => (faction === 'kethra' && window.KethraSprites ? KethraSprites : UnitSprites);
@@ -431,6 +449,7 @@ function flashOver(ctx, x, y, r) {
 }
 
 function drawBuilding(ctx, b, selected, ghost, time) {
+  if (b.type === 'generator' || b.type === 'shield') { drawPowerBuilding(ctx, b, ghost, time); if (selected) drawSelection(ctx, b); return; }
   const T = CONFIG.TILE, s = b.size * T, art = artFor(b.faction), id = artId(b.faction, b.variant || b.type), team = teamName(b.team);
   ctx.save();
   if (ghost) ctx.globalAlpha = 0.5;
@@ -484,6 +503,82 @@ function drawUnit(ctx, u, selected, time) {
     ctx.strokeStyle = `rgba(110,224,110,${0.5 + 0.4 * Math.sin(time * 10)})`; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(u.x, u.y, r + 4, 0, Math.PI * 2); ctx.stroke();
   }
+}
+
+// Power Generator (a coil with a glowing core that spins while it powers
+// something) and Shield Projector (an emitter fork pointing the way its
+// field faces). Kethra versions are rounder, with cyan light.
+function drawPowerBuilding(ctx, b, ghost, time) {
+  const T = CONFIG.TILE, s = b.size * T, h = s / 2, col = TEAMS[b.team].color, kethra = b.faction === 'kethra';
+  const glow = kethra ? '#6ff0ff' : '#ffd25a', body = kethra ? '#2a2e3a' : '#4a5446', plate = kethra ? '#3c4254' : '#6b7866';
+  ctx.save();
+  ctx.translate(b.x, b.y);
+  ctx.globalAlpha = ghost ? 0.5 : b.built < 1 ? 0.25 + 0.6 * b.built : 1;
+  ctx.fillStyle = body; ctx.strokeStyle = '#0d0f0c'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  if (kethra) ctx.arc(0, 0, h - 3, 0, Math.PI * 2); else ctx.rect(-h + 3, -h + 3, s - 6, s - 6);
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = col; ctx.fillRect(-h + 5, h - 9, s - 10, 4);   // team stripe
+  const live = b.built >= 1 && (b.type === 'generator' ? b.powering > 0 : b.powered);
+  if (b.type === 'generator') {
+    ctx.fillStyle = plate; ctx.beginPath(); ctx.arc(0, -2, h * 0.62, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.save(); ctx.rotate(live ? time * 3 : 0);
+    ctx.strokeStyle = live ? glow : '#555'; ctx.lineWidth = 3;
+    for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(0, -2, h * 0.45, k * 2.09, k * 2.09 + 1.3); ctx.stroke(); }
+    ctx.restore();
+    ctx.fillStyle = live ? glow : '#444'; ctx.globalAlpha *= live ? 0.75 + 0.25 * Math.sin(time * 6) : 1;
+    ctx.beginPath(); ctx.arc(0, -2, h * 0.2, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.rotate(b.facing || 0);
+    ctx.fillStyle = plate; ctx.fillRect(-h * 0.5, -h * 0.45, h * 0.9, h * 0.9); ctx.strokeRect(-h * 0.5, -h * 0.45, h * 0.9, h * 0.9);
+    ctx.strokeStyle = live ? glow : '#666'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(h * 0.2, -h * 0.55); ctx.lineTo(h * 0.75, -h * 0.55); ctx.moveTo(h * 0.2, h * 0.55); ctx.lineTo(h * 0.75, h * 0.55);
+    ctx.moveTo(h * 0.2, -h * 0.55); ctx.lineTo(h * 0.2, h * 0.55); ctx.stroke();
+    ctx.fillStyle = live ? glow : '#444'; ctx.beginPath(); ctx.arc(h * 0.45, 0, h * 0.16, 0, Math.PI * 2); ctx.fill();
+    // Rebooting: a ring that fills as it comes back.
+    const f = b.field;
+    if (b.built >= 1 && b.powered && f && f.state === 'down') {
+      ctx.rotate(-(b.facing || 0)); ctx.strokeStyle = '#ffd25a'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(0, 0, h + 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - f.t / b.def.field.reboot)); ctx.stroke();
+    }
+  }
+  ctx.restore();
+  if (b.built < 1) {
+    ctx.strokeStyle = TEAMS[b.team].color; ctx.lineWidth = 2; ctx.setLineDash([6, 5]);
+    ctx.strokeRect(b.x - h + 2, b.y - h + 2, s - 4, s - 4); ctx.setLineDash([]);
+  } else {
+    if (b.hp < b.maxHp * 0.5) artFor(b.faction).drawDamage(ctx, artId(b.faction, b.type), b.x, b.y, time);
+    if (b.hitFlash > 0) flashOver(ctx, b.x, b.y, s * 0.45);
+  }
+}
+
+// A forcefield's colour by its health: blue, then orange, then red.
+const fieldColor = k => (k > 0.6 ? '90,184,255' : k > 0.3 ? '255,160,64' : '255,74,58');
+
+// A Shield Projector's wall of force (fieldGeometry in sim.js), bowed a
+// little outward, shimmering, flaring where it was just hit.
+function drawField(ctx, b, time) {
+  const F = b.def.field, g = fieldGeometry(b), f = b.field;
+  if (!f || !b.powered || b.built < 1) return;
+  if (f.state !== 'up') {
+    // Down: a faint dashed outline of where it will come back.
+    ctx.save(); ctx.strokeStyle = 'rgba(255,210,90,0.35)'; ctx.lineWidth = 2; ctx.setLineDash([5, 9]);
+    ctx.beginPath(); ctx.moveTo(g.ax, g.ay); ctx.lineTo(g.bx, g.by); ctx.stroke(); ctx.restore();
+    return;
+  }
+  const k = f.hp / F.hp, rgb = fieldColor(k), hit = Math.max(0, 1 - (time - f.lastHit) * 3);
+  const qx = g.cx + g.dx * 14, qy = g.cy + g.dy * 14;   // bowed outward
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = `rgba(${rgb},${0.16 + 0.2 * hit})`; ctx.lineWidth = 16;
+  ctx.beginPath(); ctx.moveTo(g.ax, g.ay); ctx.quadraticCurveTo(qx, qy, g.bx, g.by); ctx.stroke();
+  ctx.strokeStyle = `rgba(${rgb},${0.55 + 0.35 * hit})`; ctx.lineWidth = 3;
+  ctx.setLineDash([14, 6]); ctx.lineDashOffset = -time * 40;
+  ctx.beginPath(); ctx.moveTo(g.ax, g.ay); ctx.quadraticCurveTo(qx, qy, g.bx, g.by); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = `rgba(${rgb},0.8)`;
+  for (const [x, y] of [[g.ax, g.ay], [g.bx, g.by]]) { ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill(); }
+  ctx.restore();
 }
 
 function drawHealthBar(ctx, e, selected) {
@@ -591,6 +686,25 @@ function drawEffect(ctx, fx) {
         ctx.fillStyle = 'rgba(255,170,60,0.9)'; ctx.beginPath(); ctx.arc(fx.x, py + 14, 5 + Math.random() * 3, 0, Math.PI * 2); ctx.fill();
       }
       ctx.restore();
+      break;
+    }
+    case 'dust':
+      // A shot that missed, kicking up dirt.
+      ctx.fillStyle = `rgba(150,140,120,${0.5 * (1 - k)})`;
+      ctx.beginPath(); ctx.arc(fx.x, fx.y, 3 + 8 * k, 0, Math.PI * 2); ctx.fill();
+      break;
+    case 'shieldhit':
+      ctx.strokeStyle = `rgba(150,220,255,${0.9 * (1 - k)})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(fx.x, fx.y, 4 + 16 * k, 0, Math.PI * 2); ctx.stroke();
+      break;
+    case 'shielddown': {
+      // The wall breaks up into sparks.
+      const dx = Math.cos(fx.a), dy = Math.sin(fx.a);
+      ctx.fillStyle = `rgba(255,120,80,${1 - k})`;
+      for (let i = -5; i <= 5; i++) {
+        const along = i / 5 * fx.len / 2, out = 6 + 30 * k * (1 + (i * 7 % 3));
+        ctx.fillRect(fx.x - dy * along + dx * out - 2, fx.y + dx * along + dy * out - 2, 4, 4);
+      }
       break;
     }
     case 'flash':
