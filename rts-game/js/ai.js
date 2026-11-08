@@ -101,7 +101,7 @@ function aiUpdate(game, team) {
     // Normal and Hard: a Power Generator, then two Shield Projectors in front
     // of the base, facing the middle of the map.
     else if (diff.shieldsAfter && game.time > diff.shieldsAfter && !has('generator')) want = 'generator';
-    else if (diff.shieldsAfter && game.time > diff.shieldsAfter && has('shield') < 2) want = 'shield';
+    else if (diff.shieldsAfter && game.time > diff.shieldsAfter && tm.research.shields && has('shield') < 2) want = 'shield';
     else if (has('tower') < 1 + Math.floor(has('extractor') / (diff.towerEvery || 1)) && game.time > 200) {   // one per towerEvery Extractors
       // Guard the outpost that has the fewest towers nearby.
       want = 'tower';
@@ -123,6 +123,7 @@ function aiUpdate(game, team) {
     const topics = ['tank2', 'scout2', 'artillery2'];
     if (tac.hornetsAfter) topics.push('hornet2');
     if (tac.sentries) topics.push('sentry2');
+    if (diff.shieldsAfter && game.time > diff.shieldsAfter - 120) topics.push('shields');
     const next = topics.find(k => !tm.research[k] &&
       !buildings.some(b => b.researching && b.researching.key === k));
     // Save up for it: army production pauses until it can be afforded.
@@ -135,6 +136,12 @@ function aiUpdate(game, team) {
       if (tm.scrap >= BUILDING_TYPES.factory.upgrade.cost) cmd({ type: 'upgrade', buildingId: f.id });
       else ai.savingUp = true;
     }
+  }
+
+  // --- Radar upgrades (Hard): faster pings once the army is well under way.
+  if (game.difficulty === 'hard' && game.time > 900 && !ai.saving && !ai.savingUp) {
+    const r = buildings.find(b => b.type === 'radar' && b.built >= 1 && b.upgrading === null && b.level === 1);
+    if (r && tm.scrap >= r.def.levels[0].cost + 200) cmd({ type: 'upgrade', buildingId: r.id });
   }
 
   // --- Gun Tower upgrades: one at a time. Towers at home become Heavy Gun

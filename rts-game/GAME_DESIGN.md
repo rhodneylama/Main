@@ -384,15 +384,16 @@ upgraded Prism Towers carry gold markings.
 | Extractor | — | Pumps 42 a minute from its geyser into a 120 tank. Salvage value counts as 60 (the Scavenger it came from). |
 | Base Silo | — | Adds 300 storage. Drop-off point. Must be within 7 tiles of your Recycler's edge. |
 | Gun Tower | **Upgrade once:** Artillery Tower or Heavy Gun Tower (section 8) | Defensive gun (see Weapons). |
-| Research Lab | Research: Advanced Scouts, Advanced Tanks, Advanced Artillery (see section 8) | One topic at a time. The glass dome pulses while researching. |
-| Radar | — | Pings every 30 s, revealing a 750 px circle for 4 s (see section 12). |
+| Research Lab | Research: Advanced Scouts, Tanks, Artillery, Hornets, Sentries, and **Forcefield Tech** (unlocks Shield Projectors: 250 scrap, 60 s) (see section 8) | One topic at a time. The glass dome pulses while researching. |
+| Radar | **Upgrade twice:** Radar II, Radar III | Pings every 30 s (Radar II: 15 s; Radar III: constantly), revealing a 750 px circle for 4 s. Can be built anywhere explored, with a small territory of its own (see section 12). |
 | Power Generator | — | Powers up to 4 Shield Projectors; each powered projector burns 0.1 scrap a second (see Shields). |
 | Shield Projector | — | A directional forcefield wall that stops enemy fire from the front (see Shields). Placed facing one of 8 directions. |
 | Repair Pad | Recycle (vehicles parked on it); Set / Clear waypoint | Vehicles drive over it (it doesn't block movement). Every kind of vehicle of yours parked on it regains 30 HP per second, and Transport shields refill at the same rate. Nothing can be built on top of it. Vehicles parked on it can be **recycled** (below). |
 
 ### Shields
 
-A **Shield Projector** (Kethra: Aegis Pylon; 120 scrap, 450 HP, 2 × 2)
+A **Shield Projector** (Kethra: Aegis Pylon; **180 scrap**, 450 HP, 2 × 2;
+needs **Forcefield Tech**, researched at a Research Lab for 250 scrap)
 throws a straight **wall of force** 200 px long across the direction it
 faces, 58 px in front of it (`fieldGeometry`, `updateShields`, `hitField`
 in `sim.js`).
@@ -734,6 +735,18 @@ show their firing range.
   during those 4 seconds, which lets artillery hit targets beyond normal
   sight. The Radar's own constant sight is a normal 220. Its info panel
   shows the time to the next ping.
+- **Radar anywhere:** a Radar can be built **anywhere your side has
+  explored**, not only inside your territory, and it has a small territory
+  of its own (radius 6, the same as a Research Lab, the smallest), so a
+  lone Radar out in the field lets you build Gun Towers (or anything else)
+  around it.
+- **Radar upgrades** (each dearer than the last; the Radar keeps working
+  while it upgrades, and starts its new rhythm the moment it's done):
+  **Radar II** (250 scrap, 30 s, 800 HP) pings every **15 seconds**;
+  **Radar III** (500 scrap, 45 s, 1,000 HP) gives a **constant feed**: its
+  750 px circle stays revealed all the time (renewed twice a second; the
+  green ring sweeps every 4 s). On Hard the computer opponent buys Radar II
+  after 15:00.
 
 ---
 
@@ -1000,8 +1013,9 @@ Phones work held upright or sideways.
 
 - **Top bar:** scrap held / capacity, units / 100, your base's health %,
   the enemy base's health % (or `?`), the uplink status (uplink battles),
-  then **Army ▾**, **Call-in**, the clock and the ❚❚ pause/menu button. On
-  narrow screens the health bars and clock are hidden.
+  then **Army ▾**, **Call-in**, **Deselect**, **Map** (opens and folds the
+  minimap), the clock and the ❚❚ pause/menu button. On narrow screens the
+  health bars and clock are hidden.
 - **Army ▾:** select all combat vehicles or one kind (with counts), or jump
   to an idle worker, your base, or deselect.
 - **Call-in:** a drop-down of the call-ins (see "Call-ins").
@@ -1014,9 +1028,10 @@ Phones work held upright or sideways.
   solo, Go repair) and **Stop**; deploy buttons appear when they apply.
   Buildings keep their production and upgrade buttons. On phones the details
   shrink to a short summary and the panel takes at most 38% of the height.
-- **Minimap:** bottom-right corner (top-right on phones). Shows fog, units,
-  buildings, geysers and alerts. Tap it to move the camera. The **Map**
-  button above it folds it down to a small tab; on small screens it starts
+- **Minimap:** drops down from the **Map** button, tucked under the top
+  bar's right-hand corner (it may hang a little below the bar), and leaves
+  nothing on the battlefield when folded away. Shows fog, units, buildings,
+  geysers and alerts. Tap it to move the camera. On small screens it starts
   folded; the choice is remembered on that device.
 - **Message log:** top-left. Shows the latest messages, or only the latest
   three on a phone.
@@ -1426,7 +1441,7 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `js/campaign.js` | The campaign's rules: the theater, war reports, support, starting bonuses, battle results (section 16, "Campaign") |
 | `js/war.js` | The war map screen and starting campaign battles (drop-in, Take command, Reinforce) |
 | `js/saves.js` | Where saved games are kept: the published page's private per-person store, or this browser (see section 16, "Saving") |
-| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (145 checks). |
+| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (155 checks). |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
 tables), `ROADMAP.md` (planned stages), `ECONOMY_TEST_REPORT.md` (the October
@@ -1478,7 +1493,7 @@ rebuilt.
 
 | Test type | Method | What it checks |
 | --- | --- | --- |
-| **Rules tests** (`tests/rules.js`, 145 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Orders** (Aggressive by default: an enemy beside the route is attacked, then they carry on to where they were sent; Stealth holds fire and arrives sooner; Return fire shoots in passing and keeps going; Hunt as a pack destroys a known enemy building across the map and keeps together; Hunt with nothing known goes searching; a guard goes after whoever attacks what it guards, even out of its range, then returns to its post; an idle vehicle helps a friend under fire nearby; a group attacking one target fans out in an arc; 100 units a side; 200 vehicles fighting take well under a second per battle second); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused); **Campaign** (fifteen battlefields all joined up; each side starts with its half and two battles under way; only neighbouring enemy battlefields can be attacked; more neighbours held means more starting vehicles, and they appear in the battle; each battlefield keeps its own map; war reports come in on time at the chosen pace, at most 12 while away, none on Hold; on Normal the AI commanders alone don't decide the war in 60 reports; winning takes the battlefield; leaving puts it back on paper from how it stood; Reinforce: the allied commander never moves your strike force and sends you some of what it builds); **Uplinks and call-ins** (three uplinks on open ground, the middle in the middle, the sides mirrored; one vehicle captures in about 15 s, three three times as fast; contested means no change; holding two counts only once online; hold two for 3 minutes to win; uplinks earn call-ins; everyone starts with one call-in; the computer opponent uses its call-ins; supply drop lands with 300 scrap; none left, nothing called; reinforcements land where chosen, only on explored ground); **Campaign battlefields** (the holder starts with a base; more support and time held means more built up; two landing zones clear of the defences, one to liberate from level 2; you land where you chose with a strike force, three call-ins, supply crates and knowledge of their Recycler; campaign battles run faster; some battlefields are capture-and-hold; landing zones always on the far half of the map); **Hit and miss** (less likely to hit a fast mover, at long range, or on the move; buildings always hit; in a fight some shots miss; vehicles keep moving while they fire); **Shields** (no field without a Generator; with one it boots after its reboot time; a powered projector burns 6 scrap a minute; fire from the front is stopped by the field, from behind it gets through; shot down it collapses and the projector is open, then reboots after 15 s partly charged; one Generator powers four; no scrap, no shields). |
+| **Rules tests** (`tests/rules.js`, 155 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 42 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Orders** (Aggressive by default: an enemy beside the route is attacked, then they carry on to where they were sent; Stealth holds fire and arrives sooner; Return fire shoots in passing and keeps going; Hunt as a pack destroys a known enemy building across the map and keeps together; Hunt with nothing known goes searching; a guard goes after whoever attacks what it guards, even out of its range, then returns to its post; an idle vehicle helps a friend under fire nearby; a group attacking one target fans out in an arc; 100 units a side; 200 vehicles fighting take well under a second per battle second); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused); **Campaign** (fifteen battlefields all joined up; each side starts with its half and two battles under way; only neighbouring enemy battlefields can be attacked; more neighbours held means more starting vehicles, and they appear in the battle; each battlefield keeps its own map; war reports come in on time at the chosen pace, at most 12 while away, none on Hold; on Normal the AI commanders alone don't decide the war in 60 reports; winning takes the battlefield; leaving puts it back on paper from how it stood; Reinforce: the allied commander never moves your strike force and sends you some of what it builds); **Uplinks and call-ins** (three uplinks on open ground, the middle in the middle, the sides mirrored; one vehicle captures in about 15 s, three three times as fast; contested means no change; holding two counts only once online; hold two for 3 minutes to win; uplinks earn call-ins; everyone starts with one call-in; the computer opponent uses its call-ins; supply drop lands with 300 scrap; none left, nothing called; reinforcements land where chosen, only on explored ground); **Campaign battlefields** (the holder starts with a base; more support and time held means more built up; two landing zones clear of the defences, one to liberate from level 2; you land where you chose with a strike force, three call-ins, supply crates and knowledge of their Recycler; campaign battles run faster; some battlefields are capture-and-hold; landing zones always on the far half of the map); **Hit and miss** (less likely to hit a fast mover, at long range, or on the move; buildings always hit; in a fight some shots miss; vehicles keep moving while they fire); **Shields** (no field without a Generator; with one it boots after its reboot time; a powered projector burns 6 scrap a minute; fire from the front is stopped by the field, from behind it gets through; shot down it collapses and the projector is open, then reboots after 15 s partly charged; one Generator powers four; no scrap, no shields); **Radar and Forcefield Tech** (a Radar builds anywhere explored and lets you build around it; pings every 30 s, Radar II every 15 s, Radar III constantly; upgrades cost 250 then 500, and stop at III; Shield Projectors need Forcefield Tech and cost 180). |
 | **AI duels** (`tests/balance/duels.sh`) | The current opponent plays an earlier version of itself (`tests/balance/ai_previous.js`, the first one; `ai_v2.js` with `OPP=v2`, the 18 October one) on many seeds, 4 games at a time, up to 60 minutes each. With `BOTHOLD=1` both sides use the previous version, giving the baseline for the same seeds. | Whether a change to the opponent actually makes it stronger. Each tactic was tried alone, then in combinations; see the results below. |
 | **AI-vs-AI batches** | Run 30 to 120 full games between two computer players on different seeds. | Games end, typical length, and **fairness** by team and by corner. |
 | **AI tech progression** | Log when the AI reaches each milestone at each difficulty. | The AI actually upgrades, researches and fields Mk II units. |
@@ -1924,3 +1939,8 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     the field drains, collapses and reboots; blue, orange, red by strength;
     rotate while placing; build in a chain). Campaign landings always on the
     far half of the map; campaign tempo 1.5×.
+30. **Radar anywhere, Radar upgrades, Forcefield Tech, Map in the top bar**
+    (8 November 2026): Radars build anywhere explored and anchor a small
+    territory; Radar II pings every 15 s, Radar III gives a constant feed.
+    Shield Projectors cost 180 and need Forcefield Tech. Deselect is back in
+    the top bar, and the minimap drops down from a Map button there.

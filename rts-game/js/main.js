@@ -834,7 +834,7 @@ function refreshPanel() {
     if (e.kind === 'unit' && e.order.type === 'guard') { const t = game.byId.get(e.order.targetId); extra = t ? `Guarding ${nameOf(t)}` : 'Guarding'; }
     if (e.kind === 'building' && e.upgrading !== null) { const up = upgradeOf(e); extra = `Upgrading to ${up.name} — ${Math.floor(e.upgrading / up.time * 100)}%${d.produces ? ' (production paused)' : ''}`; }
     if (e.kind === 'building' && e.researching) extra = `Researching ${RESEARCH[e.researching.key].name} — ${Math.floor(e.researching.t / RESEARCH[e.researching.key].time * 100)}%`;
-    if (e.type === 'radar' && e.built >= 1) extra = `Next radar ping in ${Math.ceil(e.pingTimer)}s`;
+    if (e.type === 'radar' && e.built >= 1) extra = e.level > 2 ? 'Constant radar feed' : `Next radar ping in ${Math.ceil(e.pingTimer)}s (every ${e.level > 1 ? 15 : 30}s)`;
     if (e.type === 'repairpad' && e.built >= 1) extra = 'Drive damaged vehicles onto the pad to repair them.';
     // In the words of whoever owns it (a Kethra Bulwark, not a Tank).
     info.innerHTML = `<div class="selname" style="color:${TEAMS[e.team].color}">${nameOf(e)}<span class="hp">Health ${Math.ceil(e.hp)} / ${e.maxHp}</span></div>
@@ -903,6 +903,13 @@ function refreshPanel() {
       else addBtn(`Upgrade to ${up.name}`, up.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'upgrade', buildingId: first.id }),
         { title: `${up.cost} scrap, ${up.time}s. Production pauses while upgrading.` });
     }
+    // Radar: a chain of upgrades (Radar II, Radar III).
+    if (first.built >= 1 && first.def.levels) {
+      const up = first.def.levels[first.level - 1];
+      if (first.upgrading !== null) addBtn(`Upgrading ${Math.floor(first.upgrading / up.time * 100)}%`, null, keys.shift(), () => {}, { locked: true });
+      else if (up) addBtn(`Upgrade to ${up.name}`, up.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'upgrade', buildingId: first.id }),
+        { title: `${up.cost} scrap, ${up.time}s. ${up.desc}` });
+    }
     // Gun Tower: pick one of its upgrades (Artillery Tower, Heavy Gun Tower).
     if (first.built >= 1 && first.def.upgrades && first.level === 1) {
       if (first.upgrading !== null) {
@@ -922,7 +929,7 @@ function refreshPanel() {
         if (tm.research[key]) addBtn(r.name, null, keys.shift(), () => {}, { note: 'Researched ✓', locked: true });
         else if (elsewhere) addBtn(r.name, null, keys.shift(), () => {}, { note: `Researching ${Math.floor(elsewhere.researching.t / r.time * 100)}%`, locked: true });
         else addBtn(r.name, r.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'research', buildingId: first.id, key }),
-          { title: `${r.cost} scrap, ${r.time}s. Unlocks ${UNIT_TYPES[key].name} at a Factory II.`, locked: !!first.researching });
+          { title: `${r.cost} scrap, ${r.time}s. ${r.unlocks ? `Unlocks ${r.unlocks}.` : `Unlocks ${UNIT_TYPES[key].name} at a Factory II.`}`, locked: !!first.researching });
       }
     }
     if (first.built >= 1 && first.def.produces) {
@@ -983,7 +990,10 @@ function refreshPanel() {
     const types = Object.keys(BUILDING_TYPES).filter(t => BUILDING_TYPES[t].buildable !== false);
     types.forEach((type, i) => {
       const d = BUILDING_TYPES[type];
-      addBtn(d.name, d.cost, HOTKEYS[i], () => { startPlacing(type); refreshPanel(); },
+      const locked = d.requires && !game.teams[view.team].research[d.requires];
+      if (locked) addBtn(d.name, null, HOTKEYS[i], () => logMessage(`Research ${RESEARCH[d.requires].name} at a Research Lab first`, 'warn'),
+        { note: 'Research first', locked: true, title: `${d.name}: research ${RESEARCH[d.requires].name} at a Research Lab first.\n${d.desc}` });
+      else addBtn(d.name, d.cost, HOTKEYS[i], () => { startPlacing(type); refreshPanel(); },
         { active: view.placing === type, title: `${d.name} — ${d.cost} scrap\n${d.desc}` });
     });
     // Shield Projectors: turn the field to face the threat (F) before building.
@@ -1360,7 +1370,7 @@ let minimapCollapsed = false;
 function setMinimapCollapsed(on) {
   minimapCollapsed = on;
   $('minimap-wrap').classList.toggle('collapsed', on);
-  $('maptoggle').textContent = on ? 'Map ▸' : 'Map ▾';
+  $('maptoggle').textContent = on ? 'Map ▾' : 'Map ▴';
   $('maptoggle').setAttribute('aria-expanded', String(!on));
   try { localStorage.setItem('scrapline.minimapCollapsed', on ? '1' : '0'); } catch (err) { /* storage is optional */ }
 }
@@ -1369,6 +1379,7 @@ try { const m = localStorage.getItem('scrapline.minimapCollapsed'); setMinimapCo
 onPress($('maptoggle'), () => setMinimapCollapsed(!minimapCollapsed));
 onPress($('q-army'), () => game && toggleArmyMenu());
 onPress($('q-callin'), () => game && !spectating && toggleCallinMenu());
+onPress($('q-clear'), () => game && select([]));
 $('speedsel').addEventListener('change', e => { speed = +e.target.value; });
 for (const b of document.querySelectorAll('.fullbtn')) b.onclick = toggleFullscreen;
 canvas.addEventListener('pointerdown', closePop);

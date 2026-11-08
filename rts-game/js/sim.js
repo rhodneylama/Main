@@ -16,10 +16,11 @@ const baseType = e => (e.def && e.def.base) || e.type;
 const sideName = (game, t) => FACTIONS[game.teams[t].faction].name +
   (game.teams[1].faction === game.teams[2].faction ? ` (${t === 1 ? 'Blue' : 'Red'})` : '');
 // Names are shown in the owner's faction's words ("Tank" is a Bulwark to the Kethra).
-const nameOf = e => factionName(e.faction, (e.level > 1 && e.def.upgrade) ? e.def.upgrade.name : e.def.name);
+const nameOf = e => factionName(e.faction, e.level > 1 && e.def.levels ? e.def.levels[e.level - 2].name : (e.level > 1 && e.def.upgrade) ? e.def.upgrade.name : e.def.name);
 // The upgrade a building is working on: its single upgrade (Recycler,
 // Factory), or the option it picked (Gun Tower).
-const upgradeOf = b => b.upgradeKey ? (b.def.upgrades || []).find(o => o.key === b.upgradeKey) : b.def.upgrade;
+// The next upgrade: a chain (`levels`, the Radar), one of several (`upgrades`, the Gun Tower), or the one (`upgrade`).
+const upgradeOf = b => b.def.levels ? b.def.levels[b.level - 1] : b.upgradeKey ? (b.def.upgrades || []).find(o => o.key === b.upgradeKey) : b.def.upgrade;
 // What a building can make right now (upgraded buildings make more).
 const producesOf = b => (b.level > 1 && b.def.upgrade && b.def.upgrade.produces) || b.def.produces || [];
 
@@ -219,7 +220,7 @@ function canPlaceBuilding(game, team, type, tx, ty) {
       Math.hypot(e.x / T - cx, e.y / T - cy) <= def.placeRange + e.size / 2);
     if (!near) return { ok: false, why: `${def.name}s must be built next to ${def.placeNear === 'recycler' ? 'your Recycler' : 'one of your Extractors'}` };
   }
-  if (!inTerritory(game, team, cx, cy)) return { ok: false, why: 'Outside your territory. Build a Scrap Silo near the edge to expand it.' };
+  if (!def.anywhere && !inTerritory(game, team, cx, cy)) return { ok: false, why: 'Outside your territory. Build a Radar out there to extend it.' };
   return { ok: true };
 }
 
@@ -298,6 +299,7 @@ function issueCommand(game, team, cmd) {
       const def = BUILDING_TYPES[cmd.building];
       if (!u || !def || def.buildable === false) return;
       const tm = game.teams[team];
+      if (def.requires && !tm.research[def.requires]) { pushEvent(game, team, `Research ${RESEARCH[def.requires].name} at a Research Lab first`, 'warn'); return; }
       if (tm.scrap < def.cost) { pushEvent(game, team, 'Not enough scrap', 'warn'); return; }
       const check = canPlaceBuilding(game, team, cmd.building, cmd.tx, cmd.ty);
       if (!check.ok) { pushEvent(game, team, check.why, 'warn'); return; }
@@ -448,9 +450,10 @@ function issueCommand(game, team, cmd) {
     }
     case 'upgrade': {
       const b = own(cmd.buildingId);
-      if (!b || b.kind !== 'building' || b.built < 1 || b.level > 1 || b.upgrading !== null) return;
-      // Gun Towers choose one of several upgrades; others have just one.
-      const up = b.def.upgrades ? b.def.upgrades.find(o => o.key === cmd.option) : b.def.upgrade;
+      if (!b || b.kind !== 'building' || b.built < 1 || b.upgrading !== null) return;
+      if (b.level > (b.def.levels ? b.def.levels.length : 1)) return;
+      // Gun Towers choose one of several upgrades; the Radar has a chain; others have just one.
+      const up = b.def.levels ? b.def.levels[b.level - 1] : b.def.upgrades ? b.def.upgrades.find(o => o.key === cmd.option) : b.def.upgrade;
       if (!up) return;
       const tm = game.teams[team];
       if (tm.scrap < up.cost) { pushEvent(game, team, 'Not enough scrap', 'warn'); return; }
@@ -642,7 +645,8 @@ function updateBuilding(game, b, dt) {
     const up = upgradeOf(b);
     b.upgrading += dt * (game.tempo || 1);
     if (b.upgrading >= up.time) {
-      b.upgrading = null; b.level = 2;
+      b.upgrading = null; b.level++;
+      if (b.def.ping) b.pingTimer = 0;   // an upgraded Radar starts its new rhythm at once
       b.hp += up.hp - b.maxHp; b.maxHp = up.hp;
       if (b.upgradeKey) {
         // A Gun Tower becomes a different kind of tower: new name and gun.
@@ -658,15 +662,23 @@ function updateBuilding(game, b, dt) {
     b.researching.t += dt * (game.tempo || 1);
     if (b.researching.t >= r.time) {
       game.teams[b.team].research[b.researching.key] = true;
-      pushEvent(game, b.team, `${r.name} researched. Build them at a Factory II.`, 'good', b.x, b.y);
+      pushEvent(game, b.team, r.unlocks ? `${r.name} researched: you can build ${r.unlocks}.` : `${r.name} researched. Build them at a Factory II.`, 'good', b.x, b.y);
       b.researching = null;
     }
   }
   if (b.def.ping) {
     b.pingTimer -= dt;
-    if (b.pingTimer <= 0) {
+    const lv = b.level > 1 && b.def.levels ? b.def.levels[b.level - 2] : null;
+    if (lv && lv.continuous) {
+      // Radar III: a constant feed, renewed twice a second, with a sweep now and then.
+      if (b.pingTimer <= 0) {
+        b.pingTimer = 0.5;
+        game.teams[b.team].pings.push({ x: b.x, y: b.y, r: b.def.ping.radius, until: game.time + 0.7 });
+        if ((b.sweep = (b.sweep || 0) + 1) % 8 === 1) game.effects.push({ kind: 'ping', team: b.team, x: b.x, y: b.y, r: b.def.ping.radius, t: 0, life: 1.6 });
+      }
+    } else if (b.pingTimer <= 0) {
       const p = b.def.ping;
-      b.pingTimer = p.every;
+      b.pingTimer = lv && lv.pingEvery ? lv.pingEvery : p.every;
       game.teams[b.team].pings.push({ x: b.x, y: b.y, r: p.radius, until: game.time + p.lasts });
       game.effects.push({ kind: 'ping', team: b.team, x: b.x, y: b.y, r: p.radius, t: 0, life: 1.6 });
       updateVisibility(game);

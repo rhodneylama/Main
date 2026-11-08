@@ -860,5 +860,52 @@ section('Shields');
   check('with no scrap the shields go down', !g.entities.some(e => e.type === 'shield' && e.powered));
 }
 
+section('Radar anywhere, Radar upgrades, Forcefield Tech');
+{
+  const S = load();
+  const g = deployedGame(S), rec = mine(g, 1, 'recycler')[0], T = S.CONFIG.TILE;
+  // Somewhere explored but well outside the base's territory.
+  for (let i = 0; i < g.teams[1].explored.length; i++) g.teams[1].explored[i] = 1;
+  const far = { x: rec.x + 1400 * Math.sign(g.map.W * 16 - rec.x), y: rec.y - 900 * Math.sign(rec.y - g.map.H * 16) };
+  let spot = null;
+  for (let r = 0; r < 25 && !spot; r++) for (let dy = -r; dy <= r && !spot; dy++) for (let dx = -r; dx <= r && !spot; dx++) {
+    const tx = Math.floor(far.x / T) + dx, ty = Math.floor(far.y / T) + dy;
+    if (S.canPlaceBuilding(g, 1, 'radar', tx, ty).ok) spot = { tx, ty };
+  }
+  check('a Radar can be built anywhere explored, outside your territory', !!spot && !S.canPlaceBuilding(g, 1, 'tower', spot.tx, spot.ty).ok);
+  const radar = S.addBuilding(g, 'radar', 1, spot.tx, spot.ty, true);
+  const near = spotFor(S, g, 1, 'tower', radar.x + 80, radar.y + 80);
+  check('and lets you build around it (a small territory, like a Lab\'s)', !!near && Math.hypot((near.tx + 1) * T - radar.x, (near.ty + 1) * T - radar.y) < 7 * T && S.BUILDING_TYPES.radar.buildRadius === S.BUILDING_TYPES.lab.buildRadius);
+  const pings = () => g.teams[1].pings.length;
+  const countPings = sec => { let n = 0, last = radar.pingTimer; for (let i = 0; i < sec * 30; i++) { S.stepGame(g); if (radar.pingTimer > last + 1) n++; last = radar.pingTimer; } return n; };
+  radar.pingTimer = 0.01;
+  check('a Radar pings every 30 s', countPings(61) === 3);   // at 0, 30 and 60 s
+  g.teams[1].scrap = 900; g.teams[1].incomeMult = 0;
+  S.issueCommand(g, 1, { type: 'upgrade', buildingId: radar.id });
+  for (let i = 0; i < 30 * 31; i++) S.stepGame(g);
+  radar.pingTimer = 0.01;
+  check('Radar II pings every 15 s', radar.level === 2 && countPings(61) === 5 && S.nameOf(radar) === 'Radar II');
+  g.teams[1].scrap = 900;   // more than storage holds, just for this check
+  const before = g.teams[1].scrap;
+  S.issueCommand(g, 1, { type: 'upgrade', buildingId: radar.id });
+  check('each upgrade costs more (250, then 500)', before - g.teams[1].scrap === 500 && S.BUILDING_TYPES.radar.levels[0].cost === 250);
+  for (let i = 0; i < 30 * 46; i++) S.stepGame(g);
+  const W = g.map.W, at = (Math.floor(radar.y / T) - 15) * W + Math.floor(radar.x / T);
+  let seen = 0; for (let i = 0; i < 30 * 10; i++) { S.stepGame(g); if (g.teams[1].vis[at]) seen++; }
+  check('Radar III keeps its circle revealed all the time', radar.level === 3 && seen === 30 * 10, `level ${radar.level}, seen ${seen} of 300 ticks`);
+  S.issueCommand(g, 1, { type: 'upgrade', buildingId: radar.id });
+  check('and that is the last upgrade', radar.upgrading === null);
+  // Shields need Forcefield Tech, and cost half as much again.
+  g.teams[1].scrap = 900;
+  const con = S.addUnitNear(g, 'constructor', 1, rec.x + 100, rec.y);
+  const ss = spotFor(S, g, 1, 'shield', rec.x + 150, rec.y + 150);
+  S.issueCommand(g, 1, { type: 'build', ids: [con.id], building: 'shield', tx: ss.tx, ty: ss.ty });
+  check('a Shield Projector needs Forcefield Tech first', !g.entities.some(e => e.type === 'shield'));
+  g.teams[1].research.shields = true;
+  S.issueCommand(g, 1, { type: 'build', ids: [con.id], building: 'shield', tx: ss.tx, ty: ss.ty });
+  check('then it can be built, for 180 scrap', g.entities.some(e => e.type === 'shield') && 900 - g.teams[1].scrap === 180);
+  check('Forcefield Tech is researched at a Research Lab', S.BUILDING_TYPES.lab.researches.includes('shields') && S.RESEARCH.shields.cost > 0);
+}
+
 console.log(`\n${passes} passed, ${fails} failed`);
 process.exit(fails ? 1 : 0);
