@@ -616,6 +616,17 @@ function confirmPlacement() {
   if (view.placing && view.placeAt) placeBuilding(view.placeAt, false);
 }
 
+// Start placing a building. A Shield Projector starts out facing the middle
+// of the map (from where you are looking), and turns 45° at a time.
+function startPlacing(type) {
+  view.placing = type;
+  if (BUILDING_TYPES[type].facing && view.placeFacing === undefined) {
+    const at = view.mouseWorld || { x: view.cam.x + view.screenW / view.cam.zoom / 2, y: view.cam.y + view.screenH / view.cam.zoom / 2 };
+    view.placeFacing = snapFacing(Math.atan2(game.map.H * CONFIG.TILE / 2 - at.y, game.map.W * CONFIG.TILE / 2 - at.x));
+  }
+}
+function rotatePlacement() { view.placeFacing = snapFacing((view.placeFacing || 0) + Math.PI / 4); }
+
 function placeBuilding(w, keepPlacing) {
   const builder = mine(view.selected).find(u => u.kind === 'unit' && u.def.role === 'builder');
   const def = BUILDING_TYPES[view.placing];
@@ -624,7 +635,7 @@ function placeBuilding(w, keepPlacing) {
   const check = canPlaceBuilding(game, view.team, view.placing, tx, ty);
   if (!check.ok) { logMessage(check.why, 'warn'); sound('error'); return; }
   if (game.teams[view.team].scrap < def.cost) { logMessage('Not enough scrap', 'warn'); sound('error'); return; }
-  issueCommand(game, view.team, { type: 'build', ids: [builder.id], building: view.placing, tx, ty });
+  issueCommand(game, view.team, { type: 'build', ids: [builder.id], building: view.placing, tx, ty, facing: def.facing ? view.placeFacing : undefined });
   sound('build');
   if (!keepPlacing) { view.placing = null; view.placeReady = false; view.placeAt = null; }
   refreshPanel();
@@ -682,6 +693,7 @@ window.addEventListener('keydown', e => {
     return;
   }
   if (e.key === 'Enter' && view.placing) { confirmPlacement(); return; }
+  if (key === 'F' && view.placing && BUILDING_TYPES[view.placing].facing) { rotatePlacement(); return; }
   if (key === 'P' || e.key === 'Pause') { togglePause(); return; }
   if (key === 'H') { centerOn(findHQ(view.team)); return; }
   if (key === 'M') { toggleMute(); return; }
@@ -799,6 +811,12 @@ function refreshPanel() {
     if (e.kind === 'unit' && e.def.role === 'harvester') extra = `Carrying ${Math.floor(e.carry)} / ${d.carryMax} scrap` +
       (d.canDeploy ? ' · can deploy on geysers' : ' · cannot deploy (needs Scavenger II)');
     if (e.kind === 'unit' && e.def.role === 'builder') extra = d.canRepair ? 'Builds and repairs' : 'Builds only. Repairs need a Constructor II.';
+    if (e.type === 'generator' && e.built >= 1) extra = `Powering ${e.powering || 0} / ${d.powers} Shield Projectors · ${((e.powering || 0) * d.upkeep * 60).toFixed(0)} scrap a minute`;
+    if (e.type === 'shield' && e.built >= 1) {
+      const f = e.field;
+      extra = !e.powered ? (game.teams[e.team].scrap <= 0 ? 'No scrap to run it: field down' : 'No power: build a Power Generator (one powers 4)')
+        : f && f.state === 'up' ? `Field ${Math.round(f.hp)} / ${d.field.hp}` : `Field rebooting: ${Math.ceil(f ? f.t : d.field.reboot)} s`;
+    }
     if (e.kind === 'unit' && d.weapon) extra = `Damage ${d.weapon.damage} · Range ${d.weapon.range} · Speed ${d.speed}`;
     if (e.kind === 'unit' && d.deployable) extra = e.deployed ? `Deployed: guarding this spot (range ${d.weapon.range}). Pack up to move it.` : 'Packed up: cannot fire. Move it into place, then press Deploy.';
     if (e.kind === 'building' && e.built < 1) extra = `Under construction — ${Math.floor(e.built * 100)}%`;
@@ -965,9 +983,11 @@ function refreshPanel() {
     const types = Object.keys(BUILDING_TYPES).filter(t => BUILDING_TYPES[t].buildable !== false);
     types.forEach((type, i) => {
       const d = BUILDING_TYPES[type];
-      addBtn(d.name, d.cost, HOTKEYS[i], () => { view.placing = type; refreshPanel(); },
+      addBtn(d.name, d.cost, HOTKEYS[i], () => { startPlacing(type); refreshPanel(); },
         { active: view.placing === type, title: `${d.name} — ${d.cost} scrap\n${d.desc}` });
     });
+    // Shield Projectors: turn the field to face the threat (F) before building.
+    if (view.placing && BUILDING_TYPES[view.placing].facing) addBtn('Rotate ↻', null, 'F', rotatePlacement, { title: 'Turn the forcefield 45° (F)' });
     if (view.placing && isTouch && view.placeReady) addBtn('Build here', null, '↵', confirmPlacement, { primary: true });
     if (view.placing) addBtn('Cancel', null, 'Esc', () => { view.placing = null; view.placeReady = false; refreshPanel(); });
     // A Constructor can go for repairs, and be recycled on a pad, like any vehicle.

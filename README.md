@@ -166,6 +166,23 @@ the start of a battle; the enemy gets the same from its own.
 Win a battle and the battlefield is yours. **Leave battle** on the pause
 screen hands it back to the allied commander. Hold all fifteen to win.
 
+## Shields
+
+Build a **Power Generator**, then **Shield Projectors** near it. Each
+projector throws a forcefield wall in front of it that stops enemy fire from
+that side (vehicles and shots from behind pass through). While placing one,
+press **Rotate ↻** (or `F`) to point it at the threat; build several side by
+side for a long wall. One Generator powers four projectors, and each burns a
+little scrap (6 a minute) while running. The field turns from blue to orange
+to red as it weakens; when it collapses, the projector is exposed for 15
+seconds while it reboots.
+
+## Hit and miss
+
+Shots can miss: fast vehicles and far-away targets are harder to hit, and
+firing on the move costs a little accuracy. In a fight, vehicles keep moving
+around their target, so they're harder to hit too.
+
 ## Uplinks and call-ins
 
 **Uplinks** (capture and hold): three masts on the map. Park combat vehicles

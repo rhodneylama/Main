@@ -311,7 +311,11 @@ function establishBase(game, team, fort, extra = []) {
   // Extractors on the nearest geysers, except that from level 2 one of them
   // is an outpost further out (one an attacker can try to liberate).
   const near = free().sort((a, b) => dist(a, hq) - dist(b, hq));
-  const outpost = fort >= 2 ? near.find(g => dist(g, hq) > 1200 && dist(g, hq) < 2400) : null;
+  // The outpost sits out toward the middle of the map (still on their half),
+  // where a landing on the far half can reach it.
+  const other = game.map.bases[game.corner[3 - team]], far = { x: (other.x + 0.5) * T, y: (other.y + 0.5) * T }, D = dist(hq, far);
+  const outpost = fort >= 2 ? near.filter(g => dist(g, hq) > 0.32 * D && dist(g, hq) < 0.5 * D && dist(g, hq) < dist(g, far))
+    .sort((a, b) => Math.abs(dist(a, hq) - 0.42 * D) - Math.abs(dist(b, hq) - 0.42 * D))[0] : null;
   const picks = near.filter(g => g !== outpost && dist(g, hq) < 1200).slice(0, FORT.extractors[L] - (outpost ? 1 : 0)).concat(outpost ? [outpost] : []);
   for (const g of picks) placeOnGeyser(game, team, 'extractor', g);
   updateVisibility(game);
@@ -349,36 +353,43 @@ function establishBase(game, team, fort, extra = []) {
 function landingZones(game, defTeam) {
   const T = CONFIG.TILE, defs = game.entities.filter(e => e.team === defTeam && e.kind === 'building');
   const hq = defs.find(b => b.type === 'recycler');
+  // The attacker always lands on the far half of the map, the side of the
+  // corner opposite the holder's base.
+  const corner = game.map.bases[game.corner[3 - defTeam]], home = { x: (corner.x + 0.5) * T, y: (corner.y + 0.5) * T };
+  const D = dist(hq, home);
+  const farHalf = p => dist(p, hq) >= Math.max(dist(p, home), 0.55 * D);
   const clear = p => Math.min(...defs.map(b => dist(b, p)));
-  const open = (p, away, from) => {
-    // Step back from `p`, directly away from `from`, until `away` clear of the defences.
-    const a = angleTo(from, p);
-    for (let r = 0; r < 1600; r += 40) {
-      const q = { x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r };
-      if (clear(q) < away) continue;
-      const t = nearestOpenTile(game, Math.floor(q.x / T), Math.floor(q.y / T), 6);
-      if (t) return { x: (t.x + 0.5) * T, y: (t.y + 0.5) * T };
-    }
-    return null;
-  };
-  // Unclaimed geysers well clear of the defences, nearest their base first,
-  // counting loose scrap within 900 px as being 600 px nearer.
+  const spotNear = p => { const t = nearestOpenTile(game, Math.floor(p.x / T), Math.floor(p.y / T), 6); return t && { x: (t.x + 0.5) * T, y: (t.y + 0.5) * T }; };
+  // Beside a geyser, on the side away from their base.
+  const beside = g => { const a = angleTo(hq, g); return spotNear({ x: g.x + Math.cos(a) * 110, y: g.y + Math.sin(a) * 110 }) || g; };
   const scrapNear = g => game.scrap.some(n => dist(n, g) < 900);
-  const freeG = game.geysers.filter(g => !geyserTaken(game, g) && clear(g) >= 1100)
-    .sort((a, b) => (dist(a, hq) - (scrapNear(a) ? 600 : 0)) - (dist(b, hq) - (scrapNear(b) ? 600 : 0)));
+  // Unclaimed geysers on the far half, nearest first to about 62% of the way
+  // across from their base (geysers with loose scrap close by count as 500
+  // px nearer that mark): the opposite side, without a trek from the corner.
+  const mark = g => Math.abs(dist(g, hq) - 0.62 * D) - (scrapNear(g) ? 500 : 0);
+  const freeG = game.geysers.filter(g => !geyserTaken(game, g) && farHalf(g)).sort((a, b) => mark(a) - mark(b));
   const zones = [];
   if (freeG[0]) {
-    const p = open(freeG[0], 0, hq) || freeG[0];
-    zones.push({ key: 'free', name: 'Unclaimed geyser', desc: 'Land beside a geyser nobody holds, well clear of their defences. Deploy and build up, then strike.', x: p.x, y: p.y, geyserId: freeG[0].id });
+    const p = beside(freeG[0]);
+    zones.push({ key: 'free', name: 'Unclaimed geyser', desc: 'Land beside a geyser nobody holds, on the far half of the map from their base. Deploy and build up, then strike.', x: p.x, y: p.y, geyserId: freeG[0].id });
   }
+  // Their outpost Extractor out toward the middle: land just across the
+  // halfway line from it, clear of their towers.
   const outer = defs.filter(b => b.type === 'extractor').sort((a, b) => dist(b, hq) - dist(a, hq))[0];
-  if (outer && dist(outer, hq) > 900) {
-    const p = open(outer, 600, hq);
-    if (p) zones.push({ key: 'liberate', name: 'Liberate a geyser', desc: 'Land near their outlying Extractor. Destroy it and deploy your Recycler on its geyser: closer to their base, but a fight from the first minute.', x: p.x, y: p.y, geyserId: outer.geyserId });
+  if (outer && dist(outer, hq) > 0.3 * D) {
+    const a = angleTo(outer, home);
+    for (let r = 300; r < 2400; r += 40) {
+      const q = { x: outer.x + Math.cos(a) * r, y: outer.y + Math.sin(a) * r };
+      if (!farHalf(q) || clear(q) < 600) continue;
+      const p = spotNear(q);
+      if (p) zones.push({ key: 'liberate', name: 'Liberate a geyser', desc: 'Land across the middle from their outpost Extractor. Destroy it and deploy your Recycler on its geyser: a forward base, but a fight from the start.', x: p.x, y: p.y, geyserId: outer.geyserId });
+      break;
+    }
   }
   if (zones.length < 2) {
+    // Otherwise a second unclaimed geyser on the far half, as far as possible from the first.
     const alt = freeG.slice(1).sort((a, b) => dist(b, freeG[0]) - dist(a, freeG[0]))[0];
-    if (alt) { const p = open(alt, 0, hq) || alt; zones.push({ key: 'flank', name: 'Far flank', desc: 'Land beside an unclaimed geyser on the other flank, far from their defences.', x: p.x, y: p.y, geyserId: alt.id }); }
+    if (alt) { const p = beside(alt); zones.push({ key: 'flank', name: 'Far flank', desc: 'Land beside another unclaimed geyser on the far side of the map.', x: p.x, y: p.y, geyserId: alt.id }); }
   }
   return zones;
 }

@@ -127,10 +127,14 @@ function addBuilding(game, type, team, tx, ty, complete) {
     rally: null, cooldown: 0, turret: faceCentre(game, (tx + def.size / 2) * T, (ty + def.size / 2) * T),
     target: null, retarget: 0, hitFlash: 0, seen: {},
   };
+  if (def.facing) b.facing = snapFacing(b.turret);
   setOccupied(game, b, 1);
   game.entities.push(b); game.byId.set(b.id, b);
   return b;
 }
+
+// Shield Projectors face one of eight directions.
+const snapFacing = a => Math.round(a / (Math.PI / 4)) * (Math.PI / 4);
 
 function setOccupied(game, b, delta) {
   if (b.def.walkable) return;  // vehicles drive over repair pads
@@ -299,6 +303,7 @@ function issueCommand(game, team, cmd) {
       if (!check.ok) { pushEvent(game, team, check.why, 'warn'); return; }
       tm.scrap -= def.cost;
       const b = addBuilding(game, cmd.building, team, cmd.tx, cmd.ty, false);
+      if (def.facing) b.facing = typeof cmd.facing === 'number' ? cmd.facing : snapFacing(b.turret);
       u.order = { type: 'build', targetId: b.id };
       planPathNear(game, u, b);
       break;
@@ -600,6 +605,7 @@ function stepGame(game) {
   }
   separateUnits(game);
   if (game.uplinks && game.tick % 6 === 0) updateUplinks(game, dt * 6);
+  updateShields(game, dt);
   if (game.drops && game.drops.length) updateDrops(game);
   updateProjectiles(game, dt);
   removeDead(game);
@@ -1366,9 +1372,29 @@ function engageTarget(game, u, t, dt) {
     followPath(game, u, dt, 12);
     aimAtNearby(game, u, dt);
   } else {
-    u.path = [];
+    // In range: against anything that shoots back, keep moving (harder to
+    // hit) and fire on the move; otherwise stop for a steady aim.
+    if (u.kind === 'unit' && !u.def.deployToFire && u.def.role === 'combat' && t.def.weapon) strafe(game, u, t, dt);
+    else u.path = [];
     aimAndFire(game, u, t, dt);
   }
+}
+
+// Circle the target sideways, switching direction every few seconds (or
+// when blocked), drifting in or out to stay between 60% and 88% of range.
+function strafe(game, u, t, dt) {
+  u.path = [];
+  const R = u.def.weapon.range + (t.kind === 'building' ? t.radius * 0.8 : 0), d = dist(u, t);
+  if (!u.strafeDir || game.time >= (u.strafeUntil || 0)) { u.strafeDir = game.rng() < 0.5 ? -1 : 1; u.strafeUntil = game.time + 1.5 + game.rng() * 2; }
+  const a = angleTo(t, u), radial = d > R * 0.88 ? -0.7 : d < R * 0.6 ? 0.7 : 0;
+  const mx = -Math.sin(a) * u.strafeDir + Math.cos(a) * radial, my = Math.cos(a) * u.strafeDir + Math.sin(a) * radial;
+  const want = Math.atan2(my, mx);
+  u.angle = turnToward(u.angle, want, 4 * dt);
+  const step = u.def.speed * CONFIG.STRAFE_SPEED * dt * Math.max(0.3, Math.cos(wrapAngle(want - u.angle)));
+  const ox = u.x, oy = u.y;
+  moveWithCollision(game, u, Math.cos(u.angle) * step, Math.sin(u.angle) * step);
+  u.movingTick = game.tick;
+  if (Math.hypot(u.x - ox, u.y - oy) < step * 0.3) { u.strafeDir = -u.strafeDir; u.strafeUntil = game.time + 1.5; }
 }
 
 // While driving, point the gun at anything in range and shoot it.
@@ -1377,6 +1403,16 @@ function aimAtNearby(game, u, dt) {
   const t = u.target && edgeDist(u, u.target) <= u.def.weapon.range ? u.target : null;
   if (t) aimAndFire(game, u, t, dt);
   else u.turret = turnToward(u.turret, u.angle, 3 * dt);
+}
+
+// The chance a shot from `e` at `t` (edge distance d) hits (CONFIG.ACCURACY).
+function hitChance(game, e, t, d) {
+  if (t.kind === 'building') return 1;
+  const w = e.def.weapon;
+  let k = (CONFIG.ACCURACY[w.projectile] || 0.9) * (1 - CONFIG.ACC_RANGE * Math.min(1, d / w.range));
+  if (e.kind === 'unit' && e.movingTick >= game.tick - 1) k *= CONFIG.ACC_SHOOTER_MOVING;
+  if (t.movingTick >= game.tick - 1) k *= 1 - CONFIG.ACC_TARGET_SPEED * t.def.speed;
+  return Math.max(CONFIG.ACC_MIN, Math.min(0.98, k));
 }
 
 function aimAndFire(game, e, t, dt) {
@@ -1404,8 +1440,14 @@ function aimAndFire(game, e, t, dt) {
     p.tx = t.x + (game.rng() - 0.5) * spread; p.ty = t.y + (game.rng() - 0.5) * spread;
     p.speed = 260; p.total = Math.hypot(p.tx - mx, p.ty - my);
   } else {
-    p.targetId = t.id; p.tx = t.x; p.ty = t.y;
     p.speed = w.projectile === 'bullet' ? 900 : w.projectile === 'rocket' ? 520 : 620;
+    if (game.rng() < hitChance(game, e, t, d)) { p.targetId = t.id; p.tx = t.x; p.ty = t.y; }
+    else {
+      // A miss: it flies a little wide and lands beyond the target.
+      const a = angleTo(e, t) + (game.rng() < 0.5 ? -1 : 1) * (0.08 + game.rng() * 0.12);
+      const len = dist(e, t) + 30 + game.rng() * 60;
+      p.tx = mx + Math.cos(a) * len; p.ty = my + Math.sin(a) * len; p.miss = true;
+    }
   }
   game.projectiles.push(p);
   game.effects.push({ kind: 'flash', x: mx, y: my, a: e.turret, t: 0, life: 0.08, big: w.projectile !== 'bullet' });
@@ -1413,12 +1455,19 @@ function aimAndFire(game, e, t, dt) {
 }
 
 function updateProjectiles(game, dt) {
+  const fields = game.activeFields || [];
   for (const p of game.projectiles) {
     if (p.targetId) {
       const t = game.byId.get(p.targetId);
       if (t && t.hp > 0) { p.tx = t.x; p.ty = t.y; }
     }
     const d = Math.hypot(p.tx - p.x, p.ty - p.y), step = p.speed * dt;
+    // An enemy forcefield in the way, facing this shot, stops it.
+    if (fields.length) {
+      const k = Math.min(1, step / (d || 1)), nx = p.x + (p.tx - p.x) * k, ny = p.y + (p.ty - p.y) * k;
+      const f = fields.find(f => f.team !== p.team && (nx - p.x) * f.dx + (ny - p.y) * f.dy < 0 && segmentsCross(p.x, p.y, nx, ny, f.ax, f.ay, f.bx, f.by));
+      if (f) { p.done = true; hitField(game, f, p); continue; }
+    }
     if (d <= step) {
       p.done = true;
       if (p.kind === 'artillery') {
@@ -1429,6 +1478,8 @@ function updateProjectiles(game, dt) {
         }
         game.effects.push({ kind: 'boom', x: p.tx, y: p.ty, t: 0, life: 0.6, size: p.splash });
         game.events.push({ sound: 'boom', x: p.tx, y: p.ty });
+      } else if (p.miss) {
+        game.effects.push({ kind: 'dust', x: p.tx, y: p.ty, t: 0, life: 0.4 });
       } else {
         const t = game.byId.get(p.targetId);
         if (t && t.hp > 0) damage(game, t, p.damage, p);
@@ -1654,6 +1705,80 @@ function updateVisibility(game) {
 }
 
 // ---------------------------------------------------------------------------
+// Shields. A Shield Projector throws a straight wall of force across the
+// direction it faces, `offset` in front of it, `length` long. Enemy shots
+// crossing the wall from the front are stopped and drain the field; at zero
+// it collapses and reboots after `reboot` seconds (coming back at
+// `rebootHp`), leaving the projector open. Untouched for `regenDelay`
+// seconds it recharges. Projectors need power: each finished Power
+// Generator powers `powers` of them (oldest first), and each powered one
+// burns `upkeep` scrap a second; with the bank empty, the fields drop.
+// ---------------------------------------------------------------------------
+
+function fieldGeometry(b) {
+  const F = b.def.field, dx = Math.cos(b.facing), dy = Math.sin(b.facing);
+  const cx = b.x + dx * F.offset, cy = b.y + dy * F.offset, h = F.length / 2;
+  return { dx, dy, ax: cx - dy * h, ay: cy + dx * h, bx: cx + dy * h, by: cy - dx * h, cx, cy };
+}
+
+function segmentsCross(x1, y1, x2, y2, x3, y3, x4, y4) {
+  const d = (x2 - x1) * (y4 - y3) - (y2 - y1) * (x4 - x3);
+  if (!d) return false;
+  const t = ((x3 - x1) * (y4 - y3) - (y3 - y1) * (x4 - x3)) / d, u = ((x3 - x1) * (y2 - y1) - (y3 - y1) * (x2 - x1)) / d;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+}
+
+function updateShields(game, dt) {
+  const active = [];
+  for (const t of [1, 2]) {
+    const projectors = game.entities.filter(e => e.team === t && e.type === 'shield' && e.hp > 0 && e.built >= 1).sort((a, b) => a.id - b.id);
+    const gens = game.entities.filter(e => e.team === t && e.type === 'generator' && e.hp > 0 && e.built >= 1).sort((a, b) => a.id - b.id);
+    // How many projectors each Generator is powering (shown on it).
+    let left = Math.min(projectors.length, gens.reduce((n, g) => n + g.def.powers, 0));
+    for (const g of gens) { g.powering = Math.min(g.def.powers, left); left -= g.powering; }
+    if (!projectors.length) continue;
+    const tm = game.teams[t];
+    let capacity = gens.reduce((n, g) => n + g.def.powers, 0);
+    const upkeep = BUILDING_TYPES.generator.upkeep;
+    for (const b of projectors) {
+      const F = b.def.field;
+      if (!b.field) b.field = { hp: 0, state: 'down', t: F.reboot, lastHit: -99 };
+      const powered = capacity > 0 && tm.scrap > 0;
+      if (capacity > 0) capacity--;
+      if (powered !== b.powered && b.powered !== undefined && !powered && b.field.state === 'up')
+        pushEvent(game, t, tm.scrap > 0 ? 'Shield Projector has no power: build another Power Generator' : 'Out of scrap: shields are down', 'warn', b.x, b.y);
+      b.powered = powered;
+      if (!powered) { if (b.field.state === 'up') { b.field.state = 'down'; b.field.t = F.reboot; } b.field.hp = 0; continue; }
+      tm.scrap = Math.max(0, tm.scrap - upkeep * dt);
+      const f = b.field;
+      if (f.state === 'down') {
+        f.t -= dt;
+        if (f.t <= 0) { f.state = 'up'; f.hp = F.hp * F.rebootHp; pushEvent(game, t, 'Shield back up', 'good', b.x, b.y); }
+        continue;
+      }
+      if (game.time - f.lastHit > F.regenDelay) f.hp = Math.min(F.hp, f.hp + F.regen * dt);
+      active.push({ b, team: t, ...fieldGeometry(b) });
+    }
+  }
+  game.activeFields = active;
+}
+
+function hitField(game, f, p) {
+  const F = f.b.def.field, fld = f.b.field;
+  fld.hp -= p.damage * (p.kind === 'artillery' ? F.vsArtillery : 1);
+  fld.lastHit = game.time;
+  // Where along the wall it struck, for the ripple.
+  game.effects.push({ kind: 'shieldhit', x: p.x, y: p.y, t: 0, life: 0.35, team: f.team });
+  if (fld.hp <= 0) {
+    fld.hp = 0; fld.state = 'down'; fld.t = F.reboot;
+    game.activeFields = game.activeFields.filter(x => x !== f);
+    game.effects.push({ kind: 'shielddown', x: f.cx, y: f.cy, a: Math.atan2(f.dy, f.dx), len: F.length, t: 0, life: 0.8, team: f.team });
+    pushEvent(game, f.team, `Shield collapsed: rebooting in ${F.reboot} s`, 'bad', f.b.x, f.b.y);
+    pushEvent(game, 3 - f.team, 'Enemy shield down', 'good', f.b.x, f.b.y);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Uplinks: three capture-and-hold points, the middle of the map and two
 // mirror-image points either side of it. Combat vehicles standing on one
 // capture it (faster with more, up to three); both sides there: no change.
@@ -1806,7 +1931,7 @@ function saveGame(game, extra = {}) {
     for (const k in v) { const x = enc(v[k]); if (x !== undefined) o[k] = x; }
     return o;
   };
-  const { rng, byId, events, ugrid, ...rest } = game;
+  const { rng, byId, events, ugrid, activeFields, ...rest } = game;
   return JSON.stringify({ v: SAVE_VERSION, rng: rng.state(), game: enc(rest), extra });
 }
 
