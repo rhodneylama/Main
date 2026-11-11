@@ -274,6 +274,18 @@ function drawGame(ctx, game, view) {
     if (sel || e.hp < e.maxHp || (e.kind === 'building' && e.built < 1) || showStore || hurtShield || busy) drawHealthBar(ctx, e, sel);
   }
 
+  // Veterans: one to three small gold bars beside them (Veteran, Elite, Ace).
+  ctx.fillStyle = '#ffd25a'; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.lineWidth = 1;
+  for (const e of game.entities) {
+    if (e.kind !== 'unit' || !e.rank || !onScreen(e.x, e.y)) continue;
+    if (e.team !== team && !view.revealAll && !isVisibleTo(game, team, e)) continue;
+    for (let k = 0; k < e.rank; k++) {
+      const x = e.x - e.radius - 9, y = e.y + e.radius - 4 - k * 5;
+      ctx.beginPath(); ctx.moveTo(x - 4, y); ctx.lineTo(x, y - 3); ctx.lineTo(x + 4, y); ctx.lineTo(x + 4, y + 2); ctx.lineTo(x, y - 1); ctx.lineTo(x - 4, y + 2); ctx.closePath();
+      ctx.stroke(); ctx.fill();
+    }
+  }
+
   // Reinforcing an allied commander: a gold chevron over the vehicles you command.
   if (view.reinforce) {
     ctx.fillStyle = '#ffd25a'; ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.lineWidth = 1.5;

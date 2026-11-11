@@ -801,7 +801,7 @@ function refreshPanel() {
   panelKey = key;
   if (rebuild) cmds.innerHTML = '';
   if (!game || !sel.length) {
-    info.innerHTML = `<div class="dim">Nothing selected.<br>Left-click or drag a box to select your vehicles.</div>`;
+    info.innerHTML = `<div class="dim">Nothing selected.<br>${isTouch ? 'Tap a vehicle, or press, hold and drag to select a group.' : 'Left-click or drag a box to select your vehicles.'}</div>`;
     return;
   }
   const own = isMine(sel[0]) && !spectating;
@@ -811,6 +811,10 @@ function refreshPanel() {
     if (e.kind === 'unit' && e.def.role === 'harvester') extra = `Carrying ${Math.floor(e.carry)} / ${d.carryMax} scrap` +
       (d.canDeploy ? ' · can deploy on geysers' : ' · cannot deploy (needs Scavenger II)');
     if (e.kind === 'unit' && e.def.role === 'builder') extra = d.canRepair ? 'Builds and repairs' : 'Builds only. Repairs need a Constructor II.';
+    if (e.kind === 'unit' && e.def.role === 'combat') {
+      const next = CONFIG.VET_KILLS[e.rank || 0];
+      extra = `${CONFIG.VET_NAMES[e.rank || 0]} · ${e.kills || 0} kill${e.kills === 1 ? '' : 's'}${next ? ` (${next - (e.kills || 0)} more to ${CONFIG.VET_NAMES[(e.rank || 0) + 1]})` : ''}`;
+    }
     if (e.type === 'generator' && e.built >= 1) extra = `Powering ${e.powering || 0} / ${d.powers} Shield Projectors · ${((e.powering || 0) * d.upkeep * 60).toFixed(0)} scrap a minute`;
     if (e.type === 'shield' && e.built >= 1) {
       const f = e.field;
@@ -864,7 +868,7 @@ function refreshPanel() {
     const sub = (opts.note ? `<span class="note">${opts.note}</span>` : cost !== null ? `<span class="cost">${cost}</span>` : '') +
       (opts.badge ? `<span class="badge">×${opts.badge}</span>` : '');
     b.innerHTML = `<span class="hk">${hotkey || ''}</span><span class="lbl">${label}</span>` +
-      (opts.badge || opts.onCancel ? `<span class="row">${sub}</span>` : sub);
+      (opts.badge || opts.onCancel || opts.onPick ? `<span class="row">${sub}</span>` : sub);
     if (opts.title) b.title = opts.title;
     if (opts.active) b.classList.add('active');
     if (opts.primary) b.classList.add('primary');
@@ -880,6 +884,14 @@ function refreshPanel() {
       x.title = `Remove one ${label} from the queue`;
       x.addEventListener('mousedown', e => { e.stopPropagation(); e.preventDefault(); if (e.button === 0) { opts.onCancel(); sound('click'); } });
       b.querySelector('.row').appendChild(x);
+    }
+    if (opts.onPick) {
+      // A chip on the button that opens a drop-down (Mk I / Mk II).
+      const k = document.createElement('span'); k.className = 'pick'; k.textContent = `${opts.pickLabel} ▾`;
+      k.title = 'Choose which version to build';
+      k.addEventListener('mousedown', e => { e.stopPropagation(); e.preventDefault(); if (e.button === 0) opts.onPick(k); });
+      k.addEventListener('click', e => e.stopPropagation());
+      b.querySelector('.row').prepend(k);
     }
     onPress(b, () => { onClick(); sound('click'); });
     cmds.appendChild(b);
@@ -940,17 +952,28 @@ function refreshPanel() {
       const counts = Object.create(null);
       for (const t of first.queue) counts[t] = (counts[t] || 0) + 1;
       const now = first.queue[0];
-      // Mk II vehicles only appear once researched (the Lab says what it unlocks).
-      producesOf(first).filter(type => !UNIT_TYPES[type].requires || tm.research[UNIT_TYPES[type].requires]).forEach(type => {
+      // One button per vehicle. Once its Mk II is researched (and this is a
+      // Factory II), a chip on the button picks which version it builds; the
+      // choice is remembered (Mk II to start with).
+      const avail = producesOf(first).filter(type => !UNIT_TYPES[type].requires || tm.research[UNIT_TYPES[type].requires]);
+      const groups = [];
+      for (const type of avail) { const base = UNIT_TYPES[type].base || type, g = groups.find(x => x.base === base); if (g) g.types.push(type); else groups.push({ base, types: [type] }); }
+      view.tier = view.tier || {};
+      for (const { base, types } of groups) {
+        const type = types.includes(view.tier[base]) ? view.tier[base] : types[types.length - 1];
         const d = UNIT_TYPES[type];
-        const needs = d.requires && !tm.research[d.requires];
-        const building = type === now;
-        const note = needs ? 'Research first' : building && first.waiting ? 'Needs scrap' : building && first.blocked ? 'Unit limit' : null;
+        const queued = types.reduce((n, t) => n + (counts[t] || 0), 0);
+        const building = types.includes(now) ? UNIT_TYPES[now] : null;
+        const note = building && first.waiting ? 'Needs scrap' : building && first.blocked ? 'Unit limit' : null;
+        const cancelType = counts[type] ? type : types.find(t => counts[t]);
         addBtn(d.name, d.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'produce', buildingId: first.id, unit: type, count: input.keys.has('Shift') ? 5 : 1 }),
-          { title: `${d.name} — ${d.cost} scrap each, ${d.buildTime}s. Paid when it starts building.\n${d.desc}`, locked: needs, note, badge: counts[type],
-            progress: building && !first.waiting && !first.blocked ? first.prodTime / d.buildTime : null,
-            onCancel: counts[type] ? () => { issueCommand(game, view.team, { type: 'cancel', buildingId: first.id, unit: type }); refreshPanel(); } : null });
-      });
+          { title: `${d.name} — ${d.cost} scrap each, ${d.buildTime}s. Paid when it starts building.\n${d.desc}`, note, badge: queued,
+            progress: building && !first.waiting && !first.blocked ? first.prodTime / building.buildTime : null,
+            onCancel: cancelType ? () => { issueCommand(game, view.team, { type: 'cancel', buildingId: first.id, unit: cancelType }); refreshPanel(); } : null,
+            pickLabel: types.length > 1 ? (d.base ? 'Mk II' : 'Mk I') : null,
+            onPick: types.length > 1 ? chip => openPop(chip, types.map(t => ({ label: own_(UNIT_TYPES[t].name), note: `${UNIT_TYPES[t].cost} scrap · ${UNIT_TYPES[t].base ? 'upgraded' : 'standard'}`,
+              active: t === type, onClick: () => { view.tier[base] = t; panelKey = ''; refreshPanel(); } }))) : null });
+      }
       // Waypoint: where every new vehicle from this building drives to.
       addBtn(first.rally ? 'Move waypoint' : 'Set waypoint', null, keys.shift(), () => { view.aim = 'rally'; refreshPanel(); },
         { active: view.aim === 'rally', title: 'New vehicles drive straight to the waypoint' });
