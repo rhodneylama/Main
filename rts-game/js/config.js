@@ -36,7 +36,15 @@ const CONFIG = {
   // second of its speed). Buildings never dodge. Artillery has its own
   // spread instead. A miss flies past and hits nothing.
   ACCURACY: { bullet: 0.97, shell: 0.95, rocket: 0.95 },
-  ACC_RANGE: 0.12, ACC_SHOOTER_MOVING: 0.9, ACC_TARGET_SPEED: 0.0025, ACC_MIN: 0.15,
+  ACC_RANGE: 0.12, ACC_SHOOTER_MOVING: 0.92, ACC_TARGET_SPEED: 0.002, ACC_MIN: 0.15,
+  // Veterancy: kills earn ranks (Veteran, Elite, Ace). Each rank adds to the
+  // chance to hit (× 1 + VET_ACC[rank]), shrinks the penalty for firing on
+  // the move, reloads faster (VET_RELOAD less per rank) and adds health.
+  VET_KILLS: [2, 5, 10], VET_NAMES: ['Recruit', 'Veteran', 'Elite', 'Ace'],
+  VET_ACC: [0, 0.12, 0.24, 0.36], VET_RELOAD: 0.08, VET_HP: 0.1,
+  // Armour facing: hits on a vehicle's side or rear do more damage.
+  // Front is within 60° of where it faces, rear beyond 120°.
+  ARMOR_SIDE: 1.25, ARMOR_REAR: 1.5,
   // Vehicles in a fight with an armed enemy keep moving (circling it at
   // range) at this share of their speed, so they're harder to hit.
   STRAFE_SPEED: 0.6,

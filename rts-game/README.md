@@ -192,6 +192,17 @@ Shots can miss: fast vehicles and far-away targets are harder to hit, and
 firing on the move costs a little accuracy. In a fight, vehicles keep moving
 around their target, so they're harder to hit too.
 
+## Veterans and armour
+
+Vehicles that score kills are promoted: **Veteran** (2 kills), **Elite** (5)
+and **Ace** (10), shown as gold chevrons beside them. Each rank makes them
+much more accurate (even on the move), quicker to reload and tougher, so
+it pays to keep them alive. Hitting a vehicle from the **side** does 25%
+more damage, and from **behind** 50% more: flank them.
+
+On a **Factory II**, each vehicle has one button; the **Mk I / Mk II** chip
+on it chooses which version it builds.
+
 ## Uplinks and call-ins
 
 **Uplinks** (capture and hold): three masts on the map. Park combat vehicles

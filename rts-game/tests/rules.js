@@ -19,7 +19,7 @@ function load() {
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
     'createGame, generateMap, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
-    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing });', ctx);
+    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, damageForTest: damage });', ctx);
   return ctx;
 }
 
@@ -905,6 +905,32 @@ section('Radar anywhere, Radar upgrades, Forcefield Tech');
   S.issueCommand(g, 1, { type: 'build', ids: [con.id], building: 'shield', tx: ss.tx, ty: ss.ty });
   check('then it can be built, for 180 scrap', g.entities.some(e => e.type === 'shield') && 900 - g.teams[1].scrap === 180);
   check('Forcefield Tech is researched at a Research Lab', S.BUILDING_TYPES.lab.researches.includes('shields') && S.RESEARCH.shields.cost > 0);
+}
+
+section('Veterans and armour facing');
+{
+  const S = load();
+  const g = S.createGame({ seed: 23, aiTeams: [] });
+  for (const e of g.entities) if (e.type !== 'mobileRecycler') e.hp = 0;
+  S.stepGame(g);
+  const h = g.entities.find(e => e.team === 1 && e.type === 'mobileRecycler');
+  const vet = S.addUnitNear(g, 'tank', 1, h.x + 300, h.y - 300), foe = S.addUnitNear(g, 'hornet', 2, h.x + 450, h.y - 300);
+  foe.movingTick = g.tick; vet.movingTick = g.tick;
+  const raw = S.hitChance(g, vet, foe, 150);
+  // Kills earn ranks.
+  const kill = () => { const v = S.addUnitNear(g, 'scout', 2, vet.x + 120, vet.y); S.damageForTest(g, v, 9999, { owner: vet.id, kind: 'shell', team: 1 }); };
+  kill(); kill();
+  check('two kills make a Veteran', vet.rank === 1 && vet.kills === 2);
+  kill(); kill(); kill();
+  const elite = S.hitChance(g, vet, foe, 150);
+  check('five an Elite, with more health', vet.rank === 2 && vet.maxHp > S.UNIT_TYPES.tank.hp);
+  check('veterans hit much more often, even on the move', elite > raw * 1.2, `${Math.round(raw * 100)}% → ${Math.round(elite * 100)}%`);
+  // Armour facing: the same shot does more from the side and the rear.
+  const target = S.addUnitNear(g, 'tank', 2, h.x + 600, h.y - 600);
+  target.angle = 0;
+  const hitFrom = (dx, dy) => { const before = target.hp; S.damageForTest(g, target, 20, { kind: 'shell', team: 1, sx: target.x + dx, sy: target.y + dy }); const d = before - target.hp; target.hp = target.maxHp; return d; };
+  const front = hitFrom(100, 0), side = hitFrom(0, 100), rear = hitFrom(-100, 0);
+  check('hits on the side do 25% more, from behind 50% more', front === 20 && side === 25 && rear === 30, `${front} / ${side} / ${rear}`);
 }
 
 console.log(`\n${passes} passed, ${fails} failed`);

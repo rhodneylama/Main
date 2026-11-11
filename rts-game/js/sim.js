@@ -1421,8 +1421,10 @@ function aimAtNearby(game, u, dt) {
 function hitChance(game, e, t, d) {
   if (t.kind === 'building') return 1;
   const w = e.def.weapon;
-  let k = (CONFIG.ACCURACY[w.projectile] || 0.9) * (1 - CONFIG.ACC_RANGE * Math.min(1, d / w.range));
-  if (e.kind === 'unit' && e.movingTick >= game.tick - 1) k *= CONFIG.ACC_SHOOTER_MOVING;
+  const rank = e.rank || 0;
+  let k = (CONFIG.ACCURACY[w.projectile] || 0.9) * (1 - CONFIG.ACC_RANGE * Math.min(1, d / w.range)) * (1 + CONFIG.VET_ACC[rank]);
+  // Veterans lose less accuracy firing on the move (a third less per rank).
+  if (e.kind === 'unit' && e.movingTick >= game.tick - 1) k *= 1 - (1 - CONFIG.ACC_SHOOTER_MOVING) * (1 - rank / 3);
   if (t.movingTick >= game.tick - 1) k *= 1 - CONFIG.ACC_TARGET_SPEED * t.def.speed;
   return Math.max(CONFIG.ACC_MIN, Math.min(0.98, k));
 }
@@ -1443,7 +1445,7 @@ function aimAndFire(game, e, t, dt) {
   }
   if (e.cooldown > 0) return;
   if (Math.abs(wrapAngle(want - e.turret)) > 0.25) return;
-  e.cooldown = w.cooldown;
+  e.cooldown = w.cooldown * (1 - CONFIG.VET_RELOAD * (e.rank || 0));
   e.lastShot = game.time;  // drives barrel recoil and the muzzle flash
   const mx = e.x + Math.cos(e.turret) * (e.radius + 4), my = e.y + Math.sin(e.turret) * (e.radius + 4);
   const p = { kind: w.projectile, team: e.team, owner: e.id, x: mx, y: my, sx: mx, sy: my, damage: w.damage, splash: w.splash || 0, vsBuilding: w.vsBuilding };
@@ -1506,6 +1508,13 @@ function updateProjectiles(game, dt) {
 
 function damage(game, e, amount, p) {
   if (e.kind === 'building') amount *= p.vsBuilding || 1;
+  // Armour facing: a vehicle hit on the side or rear takes more (not by Artillery's splash).
+  else if (p.kind !== 'artillery' && p.sx !== undefined) {
+    const rel = Math.abs(wrapAngle(Math.atan2(p.sy - e.y, p.sx - e.x) - e.angle));
+    if (rel > Math.PI * 2 / 3) amount *= CONFIG.ARMOR_REAR;
+    else if (rel > Math.PI / 3) amount *= CONFIG.ARMOR_SIDE;
+  }
+  const wasAlive = e.hp > 0;
   if (e.shield > 0) {
     const soak = Math.min(e.shield, amount);
     e.shield -= soak; amount -= soak; e.shieldFlash = 0.15;
@@ -1515,10 +1524,22 @@ function damage(game, e, amount, p) {
   e.hitFlash = 0.1;
   const shooter = game.byId.get(p.owner);
   if (shooter && shooter.hp > 0) { e.lastHitBy = shooter; e.lastHitAt = game.time; }
+  if (wasAlive && e.hp <= 0 && shooter && shooter.kind === 'unit' && shooter.team !== e.team) creditKill(game, shooter);
   // Fight back if we were just standing around (unless told to hold fire).
   if (e.kind === 'unit' && e.def.weapon && shooter && e.order.type === 'idle' && !e.target && stanceOf(game, e) !== 'stealth') e.target = shooter;
   if (e.kind === 'unit' && !e.def.weapon && shooter && e.hp > 0) warnUnderAttack(game, e);
   if (e.kind === 'building' && e.hp > 0) warnUnderAttack(game, e);
+}
+
+// A kill for a vehicle: enough of them and it's promoted (CONFIG.VET_*).
+function creditKill(game, u) {
+  u.kills = (u.kills || 0) + 1;
+  const rank = CONFIG.VET_KILLS.filter(k => u.kills >= k).length;
+  if (rank <= (u.rank || 0)) return;
+  u.rank = rank;
+  const hp = Math.round(u.def.hp * (1 + CONFIG.VET_HP * rank));
+  u.hp = Math.min(hp, u.hp + (hp - u.maxHp) + hp * 0.25); u.maxHp = hp;
+  pushEvent(game, u.team, `${nameOf(u)} promoted to ${CONFIG.VET_NAMES[rank]}`, 'good', u.x, u.y);
 }
 
 function warnUnderAttack(game, e) {

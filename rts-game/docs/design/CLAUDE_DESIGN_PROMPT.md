@@ -1,17 +1,19 @@
 # Prompt for Claude Design: Scrapline Command menus and screens
 
 Paste everything below the line into Claude Design, and attach the
-screenshots in `docs/design/screens/` (the `phone-` ones matter most:
-the game is played sideways on phones).
+screenshots in `docs/design/screens/` (the `portrait-` ones matter most:
+most play is on a phone held upright).
 
 ---
 
 ## What I need
 
 Help me redesign the **menus and screens** of my browser strategy game,
-**Scrapline Command**. Today they work but look plain: dark green boxes,
-system font, flat buttons. I want them to look like a polished game with
-real character, while staying fast and readable on a phone held sideways.
+**Scrapline Command**. Today they work and have just been simplified (fewer
+buttons, more drop-downs), but they look plain: dark green boxes, system
+font, flat buttons. I want them to look like a polished game with real
+character, while staying fast, compact and readable on a phone, held upright
+or sideways. The battlefield must get as much of the screen as possible.
 
 Please give me:
 
@@ -21,9 +23,9 @@ Please give me:
    type (one display face for titles, one text face; Google Fonts are fine),
    spacing, corner radii, borders and panel style, and button styles
    (primary, secondary, danger, selected/active, disabled, a "ready" glow).
-3. **Every screen in the list below**, each at two sizes:
-   **phone sideways, 844 × 390** (the one that matters most) and
-   **desktop, 1280 × 800**.
+3. **Every screen in the list below**, each at three sizes:
+   **phone upright, 390 × 844** (the one that matters most),
+   **phone sideways, 844 × 390**, and **desktop, 1280 × 800**.
 4. **Small graphics as inline SVG**: a wordmark/logo for "Scrapline Command",
    an emblem for each faction, and icons for the things listed under
    "Icons" below.
@@ -60,102 +62,113 @@ hover-tanks, artillery and scouts, seen from above.
   battlefield is drawn on a `<canvas>`; the menus are ordinary HTML on top.
 - **No image files.** Graphics must be inline SVG or CSS. Fonts from Google
   Fonts are fine.
-- **Phones are played sideways only.** Design for 844 × 390 and check
-  667 × 375 (a small phone). There's very little height: no screen should
-  need scrolling to reach its main buttons. Respect notches (safe-area
-  insets on the left and right).
+- **Phones, upright or sideways.** Design for 390 × 844 and 844 × 390, and
+  check 360 × 740 (a small phone). Sideways there's very little height; no
+  screen should need scrolling to reach its main buttons. Respect notches
+  (safe-area insets). The game can also be installed to the Home Screen and
+  run full screen.
 - **Touch targets at least 44 px** on phones.
 - **Readable at a glance**: text of 13 px or more on phones, strong
   contrast, nothing that relies on colour alone (the war map pairs colour
   with shapes and icons).
-- **The battle screen must stay clear**: in-battle menus (pause, call-in)
-  sit over the action, so they should be compact and slightly see-through.
+- **The battle screen must stay clear**: in-battle menus (pause, the
+  drop-downs) sit over the action, so they should be compact and slightly
+  see-through. **Keep the current structure**: the everyday actions as a few
+  buttons, everything else in drop-downs; restyle it rather than adding
+  buttons back.
 - Keep animations light (CSS transitions, small SVG animations), with no
   heavy effects that would slow a phone.
 
 ## Screens to design
 
-The IDs in brackets are what the code uses today.
+The IDs in brackets are what the code uses today. Please keep them.
 
 1. **Start screen** (`#menu`, `.card.menu`): the game title, the tagline
-   "Gather scrap. Build your base. Destroy theirs.", and the **faction choice**:
-   two cards (`.faction`, `data-faction="scrapline"` / `"kethra"`), each with
-   an animated line-up of that faction's vehicles drawn by the game into a
-   `<canvas>` (keep a 300 × 110 canvas slot in each card). Below that, the
-   **battle type** (`data-mode`: "Destroy the Recycler" / "Capture the
-   uplinks"), **difficulty** (`data-difficulty`: Easy / Normal / Hard), and
-   the buttons: **Start battle** (`#start`, primary), **Campaign**
-   (`#campaign`, primary), Load game (`.loadbtn`), How to play (`#howto`),
-   Watch AI vs AI (`#watch`), Music on/off (`.musicbtn`). On a phone
-   sideways this all has to fit without scrolling: maybe faction cards on
-   the left and options on the right.
-2. **New campaign** (`#warnew`): a short pitch for the theater "The Cinder
+   "Gather scrap. Build your base. Destroy theirs.", and the **faction
+   choice**: two cards (`.faction`, `data-faction="scrapline"` / `"kethra"`),
+   each with an animated line-up of that faction's vehicles drawn by the
+   game into a `<canvas>` (keep a 300 × 110 canvas slot in each card). Then
+   two drop-downs, **Battle** (`#modesel`: Destroy the Recycler / Capture the
+   uplinks) and **Difficulty** (`#diffsel`), and the buttons **Start battle**
+   (`#start`), **Campaign** (`#campaign`), Load game (`.loadbtn`) and **More
+   ▾** (`#menumore`: How to play, Full screen, Open on its own page, Music,
+   Watch AI vs AI).
+2. **The battle's top bar** (`#topbar`): scrap (`#scrap`, "300 / 900"),
+   units ("28 / 100"), your base's and the enemy's health (bars, hidden on
+   narrow screens), the uplink status in uplink battles (three diamonds and
+   a countdown), then the buttons **Army ▾** (`#q-army`), **Call-in**
+   (`#q-callin`, with a count; it glows gold when one is ready),
+   **Deselect** (`#q-clear`), **Map** (`#maptoggle`), the clock and **❚❚**
+   (`#pausebtn`). On a 360 px phone all the buttons must fit on one row.
+   The **minimap** (`#minimap-wrap`, a canvas) drops down from the Map
+   button into the top-right corner, just under the bar.
+3. **The battle's command panel** (`#panel`): a one- or two-line summary of
+   what's selected (`#selinfo`, e.g. "18 vehicles · 9 × Tank · 5 × Hornet",
+   or a building's health, or a vehicle's rank "Veteran · 3 kills"), then
+   its command buttons (`#commands`). For vehicles: **Attack-move**, **Hunt
+   ▾**, a stance drop-down showing the current stance (**Aggressive ▾** /
+   Return fire / Stealth), **Orders ▾** (Guard, Patrol, Scout, Go repair)
+   and **Stop**. For a Factory: one **production button** per vehicle, each
+   with its price, a count badge, a progress fill while building, a − to
+   remove one from the queue, and on a Factory II a **Mk I / Mk II chip**
+   that opens a drop-down to pick which version it builds. For a
+   Constructor: one button per building (some "Research first"), plus
+   Rotate ↻ while placing a Shield Projector. On phones the panel may take
+   at most about 38% of the height.
+4. **Drop-down menus** (`#popmenu`): used by Army, Call-in, Hunt, the
+   stance, Orders, the Mk picker and More. Each item has a label, sometimes
+   a count or a one-line note, an active state, and section headings
+   ("Jump to").
+5. **New campaign** (`#warnew`): a short pitch for the theater "The Cinder
    Reach" (fifteen battlefields, your side holds the west), who you fight
-   as, and a choice of **war pace** (`#warnew-pace`, five cards: Fast,
-   Normal, Slow, Very slow, Hold, each with a one-line note), then
-   "Begin the war" and "Back".
-3. **War map** (`#war`): the heart of the campaign, a Helldivers-style
-   galactic-war screen. A header with the theater name, "7 / 15 held ·
-   Scrapline vs Kethra Concord · Normal", a countdown "Next war report in
-   29:59" and the pace buttons (`#war-pace`), plus "Main menu". The **map**
-   (`#war-map`, an SVG, viewBox `-4 -2 108 69`) shows 15 battlefields as
-   nodes joined by links. Node states to design:
-   - held by you (blue) or the enemy (red);
-   - home ground (★, a gold ring);
-   - a **battle in progress** (⚔, with a two-colour ring showing how much
-     is going your way, and a pulse);
-   - **your current battle** (gold pulse);
-   - **attackable** (an enemy node next to yours: dashed ring);
-   - **capture-and-hold** battlefield (◆);
-   - **selected**.
+   as, and a choice of **war pace** (`#warnew-pace`: Fast, Normal, Slow,
+   Very slow, Hold, each with a one-line note), then "Begin the war" and
+   "Back".
+6. **War map** (`#war`): the heart of the campaign, a Helldivers-style war
+   screen. A header with the theater name, "7 / 15 held · Scrapline vs
+   Kethra Concord · Normal", a countdown "Next war report in 29:59", the pace
+   buttons (`#war-pace`) and "Main menu". The **map** (`#war-map`, an SVG,
+   viewBox `-4 -2 108 69`) shows 15 battlefields as nodes joined by links.
+   Node states: held by you (blue) or the enemy (red); home ground (★, gold
+   ring); a **battle in progress** (⚔, a two-colour ring showing how much is
+   going your way, and a pulse); **your current battle** (gold pulse);
+   **attackable** (dashed ring); **capture and hold** (◆ before the name);
+   **selected**. Links on a front line are highlighted. Beside (or, upright,
+   below) the map: a **detail panel** (`#war-detail`) with the battlefield's
+   name, holder, type of battle, base level, a front bar for a battle in
+   progress, both sides' starting forces, and **big action buttons**
+   (Attack / Take command / Reinforce, each with a one-line explanation);
+   then the **war reports** feed (`#war-log`).
+7. **Landing zone** (`#lz`): before an attack, a picture of the battlefield
+   (`#lz-map`, a canvas the game draws: terrain, gold geyser rings, the enemy
+   base in red, landing zones A and B), and a card per zone (`.lzcard`:
+   "Unclaimed geyser" / "Liberate a geyser", a description, the distance to
+   the enemy base), plus "Back to the war map". A mission briefing.
+8. **Dropping in** (`#wardrop`): a loading screen with a progress bar.
+9. **Pause** (`#paused`): "PAUSED", Resume; Save, Load, Help, Full screen;
+   Speed (×1/×2/×4 drop-down), Music, Volume; Leave battle (campaign) or Quit
+   to menu.
+10. **End of battle** (`#end`): Victory / Defeat, the reason, a small stats
+    table for both sides, and "Play again" / "Back to the war map".
+11. **Save / load** (`#saves`): four slot rows (Autosave, Slots 1–3) with
+    descriptions and Save / Overwrite / Load / Delete; "Download this game",
+    "Load from a file…", "Back".
+12. **How to play** (`#help`): a long reference page. Needs comfortable
+    reading and quick scanning, maybe sections in tabs.
+13. **Messages** (`#log`, top left over the battlefield; `#toast`, a
+    message at the bottom over any screen).
 
-   Links on a front line (between a blue and a red node) are highlighted.
-   Beside the map, a **detail panel** (`#war-detail`): the battlefield's
-   name, who holds it, a front bar (blue vs red) for a battle in progress,
-   what each side starts with, and **big action buttons** (Attack / Take
-   command / Reinforce, each with a one-line explanation). Below it the
-   **war reports** feed (`#war-log`), a timestamped list of events coloured
-   good / bad / warning. On a phone sideways: map on the left, panel on the
-   right.
-4. **Landing zone** (`#lz`): before an attack, a picture of the battlefield
-   (`#lz-map`, a canvas the game draws: terrain, gold geyser rings, the
-   enemy base in red, landing zones A and B), and a card per zone
-   (`.lzcard`): "Unclaimed geyser" or "Liberate a geyser", a description,
-   and the distance to the enemy base. Plus "Back to the war map". Should
-   feel like a mission briefing.
-5. **Dropping in** (`#wardrop`): a loading screen with a progress bar
-   while a battle in progress is fast-forwarded ("Dropping in to Gallows
-   Pass. The battle has been raging for 4 minutes…").
-6. **Pause** (`#paused`): "PAUSED", Resume, Help, Save game, Load game,
-   Leave battle (campaign only), music on/off and volume.
-7. **End of battle** (`#end`): Victory / Defeat, the reason ("Kethra
-   Concord lost their Nexus."), a small stats table (vehicles built,
-   enemies destroyed, vehicles lost, scrap gathered, for both sides), and
-   "Play again" / "Back to the war map".
-8. **Save / load** (`#saves`): four slot rows (Autosave, Slots 1–3), each
-   with a description ("Scrapline · Normal · 12:40 into the battle · saved 2
-   Nov, 14:05") and Save / Overwrite / Load / Delete; plus "Download this
-   game", "Load from a file…", "Back".
-9. **How to play** (`#help`): a long reference page (mission, factions,
-   vehicles, controls, tips). Needs comfortable reading and quick scanning,
-   maybe sections in tabs or columns on wide screens.
-10. **Call-in menu** (`#callinmenu`, opened by the **Call-in** button in the
-    battle's top bar, which shows how many are ready and glows gold when one
-    is): two cards, **Supply drop** and **Reinforcements**, each with a
-    one-line description, and a note on how more are earned.
-11. **Turn your device** (`#rotate`): shown on a phone held upright, with an
-    animated phone turning sideways and "Turn your device sideways".
+## On the battlefield (only if there's time)
 
-**Optional, if there's time:** a tidier **in-battle top bar** (`#topbar`:
-scrap, workers, units, both bases' health, the quick buttons Army /
-Call-in / Base / Idle / Deselect, the uplink status with three diamonds
-and a countdown, clock, speed, pause) and **command panel** (`#panel`: a
-summary of what's selected, then a grid of command buttons, some with a
-price and a progress fill). Both must stay compact on a phone sideways.
+These are drawn by the game on the canvas, so ideas or small style sheets
+are welcome but not required: rank marks on veteran vehicles (1–3 gold
+chevrons), the shield wall (blue, orange, red as it weakens), uplink masts,
+drop pods, the landing-zone markers.
 
 ## Icons (inline SVG, about 24 px, one colour, `currentColor`)
 
-Supply drop, reinforcements (a drop pod), uplink (a mast), war report,
+Supply drop, reinforcements (a drop pod), uplink (a mast), shield,
+power generator, radar, veteran rank (chevron), war report,
 war pace (a clock), attack, take command, reinforce, landing zone, battle
 in progress (crossed swords), home ground (a star or flag), capture and
 hold (a diamond), scrap, units, base, save, load, pause, music, help,
@@ -170,7 +183,10 @@ Bold, condensed type for titles, a clean sans for everything else.
 
 ## The screenshots attached
 
-`phone-*` are 844 × 390 (sideways phone, double resolution); `desktop-*` are
-1280 × 800. In order: start, how to play, load, new campaign, war map (three
-states), landing zone, a battle just after landing, the call-in menu, pause,
-end of battle, the rotate screen (upright phone), and an uplink in battle.
+`portrait-*` are 390 × 844 (phone upright, double resolution),
+`landscape-*` 844 × 390 (phone sideways), `desktop-*` 1280 × 800. In
+order: start, the More menu, how to play, load, new campaign, the war map
+(and with a battlefield selected), landing zone, a battle just after
+landing, the Army menu with the minimap open, the stance drop-down, a
+Factory II with the Mk I / Mk II picker, a shield wall under fire, pause,
+end of battle.
