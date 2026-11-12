@@ -77,6 +77,35 @@ VEH.push(
     tur:{ m:[0,0], s:[['p','M-5 -6H3L6 -3V3L3 6H-5Z','h'],['r',4,-3.8,14,2,'d'],['r',4,1.8,14,2,'d'],['r',17,-4,3,2.4,'k'],['r',17,1.6,3,2.4,'k'],['c',-1,0,2,'t']] },
     mkName:'Mk II', mk:[['r',-9,-8,2,2,'gold'],['r',7,-8,2,2,'gold'],['r',-9,6,2,2,'gold'],['r',7,6,2,2,'gold']], tmk:[['s','M-3.5 -4.5H1M-3.5 4.5H1','gold',.8]] }
 );
+// Juggernaut: the heavy. A long hull on full-length tracks, with two
+// turrets that never overlap: a cannon turret at the front (angular, long
+// barrel with a muzzle brake) and a raised minigun turret at the back (round,
+// with an ammo box and a rotary barrel cluster). Mk II doubles the barrels
+// on each turret. tur = front cannon, tur2 = rear minigun.
+VEH.push(
+  { id:'juggernaut', code:'V-10', name:'Juggernaut', sub:'Heavy · two turrets', D:44, R:18, reach:24, layers:'Hull · Team · Cannon · Minigun', mkName:'Mk II',
+    role:'The heaviest line vehicle: a stretched hull on wide full-length tracks with a cannon turret forward and a raised minigun turret aft, so it can fight two targets at once.',
+    s:[['r',-23,-17,46,7,'tr',1.5],['r',-23,10,46,7,'tr',1.5],tk(-21,21,-17,7,3),tk(-21,21,10,7,3),
+       ['p','M-19 -11H15L21 -6V6L15 11H-19L-22 8V-8Z','h'],['p','M15 -11L21 -6V6L15 11Z','l'],
+       ['r',-21.5,-6.5,3,13,'t'],['s','M-17 -9.5H13M-17 9.5H13','m',.6],
+       ['r',-3.6,-9.5,2.4,19,'m',.6],['s','M-2.4 -8V8','d',.5],
+       ['c',11,0,7.4,'d'],['c',-13,0,6.8,'d'],
+       ['p','M16 -9L19 -6.5V-4L16 -6.5Z','gold'],['p','M16 9L19 6.5V4L16 6.5Z','gold'],
+       ['s','M-20 -3H-18M-20 0H-18M-20 3H-18','k',.7]],
+    mk:[['r',-17,-12,24,2,'l',.5],['r',-17,10,24,2,'l',.5],chev(-7,-6.5,1.4),chev(-7,6.5,1.4)],
+    tur:{ m:[11,0], reach:24,
+      s:[['r',6,-1.7,16,3.4,'d'],['r',6,-2.4,5,4.8,'m',.5],['r',20.5,-2.6,4,5.2,'k'],
+         ['p','M-6 -7H3L7 -3.5V3.5L3 7H-6L-8.5 4V-4Z','h'],['p','M3 -7L7 -3.5V3.5L3 7Z','l'],['c',-2.5,-2.5,1.8,'l'],['r',-8,-2.2,1.8,4.4,'t']],
+      mkS:[['r',6,-4,16,2.8,'d'],['r',6,1.2,16,2.8,'d'],['r',6,-4.6,5,9.2,'m',.5],['r',20.5,-4.6,4,3.8,'k'],['r',20.5,.8,4,3.8,'k'],
+         ['p','M-6 -7.5H3L7.5 -4V4L3 7.5H-6L-8.5 4.5V-4.5Z','h'],['p','M3 -7.5L7.5 -4V4L3 7.5Z','l'],['c',-2.5,0,1.8,'l'],['r',-8,-2.2,1.8,4.4,'t'],chev(-5.5,-4.5,1.2)] },
+    tur2:{ m:[-13,0], reach:13, rapid:true,
+      s:[['r',-4,4,7,3.4,'m',.8],['s','M-3 5.7H2','gold',.6],
+         ['c',0,0,5.6,'h'],['o',0,0,3.6,'m',.7],['r',4,-2.6,4,5.2,'d',1],
+         ['r',7,-2.1,5,1.1,'k'],['r',7,-.55,5,1.1,'k'],['r',7,1,5,1.1,'k'],['r',11.6,-2.5,1.4,5,'d'],['c',0,0,1.5,'t']],
+      mkS:[['r',-4,4.4,7,3.4,'m',.8],['r',-4,-7.8,7,3.4,'m',.8],
+         ['c',0,0,6,'h'],['o',0,0,3.8,'m',.7],['r',4,-5.4,4,4.4,'d',1],['r',4,1,4,4.4,'d',1],
+         ['r',7,-5,5,.9,'k'],['r',7,-3.6,5,.9,'k'],['r',7,1.4,5,.9,'k'],['r',7,2.8,5,.9,'k'],['r',11.6,-5.4,1.4,4.4,'d'],['r',11.6,1,1.4,4.4,'d'],['c',0,0,1.5,'gold']] } }
+);
 const BLD = [
   { id:'recycler', code:'B-01', name:'Recycler', sub:'HQ · 3×3', S:96, R:48, layers:'Base · Team · Core (spin)', mkName:'Recycler II',
     role:'Octagonal core on four pylons, intake bay facing forward, a slow-turning processing drum in the centre. Destroy it and the game ends, so it is the heaviest shape on the map.',
@@ -177,16 +206,24 @@ function drawSprite(ctx, id, o) {
   if (o.mk && def.mk) paint(ctx, def.mk, P);
   if (def.pulse && !o.wreck) { ctx.save(); ctx.globalAlpha *= .35 + .65*(.5 + .5*Math.sin(t*3)); paint(ctx, def.pulse, P); ctx.restore(); }
   if (def.spin) { ctx.save(); ctx.rotate(o.wreck ? 20*DEG : (t*def.spin.rate % 360)*DEG); paint(ctx, def.spin.s, P); ctx.restore(); }
-  if (def.tur) { const m = def.tur.m, f = o.wreck ? null : o.fire, rc = f != null && f < .35 ? -3*(1 - f/.35) : 0;
-    ctx.save(); ctx.translate(m[0], m[1]); ctx.rotate(o.wreck ? 35*DEG : (o.turret || 0));
-    ctx.save(); ctx.translate(rc, 0); paint(ctx, def.tur.s, P); if (o.mk && def.tmk) paint(ctx, def.tmk, P); ctx.restore();
-    if (f != null && f < .14) { ctx.translate(def.reach + 2, 0);
-      ctx.beginPath(); ctx.arc(0, 0, 4.5, 0, Math.PI*2); ctx.fillStyle = 'rgba(255,246,220,.9)'; ctx.fill();
-      ctx.fillStyle = '#f0b93a'; ctx.fill(path('M0 -6L1.5 -1.5L6 0L1.5 1.5L0 6L-1.5 1.5L-6 0L-1.5 -1.5Z')); }
-    ctx.restore(); }
+  if (def.tur) turret(ctx, def, def.tur, o.turret, o.fire, o, P, 35);
+  if (def.tur2) turret(ctx, def, def.tur2, o.turret2 !== undefined ? o.turret2 : o.turret, o.fire2, o, P, -25);
   if (def.shield && o.shield && (!o.shieldHit || Math.sin(t*20) > 0)) {
     ctx.save(); ctx.rotate(t*30*DEG); ctx.beginPath(); ctx.arc(0, 0, def.R + 3, 0, Math.PI*2);
     ctx.globalAlpha = .1; ctx.fillStyle = P.t; ctx.fill(); ctx.globalAlpha = .75; ctx.setLineDash([3, 1.5]); ctx.strokeStyle = P.t; ctx.lineWidth = .8; ctx.stroke(); ctx.restore(); }
+  ctx.restore();
+}
+
+// One turret: tur.m is where it sits on the hull, tur.reach (or the
+// vehicle's reach) where its muzzle flash goes, tur.mkS replaces its
+// shapes on a Mk II. A rapid-fire turret recoils less.
+function turret(ctx, def, tur, angle, fire, o, P, wreckAngle) {
+  const m = tur.m, f = o.wreck ? null : fire, kick = tur.rapid ? 1 : 3, rc = f != null && f < .35 ? -kick*(1 - f/.35) : 0;
+  ctx.save(); ctx.translate(m[0], m[1]); ctx.rotate(o.wreck ? wreckAngle*DEG : (angle || 0));
+  ctx.save(); ctx.translate(rc, 0); paint(ctx, o.mk && tur.mkS ? tur.mkS : tur.s, P); if (o.mk && def.tmk && tur === def.tur) paint(ctx, def.tmk, P); ctx.restore();
+  if (f != null && f < .14) { ctx.translate((tur.reach || def.reach) + 2, 0); const sc = tur.rapid ? .6 : 1; ctx.scale(sc, sc);
+    ctx.beginPath(); ctx.arc(0, 0, 4.5, 0, Math.PI*2); ctx.fillStyle = 'rgba(255,246,220,.9)'; ctx.fill();
+    ctx.fillStyle = '#f0b93a'; ctx.fill(path('M0 -6L1.5 -1.5L6 0L1.5 1.5L0 6L-1.5 1.5L-6 0L-1.5 -1.5Z')); }
   ctx.restore();
 }
 
