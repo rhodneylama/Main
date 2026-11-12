@@ -387,11 +387,11 @@ function recallGroup(key) {
 function toggleArmyMenu() {
   const all = mine(game.entities).filter(u => u.kind === 'unit' && u.def.role === 'combat');
   const faction = game.teams[view.team].faction;
-  const plural = t => faction === 'scrapline' ? { scout: 'Scouts', hornet: 'Hornets', tank: 'Tanks', sentry: 'Sentries', artillery: 'Artillery' }[t]
+  const plural = t => faction === 'scrapline' ? { scout: 'Scouts', hornet: 'Hornets', tank: 'Tanks', heavy: 'Juggernauts', sentry: 'Sentries', artillery: 'Artillery' }[t]
     : factionName(faction, UNIT_TYPES[t].name) + 's';
   openPop($('q-army'), [
     { label: 'All combat vehicles', count: all.length, disabled: !all.length, onClick: () => selectArmyType('all') },
-    ...['scout', 'hornet', 'tank', 'sentry', 'artillery'].map(t => {
+    ...['scout', 'hornet', 'tank', 'heavy', 'sentry', 'artillery'].map(t => {
       const n = all.filter(u => baseType(u) === t).length;
       return n ? { label: plural(t), count: n, onClick: () => selectArmyType(t) } : null;
     }).filter(Boolean),
@@ -534,10 +534,12 @@ function handleTap(p) {
   const hit = entityAt(w.x, w.y, TOUCH_PAD);
   const sel = mine(view.selected);
   const hasBuilder = sel.some(u => u.kind === 'unit' && u.def.role === 'builder');
-  const needsWork = hit && hit.team === view.team && hit.kind === 'building' && (hit.built < 1 || hit.hp < hit.maxHp);
+  const hasDrone = sel.some(u => u.kind === 'unit' && u.def.role === 'repairer');
+  const needsWork = hit && hit.team === view.team && ((hit.kind === 'building' && (hit.built < 1 || hit.hp < hit.maxHp) && (hasBuilder || hasDrone)) ||
+    (hasDrone && hit.kind === 'unit' && hit.hp < hit.maxHp && !sel.includes(hit)));
   const artyDefend = hit && hit.team === view.team && hit.kind === 'building' && !hasBuilder &&
     sel.some(u => baseType(u) === 'artillery');
-  if (hit && (isMine(hit) || (hit.team === view.team && !sel.length)) && !(hasBuilder && needsWork) && !artyDefend) { select(pickWithDoubleTap(hit)); return; }
+  if (hit && (isMine(hit) || (hit.team === view.team && !sel.length)) && !needsWork && !artyDefend) { select(pickWithDoubleTap(hit)); return; }
   if (sel.length && !spectating) {
     // Tap targets are a little bigger for fingers.
     const node = scrapAt(w.x, w.y, TOUCH_PAD);
@@ -595,7 +597,11 @@ function rightClick(w, pad = 0) {
   } else if (t && t.team !== view.team && units.some(u => u.def.weapon)) {
     issueCommand(game, view.team, { type: 'attack', ids, targetId: t.id });
     ping(t, '#ff7a6a');
-  } else if (t && t.team === view.team && t.kind === 'building' && units.some(u => u.def.role === 'builder') && (t.built < 1 || t.hp < t.maxHp)) {
+  } else if (t && t.team === view.team && t.hp < t.maxHp && units.some(u => u.def.role === 'repairer') && !units.includes(t)) {
+    // Repair Drones fix a damaged building or vehicle of yours.
+    issueCommand(game, view.team, { type: 'repair', ids, targetId: t.id });
+    ping(t, '#6ee06e');
+  } else if (t && t.team === view.team && t.kind === 'building' && units.some(u => u.def.role === 'builder') && t.built < 1) {
     issueCommand(game, view.team, { type: 'repair', ids, targetId: t.id });
     ping(t, '#f0c040');
   } else if (node && units.some(u => u.def.role === 'harvester')) {
@@ -784,6 +790,7 @@ const STANCES = [
   ['aggressive', 'Aggressive', 'Fight anything met on the way and chase it a little, then carry on. Idle, they help friends under fire nearby. (The default.)'],
   ['return', 'Return fire', 'Shoot at whatever comes in range, but keep going (or keep to the spot). No chasing.'],
   ['stealth', 'Stealth', 'Hold fire and just go where they are sent.'],
+  ['repair', 'Fight, then repair', 'Fight like Aggressive until health turns yellow, then go to a Repair Pad (or back to base for a Repair Drone) and come back once fixed.'],
 ];
 function refreshPanel() {
   const info = $('selinfo'), cmds = $('commands');
@@ -810,7 +817,11 @@ function refreshPanel() {
     let extra = '';
     if (e.kind === 'unit' && e.def.role === 'harvester') extra = `Carrying ${Math.floor(e.carry)} / ${d.carryMax} scrap` +
       (d.canDeploy ? ' · can deploy on geysers' : ' · cannot deploy (needs Scavenger II)');
-    if (e.kind === 'unit' && e.def.role === 'builder') extra = d.canRepair ? 'Builds and repairs' : 'Builds only. Repairs need a Constructor II.';
+    if (e.kind === 'unit' && e.def.role === 'builder') extra = 'Builds and finishes construction. Repairs are a Repair Drone\'s job.';
+    if (e.kind === 'unit' && e.def.role === 'repairer') {
+      const tgt = e.order.targetId && game.byId.get(e.order.targetId);
+      extra = `${e.order.type === 'automend' ? 'Auto repair' : e.order.type === 'mend' ? 'Repairing' : 'Idle'}${tgt ? `: ${nameOf(tgt)}` : e.order.type === 'automend' ? ', nothing needs fixing' : ''}`;
+    }
     if (e.kind === 'unit' && e.def.role === 'combat') {
       const next = CONFIG.VET_KILLS[e.rank || 0];
       extra = `${CONFIG.VET_NAMES[e.rank || 0]} · ${e.kills || 0} kill${e.kills === 1 ? '' : 's'}${next ? ` (${next - (e.kills || 0)} more to ${CONFIG.VET_NAMES[(e.rank || 0) + 1]})` : ''}`;
@@ -1054,6 +1065,10 @@ function refreshPanel() {
     { primary: true, title: 'Dig in where it stands: it guards this spot and never moves or chases until packed up' });
   if (sentries.some(u => u.deployed)) addBtn('Pack up', null, keys.shift(), () => order('packup', sentries.filter(u => u.deployed)),
     { title: 'Fold the legs away so it can move. A packed-up Sentry cannot fire.' });
+  // Repair Drones: Auto repair, or tap something damaged.
+  const drones = sel.filter(e => e.kind === 'unit' && e.def.role === 'repairer');
+  if (drones.length) addBtn('Auto repair', null, keys.shift(), () => order('autorepair', drones),
+    { active: drones.every(d => d.order.type === 'automend'), title: 'Go wherever something of yours needs repairing (most urgent first). Or tap a damaged building or vehicle to send them there.' });
   const armed = sel.filter(e => e.kind === 'unit' && e.def.weapon && !e.def.deployable);
   if (armed.length) {
     addBtn('Attack-move', null, 'A', () => { view.attackMode = true; refreshPanel(); }, { active: view.attackMode, title: 'Move, but stop to fight anything on the way' });

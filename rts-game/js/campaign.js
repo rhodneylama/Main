@@ -331,7 +331,8 @@ function establishBase(game, team, fort, extra = []) {
   const rally = { x: hq.x + Math.cos(toC) * 220, y: hq.y + Math.sin(toC) * 220 };
   const nearTo = (type, p, k) => addUnitNear(game, type, team, p.x + ((k % 4) - 1.5) * 34, p.y + (Math.floor(k / 4) - 1) * 34);
   for (let k = 0; k < FORT.scavengers[L]; k++) nearTo(hq.level > 1 ? 'scavenger2' : 'scavenger', { x: hq.x - Math.cos(toC) * 90, y: hq.y - Math.sin(toC) * 90 }, k);
-  nearTo(hq.level > 1 ? 'constructor2' : 'constructor', hq, 5);
+  nearTo('constructor', hq, 5);
+  if (hq.level > 1) nearTo('drone', hq, 6);   // a Recycler II comes with a Repair Drone
   FORT.garrison.slice(0, FORT.garrisonSize[L]).concat(extra).forEach((type, k) => nearTo(type, rally, k));
   for (let k = 0; k < FORT.sentries[L]; k++) {
     const s = nearTo('sentry', { x: rally.x + Math.cos(toC) * 90, y: rally.y + Math.sin(toC) * 90 }, k * 2);

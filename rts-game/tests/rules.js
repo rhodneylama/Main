@@ -161,7 +161,7 @@ section('Workers and tech');
   for (const u of g.entities) if (u.team === 1 && u.def.role === 'harvester') u.hp = 0;
   run(g, S, 1);
   g.teams[1].scrap = 0; ex.stored = 0; run(g, S, 60);
-  check('an Extractor pays about 42 scrap a minute straight into storage', Math.abs(g.teams[1].scrap - 42 - 2.1) < 2, g.teams[1].scrap.toFixed(1));
+  check('an Extractor pays about 45 scrap a minute straight into storage', Math.abs(g.teams[1].scrap - 44.9 - 2.1) < 2, g.teams[1].scrap.toFixed(1));
   g.teams[1].scrap = S.scrapCapacity(g, 1); run(g, S, 200);
   check('with storage full, an Extractor holds up to 120', Math.abs(ex.stored - 120) < 0.01, ex.stored.toFixed(1));
   g.teams[1].scrap = 0; run(g, S, 1);
@@ -931,6 +931,56 @@ section('Veterans and armour facing');
   const hitFrom = (dx, dy) => { const before = target.hp; S.damageForTest(g, target, 20, { kind: 'shell', team: 1, sx: target.x + dx, sy: target.y + dy }); const d = before - target.hp; target.hp = target.maxHp; return d; };
   const front = hitFrom(100, 0), side = hitFrom(0, 100), rear = hitFrom(-100, 0);
   check('hits on the side do 25% more, from behind 50% more', front === 20 && side === 25 && rear === 30, `${front} / ${side} / ${rear}`);
+}
+
+section('Repair Drones, Fight then repair, the Juggernaut, tuning');
+{
+  const S = load();
+  check('Extractors produce 7% more (0.749 a second)', S.BUILDING_TYPES.extractor.income === 0.749);
+  check('shields 15% stronger, reboot 10% sooner', S.BUILDING_TYPES.shield.field.hp === 1725 && S.BUILDING_TYPES.shield.field.reboot === 13.5);
+  check('Artillery fires 10% slower; Artillery Towers unchanged', S.UNIT_TYPES.artillery.weapon.cooldown === 3.85 && S.UNIT_TYPES.artillery2.weapon.cooldown === 3.85 &&
+    S.BUILDING_TYPES.tower.upgrades.find(u => u.key === 'arttower').weapon.cooldown === 4.5);
+  check('a Recycler II builds Repair Drones; Constructors no longer repair', S.BUILDING_TYPES.recycler.upgrade.produces.includes('drone') &&
+    !S.UNIT_TYPES.constructor.canRepair && !S.UNIT_TYPES.constructor2.canRepair && S.UNIT_TYPES.drone.speed === S.UNIT_TYPES.hornet.speed);
+  const g = deployedGame(S), rec = mine(g, 1, 'recycler')[0];
+  for (const e of g.entities) if (e.team === 2 && e.type !== 'recycler') e.hp = 0;
+  S.stepGame(g);
+  const drone = S.addUnitNear(g, 'drone', 1, rec.x + 100, rec.y);
+  check('a new drone starts on Auto repair', drone.order.type === 'automend');
+  rec.hp = rec.maxHp * 0.5;
+  const tank = S.addUnitNear(g, 'tank', 1, rec.x + 500 * Math.sign(g.map.W * 16 - rec.x), rec.y);
+  tank.hp = 100;
+  let tankFirst = false;
+  for (let i = 0; i < 30 * 90; i++) { S.stepGame(g); if (tank.hp === tank.maxHp && rec.hp < rec.maxHp) tankFirst = true; }
+  check('a badly damaged vehicle comes before a building', tankFirst);
+  check('on Auto repair it fixes buildings and vehicles on its own', rec.hp === rec.maxHp && tank.hp === tank.maxHp, `Recycler ${Math.round(rec.hp / rec.maxHp * 100)}%, Tank ${Math.round(tank.hp)}`);
+  const con = S.addUnitNear(g, 'constructor', 1, rec.x - 100, rec.y);
+  rec.hp = rec.maxHp * 0.5; drone.hp = 0; S.stepGame(g);
+  S.issueCommand(g, 1, { type: 'repair', ids: [con.id], targetId: rec.id });
+  for (let i = 0; i < 30 * 10; i++) S.stepGame(g);
+  check('a Constructor can\'t repair a building', rec.hp === rec.maxHp * 0.5);
+  // Fight, then repair: at yellow health it goes to the Repair Pad, then back.
+  const pad = placeDone(S, g, 1, 'repairpad', rec);
+  const post = { x: rec.x + 450 * Math.sign(g.map.W * 16 - rec.x), y: rec.y - 200 * Math.sign(rec.y - g.map.H * 16) };
+  const v = S.addUnitNear(g, 'tank', 1, post.x, post.y);
+  S.issueCommand(g, 1, { type: 'stance', ids: [v.id], stance: 'repair' });
+  for (let i = 0; i < 30; i++) S.stepGame(g);
+  const home = { x: v.x, y: v.y };
+  v.hp = v.maxHp * 0.55;
+  let reachedPad = false;
+  for (let i = 0; i < 30 * 90; i++) { S.stepGame(g); if (S.dist(v, pad) < 60) reachedPad = true; }
+  check('"Fight, then repair": at yellow health it drives to the Repair Pad', reachedPad);
+  check('and once repaired, goes back to where it was', v.hp === v.maxHp && S.dist(v, home) < 120, `${Math.round(S.dist(v, home))} px from its spot`);
+  // The Juggernaut: two turrets, two targets at once.
+  const J = S.UNIT_TYPES.heavy, T = S.UNIT_TYPES.tank;
+  check('the Juggernaut: tougher than a Tank, as slow, 50% dearer, a cannon and a minigun', J.hp > T.hp && J.speed === T.speed && J.cost === T.cost * 1.5 &&
+    J.weapon.damage === T.weapon.damage && J.weapon2.cooldown === S.UNIT_TYPES.sentry.weapon.cooldown);
+  const jug = S.addUnitNear(g, 'heavy', 1, rec.x - 300 * Math.sign(g.map.W * 16 - rec.x), rec.y);
+  const a = S.addUnitNear(g, 'scout', 2, jug.x + 150, jug.y - 40), b = S.addUnitNear(g, 'scout', 2, jug.x + 150, jug.y + 60);
+  for (const s2 of [a, b]) { s2.stance = 'stealth'; s2.hp = s2.maxHp = 5000; }
+  const hpA = a.hp, hpB = b.hp;
+  for (let i = 0; i < 30 * 6; i++) S.stepGame(g);
+  check('it fires at two targets at once', a.hp < hpA && b.hp < hpB && jug.target2 && jug.target && jug.target2 !== jug.target, `${Math.round(hpA - a.hp)} and ${Math.round(hpB - b.hp)} damage`);
 }
 
 console.log(`\n${passes} passed, ${fails} failed`);

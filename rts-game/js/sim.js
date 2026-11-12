@@ -107,6 +107,8 @@ function addUnit(game, type, team, x, y) {
     shield: def.shield || 0, shieldWait: 0, shieldFlash: 0,
   };
   u.turret = u.angle;
+  if (def.weapon2) { u.turret2 = u.angle; u.cooldown2 = 0; }
+  if (def.role === 'repairer') u.order = { type: 'automend', gx: x, gy: y };   // drones start on Auto repair
   game.entities.push(u); game.byId.set(u.id, u);
   return u;
 }
@@ -250,8 +252,9 @@ function issueCommand(game, team, cmd) {
   if (game.winner) return;
   const own = id => { const e = game.byId.get(id); return e && e.team === team && e.hp > 0 ? e : null; };
   let units = (cmd.ids || []).map(own).filter(e => e && e.kind === 'unit');
-  // Any new order ends a trip to the Repair Pad (Go repair sets it again below).
-  for (const u of units) u.repairTrip = 0;
+  // Any new order ends a trip to the Repair Pad (Go repair sets it again
+  // below) and a pull-back for repairs.
+  for (const u of units) { u.repairTrip = 0; if (cmd.type !== 'stance') { u.retreating = false; u.autoReturn = null; } }
   // Sentries: Dig in stays put; any order that moves it packs it up first.
   if (cmd.type === 'dig' || cmd.type === 'packup') {
     for (const u of units) if (u.def.deployable) {
@@ -311,12 +314,20 @@ function issueCommand(game, team, cmd) {
       break;
     }
     case 'repair': {
+      // Drones repair your buildings and vehicles; Constructors only finish
+      // construction sites.
       const b = own(cmd.targetId);
-      if (!b || b.kind !== 'building') return;
-      // Finishing construction is any Constructor's job; repairing needs a Constructor II.
-      const able = units.filter(u => u.def.role === 'builder' && (b.built < 1 || u.def.canRepair));
-      if (!able.length && units.some(u => u.def.role === 'builder')) { pushEvent(game, team, 'Only a Constructor II can repair buildings', 'warn'); return; }
+      if (!b) return;
+      const drones = units.filter(u => u.def.role === 'repairer' && u !== b);
+      for (const u of drones) { u.order = { type: 'mend', targetId: b.id }; u.path = []; }
+      if (b.kind !== 'building') break;
+      const able = units.filter(u => u.def.role === 'builder' && b.built < 1);
+      if (!able.length && !drones.length && units.some(u => u.def.role === 'builder')) { pushEvent(game, team, 'Repairs need a Repair Drone (built by a Recycler II)', 'warn'); return; }
       for (const u of able) { u.order = { type: 'build', targetId: b.id }; planPathNear(game, u, b); }
+      break;
+    }
+    case 'autorepair': {
+      for (const u of units) if (u.def.role === 'repairer') { u.order = { type: 'automend', gx: u.x, gy: u.y }; u.path = []; }
       break;
     }
     case 'produce': {
@@ -383,7 +394,7 @@ function issueCommand(game, team, cmd) {
     }
     case 'stance': {
       // How vehicles behave on the move and when idle (see stanceOf).
-      if (!['aggressive', 'return', 'stealth'].includes(cmd.stance)) return;
+      if (!['aggressive', 'return', 'stealth', 'repair'].includes(cmd.stance)) return;
       for (const u of units) if (u.def.weapon) { u.stance = cmd.stance; if (cmd.stance === 'stealth') u.target = null; }
       break;
     }
@@ -734,6 +745,7 @@ const needsRepair = u => u.hp < u.maxHp || (u.def.shield && u.shield < u.def.shi
 function leavePad(game, u, pad) {
   u.repairTrip = 0;
   if (u.def.role === 'harvester') return;
+  if (u.autoReturn) { returnFromRepair(game, u); return; }
   let x, y;
   if (pad.rally) { x = pad.rally.x; y = pad.rally.y; }
   else {
@@ -809,10 +821,12 @@ function updateUnit(game, u, dt) {
     else u.shield = Math.min(u.def.shield, u.shield + u.def.shieldRegen * dt);
   }
   if (u.def.deployable && u.deployed) { updateDugIn(game, u, dt); return; }
+  if (u.def.weapon2) secondaryFire(game, u, dt);
+  if (u.def.weapon && stanceOf(game, u) === 'repair') fightThenRepair(game, u);
   const o = u.order;
   switch (o.type) {
     case 'idle': {
-      const st = u.def.weapon ? stanceOf(game, u) : null;
+      const st = u.def.weapon ? actingStance(game, u) : null;
       if (st === 'stealth' || st === 'return') {
         // Hold fire entirely, or fire at what's in range without leaving the spot.
         if (st === 'return') shootWhileMoving(game, u, dt); else u.target = null;
@@ -840,7 +854,7 @@ function updateUnit(game, u, dt) {
       break;
     }
     case 'move': {
-      const st = o.attackMove ? 'aggressive' : stanceOf(game, u);
+      const st = o.attackMove && !u.retreating ? 'aggressive' : actingStance(game, u);
       let engaged = false;
       if (u.def.weapon && st === 'aggressive') engaged = combatThink(game, u, dt, true);
       if (engaged) { o.fought = true; break; }
@@ -870,6 +884,7 @@ function updateUnit(game, u, dt) {
     case 'patrol': updatePatrol(game, u, dt); break;
     case 'guard': updateGuard(game, u, dt); break;
     case 'hunt': updateHunt(game, u, dt); break;
+    case 'mend': case 'automend': updateDrone(game, u, dt); break;
     case 'deploy': updateDeploy(game, u, dt); break;
   }
 }
@@ -880,7 +895,11 @@ function updateUnit(game, u, dt) {
 //   'stealth'     holds fire and just goes where it's sent
 // The computer opponent gives its orders exactly (attack-move or not), so
 // its vehicles have no stance (null) and behave as they always have.
+//   'repair'      fights like Aggressive until its health turns yellow (60%),
+//                 then goes for repairs and comes back (fightThenRepair)
 const stanceOf = (game, u) => u.stance || (game.aiTeams.includes(u.team) && !u.cmdr ? null : 'aggressive');
+// How it behaves right now: a 'repair' vehicle on its way to be fixed only returns fire.
+const actingStance = (game, u) => { const st = stanceOf(game, u); return st === 'repair' ? (u.retreating ? 'return' : 'aggressive') : st; };
 
 // An idle, aggressive vehicle goes to the help of a friend under fire nearby.
 function helpFriends(game, u, dt) {
@@ -954,6 +973,127 @@ function updateHunt(game, u, dt) {
   }
   if (followPath(game, u, dt, 30) && !goal.id) { holder.target = null; o.planned = null; }
   aimAtNearby(game, u, dt);
+}
+
+// 'Fight, then repair': at yellow health, head for the nearest Repair Pad
+// (or, with none, back to base where drones can reach it), remembering where
+// it was; once fixed it drives back there (see leavePad, returnFromRepair).
+function fightThenRepair(game, u) {
+  if (u.retreating) {
+    if (u.hp >= u.maxHp * 0.98 && !u.repairTrip) returnFromRepair(game, u);
+    return;
+  }
+  if (u.hp > u.maxHp * 0.6) return;
+  const spot = u.order.type === 'move' ? { x: u.order.gx, y: u.order.gy } : { x: u.x, y: u.y };
+  const pads = game.entities.filter(e => e.team === u.team && e.type === 'repairpad' && e.built >= 1);
+  const drones = game.entities.some(e => e.team === u.team && e.def.role === 'repairer' && e.hp > 0);
+  if (!pads.length && !drones) return;   // nothing to fix it: fight on
+  if (pads.length) issueCommand(game, u.team, { type: 'gorepair', ids: [u.id] });
+  else {
+    const hq = game.entities.find(e => e.team === u.team && (e.type === 'recycler' || e.type === 'mobileRecycler'));
+    if (hq) issueCommand(game, u.team, { type: 'move', ids: [u.id], x: hq.x + (game.rng() - 0.5) * 120, y: hq.y + (game.rng() - 0.5) * 120 });
+  }
+  u.retreating = true; u.target = null;
+  u.autoReturn = spot;
+  pushEvent(game, u.team, `${nameOf(u)} pulling back for repairs`, 'info', u.x, u.y);
+}
+function returnFromRepair(game, u) {
+  const back = u.autoReturn;
+  u.retreating = false; u.autoReturn = null;
+  if (back) issueCommand(game, u.team, { type: 'move', ids: [u.id], x: back.x, y: back.y, attackMove: true });
+}
+
+// --- Repair Drones -------------------------------------------------------------
+// 'mend': fly to one damaged building or vehicle of yours and fix it.
+// 'automend': keep finding the most urgent repair nearby (lowest health, then
+// nearest), or wait by the Recycler.
+function needsMend(e, u) {
+  return e && e.team === u.team && e.hp > 0 && e !== u && e.hp < e.maxHp && (e.kind === 'unit' || e.built >= 1);
+}
+// How urgent a repair is (lower first): badly damaged first, vehicles before
+// buildings (they're the ones about to be lost), then nearest.
+const mendScore = (u, e) => dist(u, e) + (e.hp / e.maxHp) * 900 - (e.kind === 'unit' ? 300 : 0);
+function updateDrone(game, u, dt) {
+  const o = u.order;
+  let t = o.targetId ? game.byId.get(o.targetId) : null;
+  if (!needsMend(t, u)) { t = null; o.targetId = 0; }
+  if (!t && o.type === 'mend') { u.order = { type: 'automend', gx: u.x, gy: u.y }; return updateDrone(game, u, dt); }
+  // On Auto repair, look around now and then and switch to anything clearly more urgent.
+  if (o.type === 'automend' && (u.scan = (u.scan || 0) - dt) <= 0) {
+    u.scan = t ? 2 : 0.8;
+    let best = null, bs = Infinity;
+    for (const e of game.entities) {
+      if (!needsMend(e, u)) continue;
+      const s = mendScore(u, e);
+      if (s < bs) { bs = s; best = e; }
+    }
+    if (best && (!t || bs < mendScore(u, t) - 150)) { o.targetId = best.id; t = best; u.path = []; }
+  }
+  if (!t) {
+    {
+      // Nothing to fix: wait beside the Recycler.
+      const hq = game.entities.find(e => e.team === u.team && (e.type === 'recycler' || e.type === 'mobileRecycler'));
+      if (hq && dist(u, hq) > 160) { if (!u.path.length) planPath(game, u, hq.x + 70, hq.y + 70); followPath(game, u, dt, 20); }
+      return;
+    }
+  }
+  const reach = u.def.repairReach + t.radius;
+  if (dist(u, t) > reach) {
+    if (!u.path.length || (u.repath = (u.repath || 0) - dt) <= 0) {
+      u.repath = 0.7;
+      // Aim for a spot just beside it (a building's middle is solid).
+      const a = angleTo(t, u), gx = t.x + Math.cos(a) * (t.radius + 22), gy = t.y + Math.sin(a) * (t.radius + 22);
+      if (hasClearLine(game, u.x, u.y, gx, gy)) u.path = [{ x: gx, y: gy }]; else planPath(game, u, gx, gy);
+    }
+    followPath(game, u, dt, 8);
+    return;
+  }
+  u.path = [];
+  u.angle = turnToward(u.angle, angleTo(u, t), 4 * dt);
+  t.hp = Math.min(t.maxHp, t.hp + u.def.repairRate * dt);
+  t.repairing = 0.3; u.mending = game.time;
+  if ((game.tick + u.id) % 6 === 0) game.effects.push({ kind: 'heal', x: t.x + (game.rng() - 0.5) * 20, y: t.y, t: 0, life: 0.8 });
+}
+
+// --- A second turret (the Juggernaut's minigun): picks its own target in
+// range (another one than the main gun's when there's a choice) and fires on
+// the move, unless told to hold fire.
+function secondaryFire(game, u, dt) {
+  const w = u.def.weapon2;
+  if (u.cooldown2 > 0) u.cooldown2 -= dt;
+  if (actingStance(game, u) === 'stealth') { u.target2 = null; return; }
+  u.retarget2 = (u.retarget2 || 0) - dt;
+  const t0 = u.target2;
+  if (t0 && (t0.hp <= 0 || edgeDist(u, t0) > w.range || !isVisibleTo(game, u.team, t0))) u.target2 = null;
+  if (u.retarget2 <= 0) {
+    u.retarget2 = 0.35;
+    let best = null, bs = Infinity;
+    forUnitsNear(game, u.x, u.y, w.range + 20, o => {
+      if (o.team === u.team || o.hp <= 0 || !isVisibleTo(game, u.team, o)) return;
+      const d = edgeDist(u, o);
+      if (d > w.range) return;
+      const s = d + (o === u.target ? 150 : 0) + (o.def.weapon ? 0 : 60);
+      if (s < bs) { bs = s; best = o; }
+    });
+    if (!best) for (const b of (game.ugrid ? game.ugrid.buildings : [])) {
+      if (b.team !== u.team && b.hp > 0 && edgeDist(u, b) <= w.range && (isVisibleTo(game, u.team, b))) { best = b; break; }
+    }
+    u.target2 = best;
+  }
+  const t = u.target2;
+  if (!t) { u.turret2 = turnToward(u.turret2, u.angle, 4 * dt); return; }
+  const want = angleTo(u, t);
+  u.turret2 = turnToward(u.turret2, want, 6 * dt);
+  if (u.cooldown2 > 0 || Math.abs(wrapAngle(want - u.turret2)) > 0.3) return;
+  u.cooldown2 = w.cooldown * (1 - CONFIG.VET_RELOAD * (u.rank || 0));
+  u.lastShot2 = game.time;
+  const mx = u.x + Math.cos(u.turret2) * (u.radius * 0.6), my = u.y + Math.sin(u.turret2) * (u.radius * 0.6);
+  const p = { kind: w.projectile, team: u.team, owner: u.id, x: mx, y: my, sx: mx, sy: my, damage: w.damage, splash: 0, vsBuilding: w.vsBuilding, speed: 900 };
+  if (game.rng() < hitChance(game, u, t, edgeDist(u, t), w)) { p.targetId = t.id; p.tx = t.x; p.ty = t.y; }
+  else { const a = want + (game.rng() < 0.5 ? -1 : 1) * (0.08 + game.rng() * 0.12), len = dist(u, t) + 30 + game.rng() * 60; p.tx = mx + Math.cos(a) * len; p.ty = my + Math.sin(a) * len; p.miss = true; }
+  game.projectiles.push(p);
+  game.effects.push({ kind: 'flash', x: mx, y: my, a: u.turret2, t: 0, life: 0.06, big: false });
+  game.events.push({ sound: w.projectile, x: mx, y: my });
 }
 
 const goIdle = u => { u.order = { type: 'idle', gx: u.x, gy: u.y }; u.path = []; };
@@ -1418,9 +1558,8 @@ function aimAtNearby(game, u, dt) {
 }
 
 // The chance a shot from `e` at `t` (edge distance d) hits (CONFIG.ACCURACY).
-function hitChance(game, e, t, d) {
+function hitChance(game, e, t, d, w = e.def.weapon) {
   if (t.kind === 'building') return 1;
-  const w = e.def.weapon;
   const rank = e.rank || 0;
   let k = (CONFIG.ACCURACY[w.projectile] || 0.9) * (1 - CONFIG.ACC_RANGE * Math.min(1, d / w.range)) * (1 + CONFIG.VET_ACC[rank]);
   // Veterans lose less accuracy firing on the move (a third less per rank).
@@ -1682,7 +1821,7 @@ function updateHarvester(game, u, dt) {
 
 function updateBuilder(game, u, dt) {
   const b = game.byId.get(u.order.targetId);
-  if (!b || b.hp <= 0 || (b.built >= 1 && (b.hp >= b.maxHp || !u.def.canRepair))) { u.order = { type: 'idle', gx: u.x, gy: u.y }; u.path = []; return; }
+  if (!b || b.hp <= 0 || b.built >= 1) { u.order = { type: 'idle', gx: u.x, gy: u.y }; u.path = []; return; }
   const close = edgeDist(u, b) < b.radius * 0.2 + u.radius + 30;
   if (!close) {
     if (followPath(game, u, dt, 10)) planPathNear(game, u, b);
@@ -1691,16 +1830,10 @@ function updateBuilder(game, u, dt) {
   u.path = [];
   u.angle = turnToward(u.angle, angleTo(u, b), 4 * dt);
   if (game.tick % 5 === 0) game.effects.push({ kind: 'weld', x: b.x + (Math.random() - 0.5) * b.radius * 1.4, y: b.y + (Math.random() - 0.5) * b.radius * 1.4, t: 0, life: 0.3 });
-  if (b.built < 1) {
-    const step = dt * (game.tempo || 1) / b.def.buildTime;
-    b.built = Math.min(1, b.built + step);
-    b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.9 * step);
-    if (b.built >= 1) {
-      pushEvent(game, b.team, `${nameOf(b)} complete`, 'good', b.x, b.y);
-    }
-  } else {
-    b.hp = Math.min(b.maxHp, b.hp + u.def.repairRate * dt);
-  }
+  const step = dt * (game.tempo || 1) / b.def.buildTime;
+  b.built = Math.min(1, b.built + step);
+  b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.9 * step);
+  if (b.built >= 1) pushEvent(game, b.team, `${nameOf(b)} complete`, 'good', b.x, b.y);
 }
 
 // ---------------------------------------------------------------------------
