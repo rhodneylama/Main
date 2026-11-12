@@ -57,6 +57,42 @@ VEH.push(
     s:[['p',poly(6,10.5,0),'h'],['o',0,0,8.4,'t',1.2]],
     tur:{ m:[0,0], s:[['r',4,-3.4,13,1.3,'l',.4],['r',4,2.1,13,1.3,'l',.4],['r',8,-4,2,8,'d',.5],['p','M-5 0L-2.5 -4.5L2.5 -4.5L5 0L2.5 4.5L-2.5 4.5Z','m'],['c',0,0,2,'g'],['c',17,-2.7,.7,'t'],['c',17,2.7,.7,'t']] } }
 );
+// Colossus (the Juggernaut): a long gravity-borne warship. Two pairs of
+// floating armour blades with air between them, a glowing spine, and two
+// separate weapon mounts: a heavy twin-rail lance on a hex mount forward,
+// and a needle-cluster emitter on a round orb aft. Upgraded, the lance
+// becomes four rails and the needles a double fan. tur = lance, tur2 = needles.
+VEH.push(
+  { id:'colossus', code:'V-10', name:'Colossus', sub:'Heavy · two mounts', D:46, R:18, reach:26, hoverE:[25, 16], layers:'Hull · Team · Lance · Needles', mkName:'Upgraded',
+    role:'The heaviest Kethra construct: an elongated hull between four floating blades, riding a long gravity ring, with a rail lance forward and a needle emitter aft so it can fight two targets at once.',
+    s:[['p','M17 -9.2L5 -12.6L2.6 -10.4L4 -8.8L15.6 -7.8Z','l'],['p','M17 9.2L5 12.6L2.6 10.4L4 8.8L15.6 7.8Z','l'],
+       ['p','M-1 -10.4L-15 -12.8L-19.5 -9.4L-14.5 -8.4L-2 -8.6Z','l'],['p','M-1 10.4L-15 12.8L-19.5 9.4L-14.5 8.4L-2 8.6Z','l'],
+       ['s','M15 -9.4L5 -11.9M15 9.4L5 11.9','t',1.1],['s','M-2.5 -9.9L-14.5 -11.9M-2.5 9.9L-14.5 11.9','t',1.1],
+       ['p','M24 0L16 -7.4L-15 -7.6L-21.5 -4L-21.5 4L-15 7.6L16 7.4Z','h'],
+       ['p','M14 -6L-13 -6.2L-13 -3.4L14 -3.2Z','m'],['p','M14 6L-13 6.2L-13 3.4L14 3.2Z','m'],
+       ['p','M-21.5 -3L-25 0L-21.5 3Z','t'],['p','M21.5 0L17.5 -2.8L17.5 2.8Z','l'],
+       ['r',-6,-1.6,9,3.2,'gl',1.4],['c',-1.5,0,1.1,'g'],
+       ['p',poly(6,8,0,11,0),'d'],['c',-13,0,7,'d'],['s','M-18 -2.6V2.6','d',.8]],
+    mk:[['s','M12 -9.4L7 -10.6M12 9.4L7 10.6','gold',.9],['s','M-5 -10L-11 -10.9M-5 10L-11 10.9','gold',.9],ev(-17,-5.5),ev(-17,5.5)],
+    tur:{ m:[11,0], reach:26,
+      s:[['p','M4 -3.6L24 -2.4L25.8 -1.5L4 -1.5Z','l'],['p','M4 1.5L25.8 1.5L24 2.4L4 3.6Z','l'],['s','M6 0H23','t',1.2],
+         ['r',11,-4.2,2.2,8.4,'d',.6],['r',17,-3.6,2.2,7.2,'d',.6],
+         ['p',poly(6,6.6,0),'m'],['p',poly(6,4.3,0),'h'],['c',0,0,1.8,'g']],
+      mkS:[['p','M4 -6L24 -5L25.8 -4.2L4 -4.2Z','l'],['p','M4 -1.8L25.8 -1.8L24 -1.1L4 -.6Z','l'],['s','M6 -3H23','t',1],
+           ['p','M4 .6L24 1.1L25.8 1.8L4 1.8Z','l'],['p','M4 4.2L25.8 4.2L24 5L4 6Z','l'],['s','M6 3H23','t',1],
+           ['r',11,-6.6,2.2,13.2,'d',.6],['r',17,-6,2.2,12,'d',.6],
+           ['p',poly(6,7.2,0),'m'],['p',poly(6,4.6,0),'h'],['o',0,0,3,'gold',.7],['c',0,0,1.6,'g']] },
+    tur2:{ m:[-13,0], reach:12.5, rapid:true,
+      s:[['p','M-3 4.4L0 7.6L3 4.4L0 3Z','f'],
+         ['r',4,-2.9,7.5,1,'l',.3],['r',4,-.5,8.5,1,'l',.3],['r',4,1.9,7.5,1,'l',.3],
+         ['c',11.7,-2.4,.8,'t'],['c',12.7,0,.8,'t'],['c',11.7,2.4,.8,'t'],
+         ['c',0,0,5.4,'m'],['p',poly(3,4,0),'h'],['c',0,0,1.4,'g']],
+      mkS:[['p','M-3 4.8L0 8L3 4.8L0 3.4Z','f'],['p','M-3 -4.8L0 -8L3 -4.8L0 -3.4Z','f'],
+         ['r',4,-5.4,7.5,.9,'l',.3],['r',4,-3.6,8.5,.9,'l',.3],['r',4,-1.8,7.5,.9,'l',.3],
+         ['r',4,.9,7.5,.9,'l',.3],['r',4,2.7,8.5,.9,'l',.3],['r',4,4.5,7.5,.9,'l',.3],
+         ['c',11.7,-5,.7,'t'],['c',12.7,-3.2,.7,'t'],['c',11.7,-1.4,.7,'t'],['c',11.7,1.4,.7,'t'],['c',12.7,3.2,.7,'t'],['c',11.7,5,.7,'t'],
+         ['c',0,0,5.8,'m'],['p',poly(3,4.2,0),'h'],['o',0,0,4.6,'gold',.6],['c',0,0,1.4,'g']] } }
+);
 const BLD = [
   { id:'nexus', code:'B-01', name:'Nexus', sub:'HQ · Recycler · 3×3', S:96, R:48, layers:'Plate · Core · Team · Core (pulse)', mkName:'Upgraded',
     role:'A hex landing plate with a pulsing core, two pylons and a framed gate facing forward. A ring of arcs turns around the core. No turret.',
@@ -130,6 +166,13 @@ function drawSprite(ctx, id, o) {
   const t = o.t || 0, P = palette(o.team, o), R = def.R, bld = !!def.S;
   ctx.save(); ctx.translate(o.x || 0, o.y || 0); if (o.scale) ctx.scale(o.scale, o.scale);
   if (!bld && o.heading) ctx.rotate(o.heading);
+  if (def.hoverE && !o.wreck) {   // a long gravity ring under a long hull
+    const a = .35 + .15*Math.sin(t*3) + (o.thrust ? .25 : 0), [rx, ry] = def.hoverE;
+    ctx.save(); ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI*2);
+    ctx.globalAlpha = a*.18; ctx.fillStyle = P.t; ctx.fill(); ctx.globalAlpha = a; ctx.strokeStyle = P.t; ctx.lineWidth = 1.1;
+    ctx.setLineDash([5, 3]); ctx.lineDashOffset = -t*12; ctx.stroke(); ctx.restore();
+    if (o.thrust) { const L = 7 + 3*Math.sin(t*35); for (const y of [-4, 4]) { ctx.beginPath(); ctx.moveTo(-21.5, y - 2); ctx.lineTo(-21.5 - L, y); ctx.lineTo(-21.5, y + 2); ctx.closePath(); ctx.globalAlpha = .85; ctx.fillStyle = P.t; ctx.fill(); ctx.globalAlpha = 1; } }
+  }
   if (def.hover && !o.wreck) {
     const a = .35 + .15*Math.sin(t*3) + (o.thrust ? .25 : 0);
     ctx.save(); ctx.rotate(t*50*RAD); ctx.beginPath(); ctx.arc(0, 0, def.hover, 0, Math.PI*2);
@@ -146,17 +189,22 @@ function drawSprite(ctx, id, o) {
   if (def.beat) { const sc = 1 + .1*Math.pow(Math.max(0, Math.sin(t*2.6)), 3); ctx.save(); ctx.scale(sc, sc); paint(ctx, def.beat, P); ctx.restore(); }
   if (def.pulse && !o.wreck) { ctx.save(); ctx.globalAlpha *= .35 + .65*(.5 + .5*Math.sin(t*3)); paint(ctx, def.pulse, P); ctx.restore(); }
   if (def.spin) { ctx.save(); ctx.rotate(o.wreck ? 20*RAD : (t*def.spin.rate % 360)*RAD); paint(ctx, def.spin.s, P); ctx.restore(); }
-  if (def.tur) { const m = def.tur.m, f = o.wreck ? null : o.fire, rc = f != null && f < .35 ? -3*(1 - f/.35) : 0;
-    ctx.save(); ctx.translate(m[0], m[1]); ctx.rotate(o.wreck ? 35*RAD : (o.turret || 0));
-    ctx.save(); ctx.translate(rc, 0); paint(ctx, def.tur.s, P); if (o.mk && def.tmk) paint(ctx, def.tmk, P); ctx.restore();
-    if (f != null && f < .16) { ctx.translate(def.reach + 2, 0); const k = 1 - f/.3;
-      ctx.globalAlpha = .95; ctx.fillStyle = '#f4e9ff'; ctx.beginPath(); ctx.arc(0, 0, 5*k, 0, Math.PI*2); ctx.fill();
-      ctx.globalAlpha = .5; ctx.fillStyle = P.t; ctx.beginPath(); ctx.arc(0, 0, 8*k, 0, Math.PI*2); ctx.fill();
-      ctx.globalAlpha = .9; ctx.strokeStyle = P.t; ctx.lineWidth = 1; ctx.stroke(path('M-9 0H9M0 -5V5')); }
-    ctx.restore(); }
+  if (def.tur) turret(ctx, def, def.tur, o.turret, o.fire, o, P, 35);
+  if (def.tur2) turret(ctx, def, def.tur2, o.turret2 !== undefined ? o.turret2 : o.turret, o.fire2, o, P, -25);
   if (def.shield && o.shield && (!o.shieldHit || Math.sin(t*20) > 0)) {
     ctx.save(); ctx.rotate(t*30*RAD); ctx.beginPath(); ctx.arc(0, 0, R + 3, 0, Math.PI*2); ctx.globalAlpha = .1; ctx.fillStyle = P.t; ctx.fill();
     ctx.globalAlpha = .85; ctx.setLineDash([4, 2]); ctx.strokeStyle = P.t; ctx.lineWidth = 1; ctx.stroke(); ctx.restore(); }
+  ctx.restore();
+}
+// One weapon mount (see the Scrapline version in sprites.js).
+function turret(ctx, def, tur, angle, fire, o, P, wreckAngle) {
+  const m = tur.m, f = o.wreck ? null : fire, kick = tur.rapid ? 1 : 3, rc = f != null && f < .35 ? -kick*(1 - f/.35) : 0;
+  ctx.save(); ctx.translate(m[0], m[1]); ctx.rotate(o.wreck ? wreckAngle*RAD : (angle || 0));
+  ctx.save(); ctx.translate(rc, 0); paint(ctx, o.mk && tur.mkS ? tur.mkS : tur.s, P); if (o.mk && def.tmk && tur === def.tur) paint(ctx, def.tmk, P); ctx.restore();
+  if (f != null && f < .16) { ctx.translate((tur.reach || def.reach) + 2, 0); const k = (1 - f/.3)*(tur.rapid ? .6 : 1);
+    ctx.globalAlpha = .95; ctx.fillStyle = '#f4e9ff'; ctx.beginPath(); ctx.arc(0, 0, 5*k, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = .5; ctx.fillStyle = P.t; ctx.beginPath(); ctx.arc(0, 0, 8*k, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = .9; ctx.strokeStyle = P.t; ctx.lineWidth = 1; ctx.stroke(path('M-9 0H9M0 -5V5')); }
   ctx.restore();
 }
 function drawDamage(ctx, id, x, y, t) {

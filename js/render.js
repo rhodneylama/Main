@@ -438,14 +438,14 @@ function drawScrap(ctx, s) {
 // Which design from the unit sheet (js/sprites.js) each game type uses.
 // No prototype, so a type like "constructor" isn't mistaken for a built-in.
 // Power Generators and Shield Projectors are drawn here (drawPowerBuilding); they borrow the Silo's explosion and crater.
-const SPRITE_ID = Object.assign(Object.create(null), { mobileRecycler: 'recyclerV', repairpad: 'repair', basesilo: 'silo', outsilo: 'exsilo', arttower: 'towerArt', heavytower: 'towerHeavy', generator: 'silo', shield: 'silo', drone: 'scout', heavy: 'tank' });
+const SPRITE_ID = Object.assign(Object.create(null), { mobileRecycler: 'recyclerV', repairpad: 'repair', basesilo: 'silo', outsilo: 'exsilo', arttower: 'towerArt', heavytower: 'towerHeavy', generator: 'silo', shield: 'silo', drone: 'scout', heavy: 'juggernaut' });
 const spriteId = type => SPRITE_ID[type] || type;
 // The Kethra Concord's designs (js/sprites_kethra.js). Its towers have one
 // design; upgraded ones are drawn with its gold markings.
 const KETHRA_ID = Object.assign(Object.create(null), {
   mobileRecycler: 'monad', recycler: 'nexus', scavenger: 'skimmer', constructor: 'loom', scout: 'shard', tank: 'bulwark',
   artillery: 'spire', hornet: 'talon', sentry: 'pylon', factory: 'assembler', repairpad: 'lattice', extractor: 'siphon',
-  basesilo: 'vault', tower: 'prism', arttower: 'prism', heavytower: 'prism', lab: 'archive', radar: 'array', generator: 'vault', shield: 'vault', drone: 'shard', heavy: 'bulwark',
+  basesilo: 'vault', tower: 'prism', arttower: 'prism', heavytower: 'prism', lab: 'archive', radar: 'array', generator: 'vault', shield: 'vault', drone: 'shard', heavy: 'colossus',
 });
 // Which set of designs, and which design in it, draws a thing of a given faction.
 const artFor = faction => (faction === 'kethra' && window.KethraSprites ? KethraSprites : UnitSprites);
@@ -503,10 +503,12 @@ function drawUnit(ctx, u, selected, time) {
   const r = u.radius, art = artFor(u.faction), id = artId(u.faction, baseType(u));
   if (selected) drawSelection(ctx, u);
   ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(u.x + 3, u.y + 5, r, r * 0.8, 0, 0, Math.PI * 2); ctx.fill();
-  if (u.type === 'drone' || u.type === 'heavy') { drawCustomUnit(ctx, u, time); }
+  if (u.type === 'drone') { drawCustomUnit(ctx, u, time); }
   else art.drawSprite(ctx, id, {
     x: u.x, y: u.y, heading: u.angle, turret: wrapAngle(u.turret - u.angle), team: teamName(u.team),
     mk: !!u.def.base, t: time, legE: u.legE || 0, fire: sinceShot(u, time),
+    turret2: u.turret2 !== undefined ? wrapAngle(u.turret2 - u.angle) : undefined,
+    fire2: u.lastShot2 !== undefined && time - u.lastShot2 < 0.5 ? time - u.lastShot2 : null,
     thrust: u.movingTick >= game.tick - 1,   // Kethra exhaust glow while moving
     shield: !!u.def.shield && u.shield > 1, shieldHit: u.shieldFlash > 0,
   });
@@ -518,9 +520,8 @@ function drawUnit(ctx, u, selected, time) {
   }
 }
 
-// Repair Drone (a small hovering rotor craft with a green repair light) and
-// Juggernaut (a big hull with a main cannon and a separate minigun turret).
-// Kethra versions are rounder, with cyan light.
+// Repair Drone: a small hovering rotor craft with a green repair light.
+// Kethra version has cyan rotor light. (The Juggernaut is a proper sprite.)
 function drawCustomUnit(ctx, u, time) {
   const kethra = u.faction === 'kethra', col = TEAMS[u.team].color, r = u.radius;
   const body = kethra ? '#2a2e3a' : '#4a5446', plate = kethra ? '#3c4254' : '#6b7866', glow = kethra ? '#6ff0ff' : '#ffd25a';
@@ -547,54 +548,7 @@ function drawCustomUnit(ctx, u, time) {
     const busy = u.mending !== undefined && time - u.mending < 0.2;
     ctx.fillStyle = busy ? `rgba(110,240,110,${0.7 + 0.3 * Math.sin(time * 14)})` : '#6ee06e';
     ctx.fillRect(-1.2, -4, 2.4, 8); ctx.fillRect(-4, -1.2, 8, 2.4);
-    ctx.restore();
-    return;
   }
-  // Juggernaut hull.
-  ctx.save(); ctx.rotate(u.angle);
-  if (kethra) {
-    ctx.fillStyle = kethra ? 'rgba(111,240,255,0.18)' : body;
-    ctx.beginPath(); ctx.ellipse(0, 0, r * 1.15, r * 0.95, 0, 0, Math.PI * 2); ctx.fill();   // gravity ring glow
-    ctx.strokeStyle = 'rgba(111,240,255,0.6)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.ellipse(0, 0, r * 1.05, r * 0.85, 0, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = body; ctx.strokeStyle = '#0d0f0c'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.ellipse(0, 0, r * 0.95, r * 0.72, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = plate; ctx.beginPath(); ctx.ellipse(-r * 0.15, 0, r * 0.6, r * 0.45, 0, 0, Math.PI * 2); ctx.fill();
-  } else {
-    // Treads.
-    ctx.fillStyle = '#23261f';
-    ctx.fillRect(-r * 1.05, -r * 0.95, r * 2.1, r * 0.42); ctx.fillRect(-r * 1.05, r * 0.53, r * 2.1, r * 0.42);
-    ctx.strokeStyle = '#3a3d34'; ctx.lineWidth = 1;
-    const off = ((u.x + u.y) * 0.3) % 5;
-    for (let x = -r * 1.05 + off; x < r * 1.05; x += 5) {
-      ctx.beginPath(); ctx.moveTo(x, -r * 0.95); ctx.lineTo(x, -r * 0.53); ctx.moveTo(x, r * 0.53); ctx.lineTo(x, r * 0.95); ctx.stroke();
-    }
-    ctx.fillStyle = body; ctx.strokeStyle = '#0d0f0c'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.rect(-r * 0.95, -r * 0.6, r * 1.9, r * 1.2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = plate; ctx.fillRect(-r * 0.8, -r * 0.45, r * 0.9, r * 0.9);
-    // Hazard stripes on the front plate.
-    ctx.fillStyle = '#e0b030'; for (let k = 0; k < 3; k++) ctx.fillRect(r * 0.62, -r * 0.5 + k * r * 0.38, r * 0.25, r * 0.18);
-  }
-  ctx.fillStyle = col; ctx.fillRect(-r * 0.9, -r * 0.1, r * 0.5, r * 0.2);   // team stripe
-  ctx.restore();
-  const fire1 = sinceShot(u, time) ?? 9, fire2 = u.lastShot2 !== undefined ? time - u.lastShot2 : 9;
-  // Main cannon turret (rear-centre).
-  ctx.save(); ctx.translate(Math.cos(u.angle) * -r * 0.2, Math.sin(u.angle) * -r * 0.2); ctx.rotate(u.turret);
-  const kick = fire1 < 0.15 ? (0.15 - fire1) * 25 : 0;
-  ctx.fillStyle = kethra ? '#4a5266' : '#59634f'; ctx.strokeStyle = '#0d0f0c'; ctx.lineWidth = 1.5;
-  ctx.fillRect(r * 0.2 - kick, -2.6, r * 1.15, 5.2); ctx.strokeRect(r * 0.2 - kick, -2.6, r * 1.15, 5.2);
-  ctx.beginPath(); if (kethra) ctx.arc(0, 0, r * 0.48, 0, Math.PI * 2); else ctx.rect(-r * 0.45, -r * 0.42, r * 0.9, r * 0.84);
-  ctx.fill(); ctx.stroke();
-  if (kethra) { ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0, 0, 2.5, 0, Math.PI * 2); ctx.fill(); }
-  if (fire1 < 0.08) { ctx.fillStyle = '#ffe9a0'; ctx.beginPath(); ctx.arc(r * 1.4 - kick, 0, 5, 0, Math.PI * 2); ctx.fill(); }
-  ctx.restore();
-  // Minigun turret (front), turning on its own.
-  ctx.save(); ctx.translate(Math.cos(u.angle) * r * 0.55, Math.sin(u.angle) * r * 0.55); ctx.rotate(u.turret2 != null ? u.turret2 : u.turret);
-  ctx.fillStyle = kethra ? '#3c4254' : '#4a5446'; ctx.strokeStyle = '#0d0f0c'; ctx.lineWidth = 1.2;
-  ctx.fillRect(2, -2.2, r * 0.75, 1.6); ctx.fillRect(2, 0.6, r * 0.75, 1.6);
-  ctx.beginPath(); ctx.arc(0, 0, r * 0.26, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  if (fire2 < 0.06) { ctx.fillStyle = '#fff2b0'; ctx.beginPath(); ctx.arc(r * 0.85, 0, 3, 0, Math.PI * 2); ctx.fill(); }
-  ctx.restore();
   ctx.restore();
 }
 

@@ -121,6 +121,7 @@ function aiUpdate(game, team) {
     const topics = ['tank2', 'scout2', 'artillery2'];
     if (tac.hornetsAfter) topics.push('hornet2');
     if (tac.sentries) topics.push('sentry2');
+    if (diff.tactics && game.time > 600) topics.push('heavy2');
     if (diff.shieldsAfter && game.time > diff.shieldsAfter - 120) topics.push('shields');
     const next = topics.find(k => !tm.research[k] &&
       !buildings.some(b => b.researching && b.researching.key === k));

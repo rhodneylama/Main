@@ -82,13 +82,13 @@ const FACTIONS = {
       'Scavenger': 'Skimmer', 'Scavenger II': 'Skimmer II', 'Constructor': 'Loom', 'Constructor II': 'Loom II',
       'Scout': 'Shard', 'Scout Mk II': 'Shard Mk II', 'Tank': 'Bulwark', 'Tank Mk II': 'Bulwark Mk II',
       'Artillery': 'Spire', 'Artillery Mk II': 'Spire Mk II', 'Hornet': 'Talon', 'Hornet Mk II': 'Talon Mk II',
-      'Sentry': 'Pylon', 'Sentry Mk II': 'Pylon Mk II', 'Repair Drone': 'Mender', 'Juggernaut': 'Colossus',
+      'Sentry': 'Pylon', 'Sentry Mk II': 'Pylon Mk II', 'Repair Drone': 'Mender', 'Juggernaut': 'Colossus', 'Juggernaut Mk II': 'Colossus Mk II',
       'Factory': 'Assembler', 'Factory II': 'Assembler II', 'Extractor': 'Siphon', 'Base Silo': 'Vault Orb',
       'Gun Tower': 'Prism Tower', 'Artillery Tower': 'Prism Lancer', 'Heavy Gun Tower': 'Heavy Prism',
       'Research Lab': 'Archive', 'Radar': 'Sensor Array', 'Repair Pad': 'Mending Lattice',
       'Power Generator': 'Flux Well', 'Shield Projector': 'Aegis Pylon', 'Radar II': 'Sensor Array II', 'Radar III': 'Sensor Array III',
       'Advanced Scouts': 'Advanced Shards', 'Advanced Tanks': 'Advanced Bulwarks', 'Advanced Artillery': 'Advanced Spires',
-      'Advanced Hornets': 'Advanced Talons', 'Advanced Sentries': 'Advanced Pylons',
+      'Advanced Hornets': 'Advanced Talons', 'Advanced Sentries': 'Advanced Pylons', 'Advanced Juggernauts': 'Advanced Colossi',
     },
   },
 };
@@ -178,14 +178,15 @@ const UNIT_TYPES = {
     weapon: { range: 220, damage: 26, cooldown: 0.9, projectile: 'rocket', vsBuilding: 1.2 },
     desc: 'Light rocket tank, between a Scout and a Tank: cheaper and much faster than a Tank, with less armour, and its rockets hit hard.',
   },
-  // The heavy: tougher than a Tank, as slow, 50% dearer, with two turrets
-  // that fire at two targets at once: a Tank's cannon and a Sentry's minigun.
+  // The heavy: tougher than a Tank and slower (Artillery speed), 50% dearer,
+  // with two turrets that fire at two targets at once: a Tank's cannon in
+  // front and a Sentry's minigun behind.
   heavy: {
     name: 'Juggernaut', role: 'combat', cost: 150, buildTime: 13,
-    hp: 650, speed: 40, radius: 18, sight: 270,
+    hp: 650, speed: 32, radius: 18, sight: 270,
     weapon: { range: 200, damage: 34, cooldown: 1.2, projectile: 'shell', vsBuilding: 1 },
     weapon2: { range: 220, damage: 7, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
-    desc: 'Heavy tank: more armour than a Tank and as slow, with two turrets: a cannon and a minigun, each picking its own target.',
+    desc: 'Heavy tank: more armour than a Tank but slower, with two turrets: a cannon in front and a minigun behind, each picking its own target.',
   },
   // Mobile turret, purely defensive: Deploy it and it digs in where it stands,
   // fires a rapid stream at anything in range and never moves or gives chase
@@ -212,6 +213,15 @@ const UNIT_TYPES = {
     hp: 620, speed: 46, radius: 15, sight: 260,
     weapon: { range: 220, damage: 48, cooldown: 1.2, projectile: 'shell', vsBuilding: 1 },
     desc: 'Upgraded Tank: much heavier armour and a bigger gun that outranges a basic Tank.',
+  },
+  // Juggernaut Mk II: both turrets get twin barrels (double cannon, double
+  // minigun) for the usual +40% damage, with +50% armour and a little speed.
+  heavy2: {
+    name: 'Juggernaut Mk II', base: 'heavy', requires: 'heavy2', role: 'combat', cost: 220, buildTime: 17,
+    hp: 975, speed: 36, radius: 18, sight: 270,
+    weapon: { range: 220, damage: 48, cooldown: 1.2, projectile: 'shell', vsBuilding: 1 },
+    weapon2: { range: 240, damage: 10, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
+    desc: 'Upgraded Juggernaut: twin cannons on the front turret and twin miniguns on the back one, much heavier armour, and guns that outrange a basic Tank.',
   },
   artillery2: {
     name: 'Artillery Mk II', base: 'artillery', requires: 'artillery2', role: 'combat', cost: 200, buildTime: 16,
@@ -243,6 +253,7 @@ const RESEARCH = {
   artillery2: { name: 'Advanced Artillery', cost: 250, time: 75 },
   hornet2:    { name: 'Advanced Hornets',   cost: 175, time: 50 },
   sentry2:    { name: 'Advanced Sentries',  cost: 175, time: 50 },
+  heavy2:     { name: 'Advanced Juggernauts', cost: 225, time: 65 },
   // Unlocks a building rather than a vehicle (BUILDING_TYPES.shield.requires).
   shields:    { name: 'Forcefield Tech',    cost: 250, time: 60, unlocks: 'Shield Projectors' },
 };
@@ -265,7 +276,7 @@ const BUILDING_TYPES = {
     name: 'Factory', cost: 150, buildTime: 18, hp: 1400, size: 3, sight: 220,
     produces: ['scout', 'hornet', 'tank', 'heavy', 'sentry', 'artillery'], buildRadius: 10,
     upgrade: { name: 'Factory II', cost: 200, time: 30, hp: 1800,
-               produces: ['scout', 'hornet', 'tank', 'heavy', 'sentry', 'artillery', 'scout2', 'hornet2', 'tank2', 'sentry2', 'artillery2'] },
+               produces: ['scout', 'hornet', 'tank', 'heavy', 'sentry', 'artillery', 'scout2', 'hornet2', 'tank2', 'heavy2', 'sentry2', 'artillery2'] },
     desc: 'Builds combat vehicles. Upgrade to Factory II to build researched Mk II vehicles.',
   },
   // Not built by a Constructor: a Scavenger deploys onto a scrap geyser and
@@ -283,7 +294,7 @@ const BUILDING_TYPES = {
   },
   lab: {
     name: 'Research Lab', cost: 200, buildTime: 20, hp: 900, size: 2, sight: 200, buildRadius: 6,
-    researches: ['scout2', 'tank2', 'artillery2', 'hornet2', 'sentry2', 'shields'],
+    researches: ['scout2', 'tank2', 'artillery2', 'hornet2', 'sentry2', 'heavy2', 'shields'],
     desc: 'Researches Mk II vehicles (a Factory II can then build them) and Forcefield Tech (Shield Projectors), one at a time.',
   },
   // Every `every` seconds it pings, revealing a wide circle for `lasts` seconds.
