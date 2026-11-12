@@ -71,7 +71,7 @@ The game works on touch screens, held upright or sideways. For the whole screen,
 | Move / attack / gather | With vehicles selected, tap the ground, an enemy, or a scrap pile |
 | Select a group | Press and hold on the map, then drag a box |
 | Select fighters | **Army** button, then All, Scouts, Tanks or Artillery |
-| Stance and Hunt | **Aggressive**, **Return fire** or **Stealth** sets how selected vehicles behave; **Hunt** sends them to seek and destroy (see "Orders and stances"). |
+| Stance and Hunt | **Aggressive**, **Return fire**, **Stealth** or **Fight, then repair** sets how selected vehicles behave; **Hunt** sends them to seek and destroy (see "Orders and stances"). |
 | Scroll / zoom | Drag one finger / pinch |
 | Build | Select the Constructor, pick a building, tap where it goes, then press **Build here** |
 | Select your army, jump home, find an idle worker, deselect | **Army ▾** in the top bar |
@@ -124,6 +124,7 @@ Select armed vehicles and use the buttons in the panel:
 | **Aggressive** (default) | On the move they fight anything they meet, then carry on to where you sent them. Standing still, they go to the help of friends under fire nearby. |
 | **Return fire** | They shoot whatever comes in range but keep going (or keep to their spot). No chasing. |
 | **Stealth** | They hold fire and just get there. |
+| **Fight, then repair** | Like Aggressive, but when a vehicle's health turns yellow it pulls back to a Repair Pad (or to your Recycler, where your Repair Drones can fix it), then returns to where it was. |
 | **Hunt as pack** / **Hunt solo** | Seek and destroy: they go after the nearest enemy you know of, or search for one. A pack keeps together. |
 | **Guard** | Pick a building or vehicle: they stay beside it, and the moment it's attacked they go after the attacker, then come back. |
 
@@ -244,19 +245,20 @@ silences sound and music together.
 | Scavenger II | 80 | Built by a Recycler II. Collects scrap. | **Deploy on geyser**: drives onto a scrap geyser and becomes an Extractor. |
 | Recycler (mobile) | — | Your starting vehicle. Your base on wheels. | **Deploy base**: drive onto a scrap geyser and become your Recycler. |
 | Constructor | 80 | Builds buildings. Cannot repair. | |
-| Constructor II | 110 | Built by a Recycler II. Builds and repairs buildings. | |
+| Repair Drone | 90 | Built by a Recycler II. Fast (like a Hornet), unarmed flying repairer: fixes your buildings **and vehicles**. | **Auto repair** (its default): goes wherever something needs fixing, vehicles first. Or tap a damaged building or vehicle to send it there. |
 | Scout | 50 | Fast, sees far. Spots targets for artillery. | **Scout**: explores the map. With several selected, **Scout as pack** keeps them together; **Scout solo** spreads them out. **Guard** (all armed vehicles): press it, then tap one of your buildings or vehicles to protect it. |
 | Hornet | 75 | Light rocket tank, between a Scout and a Tank: much faster and cheaper than a Tank, less armour, hard-hitting rockets. Fast enough for raids. | |
 | Tank | 100 | Tough all-rounder. | **Patrol**: loops around your buildings and fights anything it meets. |
+| Juggernaut | 150 | Heavy vehicle: more armour than a Tank, as slow as one. Two turrets, a Tank's cannon and a Sentry's minigun, that can fire at two enemies at once. | |
 | Sentry | 90 | Purely defensive turret on tracks. It cannot fire while packed up. | **Deploy**: digs in where it stands and guards that spot with a rapid stream of fire; it never moves or chases. **Pack up** (or any move order) to move it again. |
-| Artillery | 140 | Very long range and splash damage, but very slow, and it can only hit what your side can see: keep a Tank or Scout ahead of it to spot, and it fires on its own out to full range. It must stop and lower its legs (about half a second) before it can fire. | **Guard** a building to dig in beside it and shell anything in range. |
+| Artillery | 140 | Very long range and splash damage, but very slow and slow to reload, and it can only hit what your side can see: keep a Tank or Scout ahead of it to spot, and it fires on its own out to full range. It must stop and lower its legs (about half a second) before it can fire. | **Guard** a building to dig in beside it and shell anything in range. |
 | Scout / Hornet / Tank / Sentry / Artillery Mk II | 70 / 110 / 145 / 130 / 200 | Researched at a Research Lab, built at a Factory II. About +50% armour and +40% damage, some extra speed, and one signature edge each: Scout sees further, Hornet fires a third rocket, Tank and dug-in Sentry outrange a basic Tank, Artillery reaches further with a bigger blast. Marked with gold chevrons. | As the basic version. |
 
 | Building | Cost | Role |
 | --- | --- | --- |
 | Recycler | — | Your HQ, made by deploying the mobile Recycler on a geyser. Makes Scavengers and Constructors. Holds 300 scrap, has a defence gun, and pumps its geyser very slowly (about 2 a minute). Can't be demolished. |
-| Factory | 150 | Makes Scouts, Hornets, Tanks, Sentries and Artillery. |
-| Extractor | a Scavenger | Made by deploying a Scavenger onto a scrap geyser. Pumps about 42 scrap a minute straight into your total. When your storage is full, up to 120 waits in the Extractor until there's room. Expands the area you can build in. |
+| Factory | 150 | Makes Scouts, Hornets, Tanks, Juggernauts, Sentries and Artillery. |
+| Extractor | a Scavenger | Made by deploying a Scavenger onto a scrap geyser. Pumps about 45 scrap a minute straight into your total. When your storage is full, up to 120 waits in the Extractor until there's room. Expands the area you can build in. |
 | Base Silo | 250 | Adds 300 to your scrap storage. Must be next to your Recycler. |
 | Gun Tower | 110 | Defensive turret. Upgrade once to an **Artillery Tower** (180: long-range shells with splash, range 520, needs your side to see the target) or a **Heavy Gun Tower** (150: tougher, faster twin cannon, range 280). |
 | Research Lab | 200 | Researches Advanced Scouts (150), Tanks (200), Artillery (250), Hornets (175) and Sentries (175), one at a time. |
@@ -264,7 +266,7 @@ silences sound and music together.
 | Repair Pad | 150 | A flat 3×3 pad. Every vehicle parked on it is repaired at 30 health a second (shields too); workers wait there until fixed. **Go repair** sends damaged vehicles there; once fixed they drive to the pad's **waypoint** (or step off beside it). Vehicles parked on it can be **recycled** for half their cost: press Recycle, then Confirm recycle. |
 
 **Upgrades:** the Recycler upgrades to **Recycler II** (250 scrap, 40 s), which builds Scavenger IIs and
-Constructor IIs. A Factory upgrades to **Factory II** (200 scrap, 30 s), which builds researched Mk II
+Repair Drones. A Factory upgrades to **Factory II** (200 scrap, 30 s), which builds researched Mk II
 vehicles. Production pauses while a building upgrades.
 
 **Building vehicles:** press a vehicle's button once for each one you want;

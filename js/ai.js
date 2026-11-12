@@ -50,7 +50,7 @@ function aiUpdate(game, team) {
   const scavWanted = Math.max(3, Math.min(diff.maxScavengers, 3 + Math.floor(game.time / 150)) - Math.floor(extractors.length / 2));
   // --- Recycler upgrade: needed for Scavenger IIs (geysers) and Constructor IIs (repairs)
   const upgraded = hq.level > 1;
-  const scavType = upgraded ? 'scavenger2' : 'scavenger', conType = upgraded ? 'constructor2' : 'constructor';
+  const scavType = upgraded ? 'scavenger2' : 'scavenger', conType = 'constructor';
   ai.savingUp = false;
   if (!upgraded && hq.upgrading === null && game.time > diff.upgradeBaseAfter && has('factory')) {
     if (tm.scrap >= BUILDING_TYPES.recycler.upgrade.cost) cmd({ type: 'upgrade', buildingId: hq.id });
@@ -60,8 +60,8 @@ function aiUpdate(game, team) {
   const wantsGeyser = upgraded && has('extractor') < diff.maxExtractors && expansionTarget(game, team, hq);
   if (!hq.queue.length && hq.upgrading === null) {
     if (count('constructor') < 1 && tm.scrap >= UNIT_TYPES[conType].cost) cmd({ type: 'produce', buildingId: hq.id, unit: conType });
-    // One Constructor II so buildings can be repaired.
-    else if (upgraded && !units.some(u => u.type === 'constructor2') && count('constructor') < 2 && tm.scrap >= UNIT_TYPES.constructor2.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'constructor2' });
+    // Repair Drones (on Auto repair) keep the base and army patched up.
+    else if (upgraded && count('drone') < (game.difficulty === 'hard' ? 2 : 1) && tm.scrap >= UNIT_TYPES.drone.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'drone' });
     // A Scavenger II to claim the next geyser.
     else if (wantsGeyser && !deployers.length && tm.scrap >= UNIT_TYPES.scavenger2.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'scavenger2' });
     else if (count('scavenger') < scavWanted && tm.scrap >= UNIT_TYPES[scavType].cost) cmd({ type: 'produce', buildingId: hq.id, unit: scavType });
@@ -82,13 +82,11 @@ function aiUpdate(game, team) {
   // --- Construction --------------------------------------------------------
   // Prefer a Constructor II, since only it can repair.
   const idleBuilders = units.filter(u => u.def.role === 'builder' && u.order.type === 'idle');
-  const builder = idleBuilders.find(u => u.def.canRepair) || idleBuilders[0];
+  const builder = idleBuilders[0];
   if (builder && !ai.savingUp) {
-    const damaged = buildings.find(b => b.built >= 1 && b.hp < b.maxHp * 0.6);
     const unfinished = buildings.find(b => b.built < 1);
     let want = null, near = null;
     if (unfinished) cmd({ type: 'repair', ids: [builder.id], targetId: unfinished.id });
-    else if (damaged && builder.def.canRepair) cmd({ type: 'repair', ids: [builder.id], targetId: damaged.id });
     else if (!has('factory')) want = 'factory';
     else if (has('tower') < 1 && game.time > (easy ? 300 : 90)) want = 'tower';
     // More storage once the bank keeps filling up.
@@ -183,6 +181,8 @@ function aiUpdate(game, team) {
     else if (diff.tactics && diff.tactics.adapt && ai.intel) pick = adaptiveMix(ai.intel, diff, scouts, tanks, arty, hornets, army.length, game.time);
     else if (scouts < 2 || scouts * 4 < army.length) pick = 'scout';
     else if (arty * 4 < tanks && game.time > diff.artilleryAfter) pick = 'artillery';
+    // Normal and Hard: a Juggernaut for every six fighting vehicles, once established.
+    if (diff.tactics && game.time > 600 && count('heavy') * 6 < army.length && pick !== 'sentry') pick = 'heavy';
     // Keep a reserve for the builder, and hold off while saving for a Base Silo.
     if (ai.saving || ai.savingUp || f.upgrading !== null) continue;
     // Build the Mk II version when researched and this Factory is upgraded.
@@ -450,7 +450,7 @@ function adaptiveMix(I, diff, scouts, tanks, arty, hornets, army, time) {
 // In an assault each vehicle has a job: Tanks are the wall that takes the
 // hits, Artillery sets up behind them and shells what they reveal, and the fast
 // Scouts swing round to strike somewhere else at the same moment.
-const roleOf = u => { const b = baseType(u); return b === 'tank' ? 'wall' : b === 'artillery' ? 'guns' : 'fast'; };
+const roleOf = u => { const b = baseType(u); return b === 'tank' || b === 'heavy' ? 'wall' : b === 'artillery' ? 'guns' : 'fast'; };
 
 // A point `d` from `target`, back toward `from`, on open ground.
 function standOff(game, target, from, d) {

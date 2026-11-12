@@ -82,7 +82,7 @@ const FACTIONS = {
       'Scavenger': 'Skimmer', 'Scavenger II': 'Skimmer II', 'Constructor': 'Loom', 'Constructor II': 'Loom II',
       'Scout': 'Shard', 'Scout Mk II': 'Shard Mk II', 'Tank': 'Bulwark', 'Tank Mk II': 'Bulwark Mk II',
       'Artillery': 'Spire', 'Artillery Mk II': 'Spire Mk II', 'Hornet': 'Talon', 'Hornet Mk II': 'Talon Mk II',
-      'Sentry': 'Pylon', 'Sentry Mk II': 'Pylon Mk II',
+      'Sentry': 'Pylon', 'Sentry Mk II': 'Pylon Mk II', 'Repair Drone': 'Mender', 'Juggernaut': 'Colossus',
       'Factory': 'Assembler', 'Factory II': 'Assembler II', 'Extractor': 'Siphon', 'Base Silo': 'Vault Orb',
       'Gun Tower': 'Prism Tower', 'Artillery Tower': 'Prism Lancer', 'Heavy Gun Tower': 'Heavy Prism',
       'Research Lab': 'Archive', 'Radar': 'Sensor Array', 'Repair Pad': 'Mending Lattice',
@@ -135,13 +135,20 @@ const UNIT_TYPES = {
   constructor: {
     name: 'Constructor', role: 'builder', cost: 80, buildTime: 8,
     hp: 160, speed: 43, radius: 13, sight: 220,
-    desc: 'Builds structures. Cannot repair them (that needs a Constructor II).',
+    desc: 'Builds structures. Repairs are the Repair Drone\'s job.',
   },
-  // Built by an upgraded Recycler (Recycler II).
+  // No longer built (repairs moved to the Repair Drone); kept so old saves load.
   constructor2: {
     name: 'Constructor II', base: 'constructor', role: 'builder', cost: 110, buildTime: 9,
-    hp: 200, speed: 43, radius: 13, sight: 220, repairRate: 25, canRepair: true,
-    desc: 'Builds and repairs structures.',
+    hp: 200, speed: 43, radius: 13, sight: 220,
+    desc: 'Builds structures.',
+  },
+  // Built by a Recycler II. Repairs buildings and vehicles, as fast as a
+  // Hornet; set to Auto repair it goes wherever something needs fixing.
+  drone: {
+    name: 'Repair Drone', role: 'repairer', cost: 90, buildTime: 8,
+    hp: 150, speed: 68, radius: 10, sight: 240, repairRate: 30, repairReach: 55,
+    desc: 'Repairs your buildings and vehicles (30 health a second). Tap something damaged, or set it to Auto repair and it finds work on its own.',
   },
   // No gun. A shield soaks up damage first and recharges once out of combat.
   scout: {
@@ -159,7 +166,7 @@ const UNIT_TYPES = {
   artillery: {
     name: 'Artillery', role: 'combat', cost: 140, buildTime: 12,
     hp: 200, speed: 32, radius: 15, sight: 220,
-    weapon: { range: 440, minRange: 110, damage: 60, cooldown: 3.5, projectile: 'artillery',
+    weapon: { range: 440, minRange: 110, damage: 60, cooldown: 3.85, projectile: 'artillery',
               splash: 55, vsBuilding: 1.6 },
     deployToFire: true,
     desc: 'Huge range, splash damage, very slow. Needs scouts to see targets. Can dig in to defend a building.',
@@ -170,6 +177,15 @@ const UNIT_TYPES = {
     hp: 250, speed: 68, radius: 13, sight: 280,
     weapon: { range: 220, damage: 26, cooldown: 0.9, projectile: 'rocket', vsBuilding: 1.2 },
     desc: 'Light rocket tank, between a Scout and a Tank: cheaper and much faster than a Tank, with less armour, and its rockets hit hard.',
+  },
+  // The heavy: tougher than a Tank, as slow, 50% dearer, with two turrets
+  // that fire at two targets at once: a Tank's cannon and a Sentry's minigun.
+  heavy: {
+    name: 'Juggernaut', role: 'combat', cost: 150, buildTime: 13,
+    hp: 650, speed: 40, radius: 18, sight: 270,
+    weapon: { range: 200, damage: 34, cooldown: 1.2, projectile: 'shell', vsBuilding: 1 },
+    weapon2: { range: 220, damage: 7, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
+    desc: 'Heavy tank: more armour than a Tank and as slow, with two turrets: a cannon and a minigun, each picking its own target.',
   },
   // Mobile turret, purely defensive: Deploy it and it digs in where it stands,
   // fires a rapid stream at anything in range and never moves or gives chase
@@ -200,7 +216,7 @@ const UNIT_TYPES = {
   artillery2: {
     name: 'Artillery Mk II', base: 'artillery', requires: 'artillery2', role: 'combat', cost: 200, buildTime: 16,
     hp: 300, speed: 36, radius: 15, sight: 220,
-    weapon: { range: 500, minRange: 110, damage: 80, cooldown: 3.5, projectile: 'artillery',
+    weapon: { range: 500, minRange: 110, damage: 80, cooldown: 3.85, projectile: 'artillery',
               splash: 70, vsBuilding: 1.6 },
     deployToFire: true,
     desc: 'Upgraded Artillery: tougher, reaches further and has a bigger blast.',
@@ -241,22 +257,22 @@ const BUILDING_TYPES = {
     produces: ['scavenger', 'constructor'], dropoff: true, capacity: 300, buildRadius: 14,
     // Upgrading (production pauses meanwhile) swaps in the better workers.
     upgrade: { name: 'Recycler II', cost: 250, time: 40, hp: 5000,
-               produces: ['scavenger2', 'constructor2'] },
+               produces: ['scavenger2', 'constructor', 'drone'] },
     weapon: { range: 210, damage: 24, cooldown: 0.8, projectile: 'bullet', vsBuilding: 1 },
     desc: 'Your headquarters, with a light defence gun. Lose it and you lose the battle.',
   },
   factory: {
     name: 'Factory', cost: 150, buildTime: 18, hp: 1400, size: 3, sight: 220,
-    produces: ['scout', 'hornet', 'tank', 'sentry', 'artillery'], buildRadius: 10,
+    produces: ['scout', 'hornet', 'tank', 'heavy', 'sentry', 'artillery'], buildRadius: 10,
     upgrade: { name: 'Factory II', cost: 200, time: 30, hp: 1800,
-               produces: ['scout', 'hornet', 'tank', 'sentry', 'artillery', 'scout2', 'hornet2', 'tank2', 'sentry2', 'artillery2'] },
+               produces: ['scout', 'hornet', 'tank', 'heavy', 'sentry', 'artillery', 'scout2', 'hornet2', 'tank2', 'sentry2', 'artillery2'] },
     desc: 'Builds combat vehicles. Upgrade to Factory II to build researched Mk II vehicles.',
   },
   // Not built by a Constructor: a Scavenger deploys onto a scrap geyser and
   // turns into one. buildTime is how long the deployment takes.
   extractor: {
     name: 'Extractor', cost: 0, buildTime: 8, hp: 900, size: 2, sight: 240,
-    income: 0.7, store: 120, buildRadius: 9, buildable: false, salvageValue: 60,
+    income: 0.749, store: 120, buildRadius: 9, buildable: false, salvageValue: 60,
     desc: 'Pumps scrap from a geyser straight into your total. When your storage is full it holds up to 120 until there is room.',
   },
   // Built next to the Recycler: raises how much scrap you can hold.
@@ -317,8 +333,8 @@ const BUILDING_TYPES = {
   // through, and shots from behind pass). Needs power from a Generator.
   shield: {
     name: 'Shield Projector', cost: 180, buildTime: 12, hp: 450, size: 2, sight: 200, facing: true, requires: 'shields',
-    field: { length: 200, offset: 58, hp: 1500, regen: 25, regenDelay: 4, reboot: 15, rebootHp: 0.35, vsArtillery: 1.5 },
-    desc: 'Needs Forcefield Tech (Research Lab). Projects a forcefield wall that stops enemy fire from the front. Turn it to face the threat while placing it. Build them side by side for a longer wall. Needs a Power Generator (one powers 4). The field can be shot down, then reboots after 15 s.',
+    field: { length: 200, offset: 58, hp: 1725, regen: 25, regenDelay: 4, reboot: 13.5, rebootHp: 0.35, vsArtillery: 1.5 },
+    desc: 'Needs Forcefield Tech (Research Lab). Projects a forcefield wall that stops enemy fire from the front. Turn it to face the threat while placing it. Build them side by side for a longer wall. Needs a Power Generator (one powers 4). The field can be shot down, then reboots after 13.5 s.',
   },
 };
 
