@@ -249,10 +249,10 @@ silences sound and music together.
 | Scout | 50 | Fast, sees far. Spots targets for artillery. | **Scout**: explores the map. With several selected, **Scout as pack** keeps them together; **Scout solo** spreads them out. **Guard** (all armed vehicles): press it, then tap one of your buildings or vehicles to protect it. |
 | Hornet | 75 | Light rocket tank, between a Scout and a Tank: much faster and cheaper than a Tank, less armour, hard-hitting rockets. Fast enough for raids. | |
 | Tank | 100 | Tough all-rounder. | **Patrol**: loops around your buildings and fights anything it meets. |
-| Juggernaut | 150 | Heavy vehicle: more armour than a Tank, as slow as one. Two turrets, a Tank's cannon and a Sentry's minigun, that can fire at two enemies at once. | |
+| Juggernaut | 150 | Heavy vehicle: more armour than a Tank but slower. Two turrets, a Tank's cannon in front and a Sentry's minigun behind, that can fire at two enemies at once. Its Mk II has twin barrels on both turrets. | |
 | Sentry | 90 | Purely defensive turret on tracks. It cannot fire while packed up. | **Deploy**: digs in where it stands and guards that spot with a rapid stream of fire; it never moves or chases. **Pack up** (or any move order) to move it again. |
 | Artillery | 140 | Very long range and splash damage, but very slow and slow to reload, and it can only hit what your side can see: keep a Tank or Scout ahead of it to spot, and it fires on its own out to full range. It must stop and lower its legs (about half a second) before it can fire. | **Guard** a building to dig in beside it and shell anything in range. |
-| Scout / Hornet / Tank / Sentry / Artillery Mk II | 70 / 110 / 145 / 130 / 200 | Researched at a Research Lab, built at a Factory II. About +50% armour and +40% damage, some extra speed, and one signature edge each: Scout sees further, Hornet fires a third rocket, Tank and dug-in Sentry outrange a basic Tank, Artillery reaches further with a bigger blast. Marked with gold chevrons. | As the basic version. |
+| Scout / Hornet / Tank / Sentry / Artillery / Juggernaut Mk II | 70 / 110 / 145 / 130 / 200 / 220 | Researched at a Research Lab, built at a Factory II. About +50% armour and +40% damage, some extra speed, and one signature edge each: Scout sees further, Hornet fires a third rocket, Tank and dug-in Sentry outrange a basic Tank, Artillery reaches further with a bigger blast. Marked with gold chevrons. | As the basic version. |
 
 | Building | Cost | Role |
 | --- | --- | --- |
@@ -261,7 +261,7 @@ silences sound and music together.
 | Extractor | a Scavenger | Made by deploying a Scavenger onto a scrap geyser. Pumps about 45 scrap a minute straight into your total. When your storage is full, up to 120 waits in the Extractor until there's room. Expands the area you can build in. |
 | Base Silo | 250 | Adds 300 to your scrap storage. Must be next to your Recycler. |
 | Gun Tower | 110 | Defensive turret. Upgrade once to an **Artillery Tower** (180: long-range shells with splash, range 520, needs your side to see the target) or a **Heavy Gun Tower** (150: tougher, faster twin cannon, range 280). |
-| Research Lab | 200 | Researches Advanced Scouts (150), Tanks (200), Artillery (250), Hornets (175) and Sentries (175), one at a time. |
+| Research Lab | 200 | Researches Advanced Scouts (150), Tanks (200), Artillery (250), Hornets (175), Sentries (175) and Juggernauts (225), one at a time. |
 | Radar | 150 | Every 30 seconds, a ping reveals a wide circle (750 px, 2.5× normal sight) for 4 seconds. |
 | Repair Pad | 150 | A flat 3×3 pad. Every vehicle parked on it is repaired at 30 health a second (shields too); workers wait there until fixed. **Go repair** sends damaged vehicles there; once fixed they drive to the pad's **waypoint** (or step off beside it). Vehicles parked on it can be **recycled** for half their cost: press Recycle, then Confirm recycle. |
 

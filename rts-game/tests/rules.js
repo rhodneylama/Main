@@ -973,8 +973,14 @@ section('Repair Drones, Fight then repair, the Juggernaut, tuning');
   check('and once repaired, goes back to where it was', v.hp === v.maxHp && S.dist(v, home) < 120, `${Math.round(S.dist(v, home))} px from its spot`);
   // The Juggernaut: two turrets, two targets at once.
   const J = S.UNIT_TYPES.heavy, T = S.UNIT_TYPES.tank;
-  check('the Juggernaut: tougher than a Tank, as slow, 50% dearer, a cannon and a minigun', J.hp > T.hp && J.speed === T.speed && J.cost === T.cost * 1.5 &&
+  check('the Juggernaut: tougher than a Tank, slower, 50% dearer, a cannon and a minigun', J.hp > T.hp && J.speed < T.speed && J.cost === T.cost * 1.5 &&
     J.weapon.damage === T.weapon.damage && J.weapon2.cooldown === S.UNIT_TYPES.sentry.weapon.cooldown);
+  const J2 = S.UNIT_TYPES.heavy2;
+  check('Juggernaut Mk II: researched, built by a Factory II, +40% damage on both guns, +50% armour, still slower than a Tank',
+    J2.base === 'heavy' && J2.requires === 'heavy2' && !!S.RESEARCH.heavy2 && S.BUILDING_TYPES.lab.researches.includes('heavy2') &&
+    S.BUILDING_TYPES.factory.upgrade.produces.includes('heavy2') &&
+    Math.abs(J2.weapon.damage / J.weapon.damage - 1.4) < 0.05 && Math.abs(J2.weapon2.damage / J.weapon2.damage - 1.4) < 0.05 &&
+    J2.hp === J.hp * 1.5 && J2.speed < T.speed && !!J2.weapon2);
   const jug = S.addUnitNear(g, 'heavy', 1, rec.x - 300 * Math.sign(g.map.W * 16 - rec.x), rec.y);
   const a = S.addUnitNear(g, 'scout', 2, jug.x + 150, jug.y - 40), b = S.addUnitNear(g, 'scout', 2, jug.x + 150, jug.y + 60);
   for (const s2 of [a, b]) { s2.stance = 'stealth'; s2.hp = s2.maxHp = 5000; }
