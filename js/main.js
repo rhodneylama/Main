@@ -369,16 +369,52 @@ function aimAt(w, pad) {
 function groupMembers(key) {
   return (input.groups[key] || []).map(id => game.byId.get(id)).filter(u => u && u.hp > 0 && isMine(u));
 }
-function setGroup(key) {
+// mode: 'set' makes the selection the whole group, 'add' adds it to the
+// group, 'leave' takes it out of any group. A vehicle is in one group at a time.
+function setGroup(key, mode = 'set') {
   const units = mine(view.selected).filter(u => u.kind === 'unit');
   if (!units.length) { logMessage('Select some vehicles first', 'warn'); sound('error'); return; }
-  // A vehicle belongs to one group at a time.
   for (const k of Object.keys(input.groups)) input.groups[k] = input.groups[k].filter(id => !units.some(u => u.id === id));
-  input.groups[key] = units.map(u => u.id);
+  if (mode === 'set') input.groups[key] = units.map(u => u.id);
+  else if (mode === 'add') input.groups[key] = [...groupMembers(key).map(u => u.id), ...units.map(u => u.id)];
+  for (const k of Object.keys(input.groups)) if (!input.groups[k].length) delete input.groups[k];
   view.groupOf = new Map();
   for (const [k, ids] of Object.entries(input.groups)) for (const id of ids) view.groupOf.set(id, k);
-  logMessage(`Group ${key} set: ${units.length} vehicle${units.length > 1 ? 's' : ''}`, 'info');
+  const n = `${units.length} vehicle${units.length > 1 ? 's' : ''}`;
+  logMessage(mode === 'leave' ? `${n} left ${units.length > 1 ? 'their' : 'its'} battle group` : mode === 'add' ? `${n} added to battle group ${key} (${groupMembers(key).length} now)` : `Battle group ${key}: ${n}`, 'info');
   sound('ack');
+  refreshPanel(); updateGroupBar(true);
+}
+// Which battle group the whole selection makes up exactly, if any.
+function selectionGroup() {
+  const units = mine(view.selected).filter(u => u.kind === 'unit');
+  if (!units.length) return null;
+  const k = view.groupOf && view.groupOf.get(units[0].id);
+  return k && groupMembers(k).length === units.length && units.every(u => view.groupOf.get(u.id) === k) ? k : null;
+}
+// The row of battle group buttons over the battlefield: tap to select the
+// group, tap again to jump to it. Shown only for groups that exist.
+let groupBarSig = '';
+function updateGroupBar(force) {
+  const bar = $('groupbar');
+  const menuUp = ['menu', 'war', 'end'].some(id => $(id) && !$(id).classList.contains('hidden'));
+  if (!game || spectating || menuUp) { bar.classList.add('hidden'); groupBarSig = ''; return; }
+  const keys = Object.keys(input.groups).filter(k => groupMembers(k).length).sort();
+  const cur = selectionGroup();
+  const sig = keys.map(k => k + ':' + groupMembers(k).length).join(',') + '|' + cur;
+  bar.style.bottom = `${$('panel').offsetHeight + 8}px`;
+  if (sig === groupBarSig && !force) return;
+  groupBarSig = sig;
+  bar.classList.toggle('hidden', !keys.length);
+  bar.innerHTML = '';
+  for (const k of keys) {
+    const b = document.createElement('button');
+    b.className = k === cur ? 'active' : '';
+    b.title = `Battle group ${k}: tap to select, tap again to jump to it`;
+    b.innerHTML = `<b>${k}</b><small>${groupMembers(k).length}</small>`;
+    onPress(b, () => { if (selectionGroup() === k) centerOn(groupMembers(k)[0]); else select(groupMembers(k)); updateGroupBar(true); });
+    bar.appendChild(b);
+  }
 }
 function recallGroup(key) {
   const g = groupMembers(key);
@@ -393,6 +429,7 @@ function recallGroup(key) {
 // idle worker or your base.
 function toggleArmyMenu() {
   const all = mine(game.entities).filter(u => u.kind === 'unit' && u.def.role === 'combat');
+  const groups = Object.keys(input.groups).sort().filter(k => groupMembers(k).length);
   const faction = game.teams[view.team].faction;
   const plural = t => faction === 'scrapline' ? { scout: 'Scouts', hornet: 'Hornets', tank: 'Tanks', heavy: 'Juggernauts', sentry: 'Sentries', artillery: 'Artillery' }[t]
     : factionName(faction, UNIT_TYPES[t].name) + 's';
@@ -402,6 +439,7 @@ function toggleArmyMenu() {
       const n = all.filter(u => baseType(u) === t).length;
       return n ? { label: plural(t), count: n, onClick: () => selectArmyType(t) } : null;
     }).filter(Boolean),
+    ...(groups.length ? [{ heading: 'Battle groups' }, ...groups.map(k => ({ label: `Battle group ${k}`, count: groupMembers(k).length, onClick: () => recallGroup(k) }))] : []),
     { heading: 'Jump to' },
     { label: 'Idle worker', onClick: idleWorker },
     { label: 'Your base', onClick: () => centerOn(findHQ(view.team)) },
@@ -1104,6 +1142,24 @@ function refreshPanel() {
       { label: 'Go repair', note: 'Drive to the nearest Repair Pad', onClick: () => order('gorepair', hurt) },
   ].filter(Boolean);
   if (more.length) addMenu('Orders', keys.shift(), more);
+  // Battle groups: put the selected vehicles in a numbered group, picked
+  // again with one tap on the group buttons over the battlefield.
+  const vehicles = sel.filter(e => e.kind === 'unit');
+  if (vehicles.length) {
+    const inGroup = selectionGroup(), anyIn = vehicles.some(u => view.groupOf && view.groupOf.get(u.id));
+    const items = [{ heading: 'Make these battle group' }];
+    for (let k = 1; k <= 5; k++) {
+      const n = groupMembers(String(k)).length;
+      items.push({ label: `Battle group ${k}`, active: inGroup === String(k), note: n ? `Replaces its ${n} vehicle${n > 1 ? 's' : ''}` : 'Empty', onClick: () => setGroup(String(k), 'set') });
+    }
+    const addable = Object.keys(input.groups).sort().filter(k => groupMembers(k).length && k !== inGroup);
+    if (addable.length) {
+      items.push({ heading: 'Add these to' });
+      for (const k of addable) items.push({ label: `Battle group ${k}`, note: `${groupMembers(k).length} in it now`, onClick: () => setGroup(k, 'add') });
+    }
+    if (anyIn) items.push({ heading: 'Remove' }, { label: 'Leave battle group', note: 'Take these out of their group', onClick: () => setGroup(null, 'leave') });
+    addMenu(inGroup ? `Group ${inGroup}` : 'Group', keys.shift(), items, { active: !!inGroup, title: 'Battle groups: save these vehicles as a group you can pick with one tap' });
+  }
   const parked = recycleCandidates(sel);
   const recycleTip = document.createElement('div'); recycleTip.className = 'dim small tip';
   if (parked.length) addRecycleButtons(addBtn, parked, recycleTip, keys);
@@ -1182,6 +1238,7 @@ function updateHud() {
   }
   const m = Math.floor(game.time / 60), s = Math.floor(game.time % 60);
   $('clock').textContent = `${m}:${String(s).padStart(2, '0')}${speed > 1 ? ` ×${speed}` : ''}`;
+  updateGroupBar();
 }
 
 function logMessage(text, kind = 'info') {
@@ -1372,13 +1429,13 @@ $('quitbtn').onclick = () => {
   const b = $('quitbtn');
   if (b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'Sure? Quit'; setTimeout(() => { b.dataset.sure = ''; b.textContent = 'Quit to menu'; }, 3000); return; }
   b.dataset.sure = ''; b.textContent = 'Quit to menu';
-  game = null; paused = false;
+  game = null; paused = false; updateGroupBar(true);
   for (const id of ['paused', 'help', 'end']) $(id).classList.add('hidden');
   $('menu').classList.remove('hidden'); Music.play('menu', chosenFaction); Music.duck(false);
 };
 $('again').onclick = () => {
   $('end').classList.add('hidden');
-  if (view.war) { game = null; War.open(); return; }
+  if (view.war) { game = null; updateGroupBar(true); War.open(); return; }
   $('menu').classList.remove('hidden'); Music.play('menu', chosenFaction);
 };
 // Full screen: the browser's own full-screen mode where it's allowed. Inside
