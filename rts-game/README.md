@@ -70,6 +70,7 @@ The game works on touch screens, held upright or sideways. For the whole screen,
 | Select a vehicle | Tap it. Tap the same kind twice quickly to select all of that kind on screen. |
 | Move / attack / gather | With vehicles selected, tap the ground, an enemy, or a scrap pile |
 | Select a group | Press and hold on the map, then drag a box |
+| Battle groups | Select vehicles, then **Group ▾** → Battle group 1–5 (or add to one, or leave). A numbered button for each group appears above the command panel: tap to select it, tap again to jump to it. Also under **Army ▾**. |
 | Select fighters | **Army** button, then All, Scouts, Tanks or Artillery |
 | Stance and Hunt | **Aggressive**, **Return fire**, **Stealth** or **Fight, then repair** sets how selected vehicles behave; **Hunt** sends them to seek and destroy (see "Orders and stances"). |
 | Scroll / zoom | Drag one finger / pinch |
@@ -89,7 +90,7 @@ The game works on touch screens, held upright or sideways. For the whole screen,
 | Attack-move (fight anything on the way) | `A`, then left-click |
 | Stop | `S` |
 | Command buttons | `Q` `W` `E` `R`, or click them |
-| Unit groups | `Ctrl` + `1`–`9` saves the selection as a group. Press the number to reselect it; press twice to jump to it. |
+| Battle groups | `Ctrl` + `1`–`9` saves the selection as a battle group. Press the number to reselect it; press twice to jump to it. |
 | Scroll the map | Arrow keys, push the mouse against the screen edge, middle-drag, or click the minimap |
 | Zoom | Mouse wheel |
 | Jump to base / to selection | `H` / `Space` |

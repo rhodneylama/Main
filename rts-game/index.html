@@ -108,6 +108,13 @@
   #uplink-stat b { font-size: 13px; white-space: nowrap; }
 
   /* Messages */
+  /* Battle group buttons: just above the command panel, bottom left. */
+  #groupbar { position: fixed; left: calc(8px + var(--safe-l)); bottom: calc(140px + var(--safe-b)); z-index: 5; display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(100vw - 16px); }
+  #groupbar button { min-width: 44px; height: 44px; padding: 0 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; line-height: 1.05;
+    background: var(--panel); border: 1px solid var(--edge); border-radius: 6px; color: var(--text); }
+  #groupbar button b { font-size: 16px; color: #8cffa0; }
+  #groupbar button small { font-size: 11px; color: var(--dim); }
+  #groupbar button.active { border-color: #8cffa0; box-shadow: 0 0 0 1px #8cffa0 inset; }
   #log { position: fixed; top: calc(var(--top-h) + 10px); left: calc(14px + var(--safe-l)); max-width: 60vw; z-index: 4; pointer-events: none; display: flex; flex-direction: column; gap: 3px; }
   .msg { background: rgba(0,0,0,.6); padding: 3px 9px; border-radius: 3px; border-left: 3px solid var(--dim); transition: opacity 1s; }
   .msg.good { border-color: var(--accent); }
@@ -395,6 +402,7 @@
   <div id="selinfo"></div>
   <div id="commands"></div>
 </div>
+<div id="groupbar" class="hidden" aria-label="Battle groups"></div>
 <div id="popmenu" class="hidden"></div>
 <div id="toast" class="hidden" role="status"></div>
 <div id="minimap-wrap">
@@ -549,6 +557,7 @@
       <tr><td><b>Tap your vehicle</b></td><td>Select it. Tap the same kind twice quickly to select all of that kind on screen.</td></tr>
       <tr><td><b>Tap the map</b></td><td>With vehicles selected: move there (fighting on the way, unless set to Return fire or Stealth) · tap an enemy to attack · tap scrap to gather (scavengers) · tap a damaged building or vehicle to repair (Repair Drones) · with a Factory selected, set where new vehicles go</td></tr>
       <tr><td><b>Press, hold, drag</b></td><td>Draw a box to select a group</td></tr>
+      <tr><td><b>Group ▾</b></td><td>Put the selected vehicles in <b>battle group</b> 1–5 (or add them to one, or take them out). Each group gets a numbered button above the command panel: tap it to select the group, tap again to jump to it. Groups are also listed under Army ▾.</td></tr>
       <tr><td><b>One-finger drag</b></td><td>Scroll the map</td></tr>
       <tr><td><b>Pinch</b></td><td>Zoom in and out</td></tr>
       <tr><td><b>Army ▾ · Call-in · ❚❚</b></td><td>Top bar. <b>Army</b> selects all fighters or one kind, and jumps to an idle worker or your base. <b>❚❚</b> pauses: speed, save, help, full screen, quit.</td></tr>
@@ -574,7 +583,7 @@
       <tr><td><kbd>A</kbd> then click</td><td>Attack-move: travel there, fighting anything met on the way</td></tr>
       <tr><td><kbd>S</kbd></td><td>Stop</td></tr>
       <tr><td><kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd></td><td>The command buttons in the bottom panel</td></tr>
-      <tr><td><kbd>Ctrl</kbd>+<kbd>1</kbd>–<kbd>9</kbd></td><td>Save the selection as a group. Press the number to reselect; press twice to jump to it.</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>1</kbd>–<kbd>9</kbd></td><td>Save the selection as a battle group. Press the number to reselect; press twice to jump to it.</td></tr>
       <tr><td><b>Aggressive · Return fire · Stealth</b></td><td>How selected vehicles behave on the move and when idle (Aggressive is the default).</td></tr>
       <tr><td><b>Hunt</b></td><td>Seek and destroy, as a pack or each on its own.</td></tr>
       <tr><td><kbd>H</kbd> / <kbd>Space</kbd></td><td>Jump to your base / to the selection</td></tr>

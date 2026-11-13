@@ -350,7 +350,7 @@ const War = (() => {
   // "Leave battle" on the pause screen: the battle goes back on paper.
   async function leaveBattle() {
     if (c && c.playing) endBattle(c, 'left', game ? fieldShare(game) : 0.5);
-    game = null; view.war = null; view.reinforce = false;
+    game = null; view.war = null; view.reinforce = false; updateGroupBar(true);
     paused = false; $('paused').classList.add('hidden');
     try { await Saves.del('warbattle'); } catch (err) { /* already gone */ }
     await save();

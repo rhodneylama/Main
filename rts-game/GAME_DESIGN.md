@@ -1109,7 +1109,7 @@ Phones work held upright or sideways.
 - **Pause screen (❚❚):** Resume; Save, Load, Help, Full screen; game speed,
   music and volume; Leave battle (campaign) or Quit to menu (pressed twice).
 - **Bottom panel:** the selected unit or building's details, plus its
-  commands. Armed vehicles get **Hunt ▾** (as pack / solo),
+  commands. Any vehicles get **Group ▾** (battle groups, below). Armed vehicles get **Hunt ▾** (as pack / solo),
   the stance drop-down (shows the current stance: **Aggressive ▾**, **Return
   fire ▾**, **Stealth ▾**), **Orders ▾** (Guard, Patrol, Scout as pack /
   solo, Go repair) and **Stop**; deploy buttons appear when they apply.
@@ -2059,3 +2059,10 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     repaired). Juggernauts cost twice a Tank (200; Mk II 290) with 10% more
     health (715; Mk II 1,073). The Attack-move button is gone (the `A` key
     still works).
+35. **Battle groups by touch** (13 November 2026): select vehicles and use
+    **Group ▾** to make them battle group 1–5, add them to a group, or take
+    them out (a vehicle is in one group at a time; the number shows beside
+    it). A row of numbered buttons above the command panel, one per group
+    with its size, selects a group with one tap and jumps to it with a
+    second; groups are also listed under Army ▾. `Ctrl`+`1`–`9` still works
+    on a keyboard. Groups are kept in saved games.
