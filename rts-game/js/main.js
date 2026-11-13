@@ -425,21 +425,16 @@ function recallGroup(key) {
   select(g);
 }
 
-// The Army button: select everyone, or one kind of vehicle, or jump to an
-// idle worker or your base.
+// The Army button: pick one of your battle groups (or every combat
+// vehicle), or jump to an idle worker or your base.
 function toggleArmyMenu() {
   const all = mine(game.entities).filter(u => u.kind === 'unit' && u.def.role === 'combat');
   const groups = Object.keys(input.groups).sort().filter(k => groupMembers(k).length);
-  const faction = game.teams[view.team].faction;
-  const plural = t => faction === 'scrapline' ? { scout: 'Scouts', hornet: 'Hornets', tank: 'Tanks', heavy: 'Juggernauts', sentry: 'Sentries', artillery: 'Artillery' }[t]
-    : factionName(faction, UNIT_TYPES[t].name) + 's';
   openPop($('q-army'), [
-    { label: 'All combat vehicles', count: all.length, disabled: !all.length, onClick: () => selectArmyType('all') },
-    ...['scout', 'hornet', 'tank', 'heavy', 'sentry', 'artillery'].map(t => {
-      const n = all.filter(u => baseType(u) === t).length;
-      return n ? { label: plural(t), count: n, onClick: () => selectArmyType(t) } : null;
-    }).filter(Boolean),
-    ...(groups.length ? [{ heading: 'Battle groups' }, ...groups.map(k => ({ label: `Battle group ${k}`, count: groupMembers(k).length, onClick: () => recallGroup(k) }))] : []),
+    { heading: 'Battle groups' },
+    ...(groups.length ? groups.map(k => ({ label: `Battle group ${k}`, count: groupMembers(k).length, active: selectionGroup() === k, onClick: () => recallGroup(k) }))
+      : [{ label: 'No battle groups yet', note: 'Select vehicles, then Group ▾ to make one', disabled: true }]),
+    { label: 'All combat vehicles', count: all.length, disabled: !all.length, onClick: selectArmy },
     { heading: 'Jump to' },
     { label: 'Idle worker', onClick: idleWorker },
     { label: 'Your base', onClick: () => centerOn(findHQ(view.team)) },
@@ -463,13 +458,6 @@ function toggleCallinMenu() {
   items.push({ heading: n < 1 ? (game.uplinks ? 'None ready. Every uplink you hold earns another.' : 'None ready. One per battle; uplinks earn more.')
     : `${n} ready.${game.uplinks ? ' Every uplink you hold earns another.' : ''}` });
   openPop($('q-callin'), items);
-}
-
-function selectArmyType(type) {
-  if (type === 'all') { selectArmy(); return; }
-  const list = mine(game.entities).filter(u => u.kind === 'unit' && baseType(u) === type);
-  if (!list.length) { logMessage(`You have no ${UNIT_TYPES[type].name}s`, 'info'); return; }
-  select(list);
 }
 
 function selectArmy() {

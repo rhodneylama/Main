@@ -1066,7 +1066,7 @@ Recycler at its first attack.
 | Scroll / zoom | One-finger drag / pinch. |
 | Build | Select the Constructor, pick a building, tap where it goes, then press **Build here**. |
 | Upgrade / research | Select the building and press its **Upgrade** or research button. |
-| Quick buttons (top bar) | **Army ▾** (menu: All combat / Scouts / Tanks / Artillery), **Base**, **Idle worker**, **Deselect**. |
+| Quick buttons (top bar) | **Army ▾** (menu: your battle groups, All combat vehicles; Jump to idle worker / base; Deselect). |
 | Pause / Help | **Pause** button (❚❚ on narrow phones). The pause screen has **Resume** and **Help**. |
 | Minimap | Tap to move the camera. **Map ▾ / Map ▸** folds it away or brings it back. |
 
@@ -1103,8 +1103,10 @@ Phones work held upright or sideways.
   then **Army ▾**, **Call-in**, **Deselect**, **Map** (opens and folds the
   minimap), the clock and the ❚❚ pause/menu button. On narrow screens the
   health bars and clock are hidden.
-- **Army ▾:** select all combat vehicles or one kind (with counts), or jump
-  to an idle worker, your base, or deselect.
+- **Army ▾:** select one of your battle groups (with counts; "No battle
+  groups yet" until you make one) or all combat vehicles, or jump to an
+  idle worker or your base, or deselect. (Selecting one kind of vehicle
+  was removed on 13 November in favour of battle groups.)
 - **Call-in:** a drop-down of the call-ins (see "Call-ins").
 - **Pause screen (❚❚):** Resume; Save, Load, Help, Full screen; game speed,
   music and volume; Leave battle (campaign) or Quit to menu (pressed twice).
@@ -2066,3 +2068,6 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     with its size, selects a group with one tap and jumps to it with a
     second; groups are also listed under Army ▾. `Ctrl`+`1`–`9` still works
     on a keyboard. Groups are kept in saved games.
+36. **Army menu shows battle groups** (13 November 2026): Army ▾ now lists
+    your battle groups (and All combat vehicles) instead of one entry per
+    kind of vehicle.

@@ -75,7 +75,7 @@ The game works on touch screens, held upright or sideways. For the whole screen,
 | Stance and Hunt | **Aggressive**, **Return fire**, **Stealth** or **Fight, then repair** sets how selected vehicles behave; **Hunt** sends them to seek and destroy (see "Orders and stances"). |
 | Scroll / zoom | Drag one finger / pinch |
 | Build | Select the Constructor, pick a building, tap where it goes, then press **Build here** |
-| Select your army, jump home, find an idle worker, deselect | **Army ▾** in the top bar |
+| Select a battle group or your whole army, jump home, find an idle worker, deselect | **Army ▾** in the top bar |
 | Hunt, stance, guard, patrol | **Hunt ▾**, the stance drop-down (e.g. **Aggressive ▾**) and **Orders ▾** in the bottom panel |
 | Game speed, save, help, full screen, quit | **❚❚** (pause) |
 | Help | Press **Pause**, then **Help** |
