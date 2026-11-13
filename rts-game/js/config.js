@@ -178,12 +178,12 @@ const UNIT_TYPES = {
     weapon: { range: 220, damage: 26, cooldown: 0.9, projectile: 'rocket', vsBuilding: 1.2 },
     desc: 'Light rocket tank, between a Scout and a Tank: cheaper and much faster than a Tank, with less armour, and its rockets hit hard.',
   },
-  // The heavy: tougher than a Tank and slower (Artillery speed), 50% dearer,
+  // The heavy: tougher than a Tank and slower (Artillery speed), twice the price,
   // with two turrets that fire at two targets at once: a Tank's cannon in
   // front and a Sentry's minigun behind.
   heavy: {
-    name: 'Juggernaut', role: 'combat', cost: 150, buildTime: 13,
-    hp: 650, speed: 32, radius: 18, sight: 270,
+    name: 'Juggernaut', role: 'combat', cost: 200, buildTime: 14,
+    hp: 715, speed: 32, radius: 18, sight: 270,
     weapon: { range: 200, damage: 34, cooldown: 1.2, projectile: 'shell', vsBuilding: 1 },
     weapon2: { range: 220, damage: 7, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
     desc: 'Heavy tank: more armour than a Tank but slower, with two turrets: a cannon in front and a minigun behind, each picking its own target.',
@@ -217,8 +217,8 @@ const UNIT_TYPES = {
   // Juggernaut Mk II: both turrets get twin barrels (double cannon, double
   // minigun) for the usual +40% damage, with +50% armour and a little speed.
   heavy2: {
-    name: 'Juggernaut Mk II', base: 'heavy', requires: 'heavy2', role: 'combat', cost: 220, buildTime: 17,
-    hp: 975, speed: 36, radius: 18, sight: 270,
+    name: 'Juggernaut Mk II', base: 'heavy', requires: 'heavy2', role: 'combat', cost: 290, buildTime: 18,
+    hp: 1073, speed: 36, radius: 18, sight: 270,
     weapon: { range: 220, damage: 48, cooldown: 1.2, projectile: 'shell', vsBuilding: 1 },
     weapon2: { range: 240, damage: 10, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
     desc: 'Upgraded Juggernaut: twin cannons on the front turret and twin miniguns on the back one, much heavier armour, and guns that outrange a basic Tank.',

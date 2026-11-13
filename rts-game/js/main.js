@@ -29,7 +29,7 @@ function startGame(difficulty, watch = false) {
   const seed = Number(new URLSearchParams(location.search).get('seed')) || Math.floor(Math.random() * 99999);
   // You play the faction you picked; the enemy fields the other one.
   const other = chosenFaction === 'kethra' ? 'scrapline' : 'kethra';
-  game = createGame({ seed, difficulty, aiTeams: watch ? [1, 2] : [2], factions: { 1: chosenFaction, 2: other }, uplinks: chosenMode === 'uplinks' });
+  game = createGame({ seed, difficulty, aiTeams: watch ? [1, 2] : [2], factions: { 1: chosenFaction, 2: other }, uplinks: chosenMode === 'uplinks', mapType: chosenMap });
   enterBattle(watch);
   input.groups = {}; view.groupOf = new Map();
   // Small screens start zoomed out so more of the battlefield fits.
@@ -327,7 +327,14 @@ const ofType = (list, type) => mine(list).filter(e => e.kind === 'unit' && baseT
 
 // Second tap/click after pressing Defend or Deploy.
 function aimAt(w, pad) {
-  if (view.aim === 'guard') {
+  if (view.aim === 'follow') {
+    const drones = mine(view.selected).filter(u => u.kind === 'unit' && u.def.role === 'repairer');
+    const v = entityAt(w.x, w.y, pad, e => !drones.includes(e));
+    if (!v || v.team !== view.team || v.kind !== 'unit') { logMessage(`${isTouch ? 'Tap' : 'Click'} one of your vehicles for the drones to follow`, 'warn'); sound('error'); return; }
+    issueCommand(game, view.team, { type: 'follow', ids: drones.map(u => u.id), targetId: v.id });
+    logMessage(`Following ${nameOf(v)}`, 'info');
+    ping(v, '#6ee06e');
+  } else if (view.aim === 'guard') {
     const guards = mine(view.selected).filter(u => u.kind === 'unit' && u.def.weapon);
     const b = entityAt(w.x, w.y, pad, e => !guards.includes(e));
     if (!b || b.team !== view.team) { logMessage(`${isTouch ? 'Tap' : 'Click'} one of your buildings or vehicles to guard it`, 'warn'); sound('error'); return; }
@@ -820,7 +827,8 @@ function refreshPanel() {
     if (e.kind === 'unit' && e.def.role === 'builder') extra = 'Builds and finishes construction. Repairs are a Repair Drone\'s job.';
     if (e.kind === 'unit' && e.def.role === 'repairer') {
       const tgt = e.order.targetId && game.byId.get(e.order.targetId);
-      extra = `${e.order.type === 'automend' ? 'Auto repair' : e.order.type === 'mend' ? 'Repairing' : 'Idle'}${tgt ? `: ${nameOf(tgt)}` : e.order.type === 'automend' ? ', nothing needs fixing' : ''}`;
+      extra = e.order.type === 'follow' ? `Following${tgt ? ` ${nameOf(tgt)}` : ''} and keeping it repaired`
+        : `${e.order.type === 'automend' ? 'Auto repair' : e.order.type === 'mend' ? 'Repairing' : 'Idle'}${tgt ? `: ${nameOf(tgt)}` : e.order.type === 'automend' ? ', nothing needs fixing' : ''}`;
     }
     if (e.kind === 'unit' && e.def.role === 'combat') {
       const next = CONFIG.VET_KILLS[e.rank || 0];
@@ -1069,9 +1077,10 @@ function refreshPanel() {
   const drones = sel.filter(e => e.kind === 'unit' && e.def.role === 'repairer');
   if (drones.length) addBtn('Auto repair', null, keys.shift(), () => order('autorepair', drones),
     { active: drones.every(d => d.order.type === 'automend'), title: 'Go wherever something of yours needs repairing (most urgent first). Or tap a damaged building or vehicle to send them there.' });
+  if (drones.length) addBtn('Follow', null, keys.shift(), () => { view.aim = 'follow'; refreshPanel(); },
+    { active: view.aim === 'follow' || drones.every(d => d.order.type === 'follow'), title: 'Pick one of your vehicles: the drones stay with it and keep it repaired' });
   const armed = sel.filter(e => e.kind === 'unit' && e.def.weapon && !e.def.deployable);
   if (armed.length) {
-    addBtn('Attack-move', null, 'A', () => { view.attackMode = true; refreshPanel(); }, { active: view.attackMode, title: 'Move, but stop to fight anything on the way' });
     // Hunt: seek and destroy, as a pack or each on its own.
     const hunting = armed.every(u => u.order.type === 'hunt');
     addMenu('Hunt', keys.shift(), [
@@ -1103,6 +1112,7 @@ function refreshPanel() {
     addBtn('Cancel', null, 'Esc', cancelModes);
     const tip = document.createElement('div'); tip.className = 'dim small tip';
     tip.textContent = view.attackMode ? `${isTouch ? 'Tap' : 'Click'} where to go. They fight anything on the way.`
+      : view.aim === 'follow' ? `${isTouch ? 'Tap' : 'Click'} one of your vehicles. The drones will follow it and keep it repaired.`
       : view.aim === 'guard' ? `${isTouch ? 'Tap' : 'Click'} one of your buildings or vehicles. Armed vehicles in the selection will guard it.`
       : mobileHq.length ? `${isTouch ? 'Tap' : 'Click'} a glowing scrap geyser. Your Recycler drives there and deploys as your base.`
       : `${isTouch ? 'Tap' : 'Click'} a glowing scrap geyser. The Scavenger drives there and becomes an Extractor.`;
@@ -1300,8 +1310,9 @@ function frame(now) {
 // Menu buttons
 // -----------------------------------------------------------------------------
 
-let chosenDifficulty = 'normal', chosenFaction = 'scrapline', chosenMode = 'recycler';
+let chosenDifficulty = 'normal', chosenFaction = 'scrapline', chosenMode = 'recycler', chosenMap = 'wasteland';
 $('modesel').addEventListener('change', e => { chosenMode = e.target.value; });
+$('mapsel').addEventListener('change', e => { chosenMap = e.target.value; });
 try { if (FACTIONS[localStorage.getItem('scrapline.faction')]) chosenFaction = localStorage.getItem('scrapline.faction'); } catch (err) { /* optional */ }
 document.querySelectorAll('[data-faction]').forEach(b => {
   b.classList.toggle('active', b.dataset.faction === chosenFaction);

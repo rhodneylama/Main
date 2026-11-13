@@ -18,7 +18,7 @@ function load() {
   const ctx = { console, Math, performance: { now: () => Date.now() }, btoa, atob };
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
-    'createGame, generateMap, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
+    'createGame, generateMap, generateUrbanMap, TILE_DIRT, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
     'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, damageForTest: damage });', ctx);
   return ctx;
 }
@@ -973,20 +973,72 @@ section('Repair Drones, Fight then repair, the Juggernaut, tuning');
   check('and once repaired, goes back to where it was', v.hp === v.maxHp && S.dist(v, home) < 120, `${Math.round(S.dist(v, home))} px from its spot`);
   // The Juggernaut: two turrets, two targets at once.
   const J = S.UNIT_TYPES.heavy, T = S.UNIT_TYPES.tank;
-  check('the Juggernaut: tougher than a Tank, slower, 50% dearer, a cannon and a minigun', J.hp > T.hp && J.speed < T.speed && J.cost === T.cost * 1.5 &&
+  check('the Juggernaut: tougher than a Tank, slower, twice the price, a cannon and a minigun', J.hp > T.hp && J.speed < T.speed && J.cost === T.cost * 2 &&
     J.weapon.damage === T.weapon.damage && J.weapon2.cooldown === S.UNIT_TYPES.sentry.weapon.cooldown);
   const J2 = S.UNIT_TYPES.heavy2;
   check('Juggernaut Mk II: researched, built by a Factory II, +40% damage on both guns, +50% armour, still slower than a Tank',
     J2.base === 'heavy' && J2.requires === 'heavy2' && !!S.RESEARCH.heavy2 && S.BUILDING_TYPES.lab.researches.includes('heavy2') &&
     S.BUILDING_TYPES.factory.upgrade.produces.includes('heavy2') &&
     Math.abs(J2.weapon.damage / J.weapon.damage - 1.4) < 0.05 && Math.abs(J2.weapon2.damage / J.weapon2.damage - 1.4) < 0.05 &&
-    J2.hp === J.hp * 1.5 && J2.speed < T.speed && !!J2.weapon2);
+    Math.abs(J2.hp / J.hp - 1.5) < 0.01 && J2.speed < T.speed && !!J2.weapon2);
   const jug = S.addUnitNear(g, 'heavy', 1, rec.x - 300 * Math.sign(g.map.W * 16 - rec.x), rec.y);
   const a = S.addUnitNear(g, 'scout', 2, jug.x + 150, jug.y - 40), b = S.addUnitNear(g, 'scout', 2, jug.x + 150, jug.y + 60);
   for (const s2 of [a, b]) { s2.stance = 'stealth'; s2.hp = s2.maxHp = 5000; }
   const hpA = a.hp, hpB = b.hp;
   for (let i = 0; i < 30 * 6; i++) S.stepGame(g);
   check('it fires at two targets at once', a.hp < hpA && b.hp < hpB && jug.target2 && jug.target && jug.target2 !== jug.target, `${Math.round(hpA - a.hp)} and ${Math.round(hpB - b.hp)} damage`);
+}
+
+section('Drone Follow, the urban map');
+{
+  // A Repair Drone told to follow a vehicle stays with it and keeps it repaired.
+  const S = load();
+  const g = S.createGame({ seed: 7 });
+  const rec = g.entities.find(e => e.team === 1 && e.type === 'mobileRecycler');
+  const dir = Math.sign(g.map.W * 16 - rec.x);
+  const tank = S.addUnitNear(g, 'tank', 1, rec.x + 150 * dir, rec.y), drone = S.addUnitNear(g, 'drone', 1, rec.x + 60 * dir, rec.y + 60);
+  S.issueCommand(g, 1, { type: 'follow', ids: [drone.id], targetId: tank.id });
+  const goal = S.nearestOpenTile(g, Math.floor((tank.x + 700 * dir) / 32), Math.floor(tank.y / 32));
+  S.issueCommand(g, 1, { type: 'move', ids: [tank.id], x: goal.x * 32 + 16, y: goal.y * 32 + 16 });
+  for (let i = 0; i < 30 * 25; i++) S.stepGame(g);
+  check('a drone on Follow stays with its vehicle as it drives off', drone.order.type === 'follow' && S.dist(drone, tank) < 110, `${Math.round(S.dist(drone, tank))} px apart`);
+  tank.hp = 150;
+  for (let i = 0; i < 30 * 12; i++) S.stepGame(g);
+  check('and repairs it when it is hurt', tank.hp === tank.maxHp, `${Math.round(tank.hp)} / ${tank.maxHp}`);
+  tank.hp = 0; S.stepGame(g); S.stepGame(g);
+  check('when its vehicle is lost it goes back to Auto repair', drone.order.type === 'automend');
+
+  // The ruined city.
+  let symOk = true, reachOk = true, canal = true, bridges = true, scarce = true;
+  for (const seed of [1, 7, 42]) {
+    const m = S.generateUrbanMap(seed), { W, H, tiles } = m;
+    for (let i = 0; i < W * H && symOk; i++) if (tiles[i] !== tiles[W * H - 1 - i] || m.noBuild[i] !== m.noBuild[W * H - 1 - i]) symOk = false;
+    const pass = i => tiles[i] !== S.TILE_ROCK && tiles[i] !== S.TILE_WATER;
+    const reach = new Uint8Array(W * H), st = [m.bases[1].y * W + m.bases[1].x]; reach[st[0]] = 1;
+    while (st.length) { const i = st.pop(); for (const j of [i + 1, i - 1, i + W, i - W]) if (j >= 0 && j < W * H && !reach[j] && pass(j)) { reach[j] = 1; st.push(j); } }
+    for (const p of [m.bases[2], ...m.fields, ...m.geysers.map(gz => ({ x: gz.tx, y: gz.ty }))]) if (!reach[p.y * W + p.x]) reachOk = false;
+    let water = 0, bridge = 0, build = 0;
+    for (let i = 0; i < W * H; i++) { if (tiles[i] === S.TILE_WATER) water++; if (m.style[i] === 2) bridge++; if (pass(i) && !m.noBuild[i]) build++; }
+    if (water < 600) canal = false;
+    if (bridge < 40) bridges = false;
+    if (build / (W * H) > 0.35) scarce = false;
+  }
+  check('the city is mirrored, streets and all', symOk);
+  check('every geyser, scrap field and the other base can be driven to', reachOk);
+  check('a canal crosses the city, with bridges', canal && bridges);
+  check('building room is scarce (at most about a third of the city)', scarce);
+  const g2 = S.createGame({ seed: 7, mapType: 'urban' });
+  const m2 = g2.map, b1 = m2.bases[g2.corner[1]];
+  g2.teams[1].explored.fill(1);
+  let street = null;
+  for (let r = 3; r < 40 && !street; r++) for (let dx = -r; dx <= r && !street; dx++) for (const dy of [-r, r]) {
+    const x = b1.x + dx, y = b1.y + dy;
+    if (x > 1 && y > 1 && x < m2.W - 2 && y < m2.H - 2 && m2.noBuild[y * m2.W + x] && !S.isBlockedTile(g2, x, y)) { street = { x, y }; break; }
+  }
+  const onStreet = S.canPlaceBuilding(g2, 1, 'tower', street.x, street.y);
+  check("you can't build on the streets", !onStreet.ok && /street/.test(onStreet.why), onStreet.why);
+  const p2 = S.findPath(g2, (m2.bases[1].x + 0.5) * 32, (m2.bases[1].y + 0.5) * 32, (m2.bases[2].x + 0.5) * 32, (m2.bases[2].y + 0.5) * 32);
+  check('there is a route across the city between the bases', !!(p2 && p2.length));
 }
 
 console.log(`\n${passes} passed, ${fails} failed`);

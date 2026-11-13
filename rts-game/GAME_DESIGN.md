@@ -101,6 +101,39 @@ The Recycler cannot be demolished by its owner.
 
 ## 3. The battlefield
 
+### Two maps
+
+The start screen's **Map** drop-down picks the battlefield for a single
+battle (the campaign still uses the wasteland):
+
+- **Wasteland** (`generateMap`): open ground with rock ridges and lakes, as
+  described below.
+- **Ruined city** (`generateUrbanMap`, added 13 November 2026): the same
+  size, starting corners, geysers and scrap fields, inside a city.
+  - **Streets** run in a grid every 18 squares (5 wide north–south, 4 wide
+    east–west). Vehicles drive on them, but **nothing can be built on a
+    street** ("Can't build on the streets: use open lots, plazas and
+    courtyards"; `map.noBuild`).
+  - **City blocks** (13 × 14 squares) are towers (solid), blocks split by a
+    2-square alley, walled courtyards with one gateway (open ground inside),
+    cleared lots edged with rubble, or parks with trees (trees block
+    vehicles).
+  - **Barricades:** some stretches of street are choked with rubble, making
+    dead ends.
+  - **A canal** crosses the city from the top-left to the bottom-right,
+    between the bases, with only **five bridges** (on three north–south
+    streets and two east–west ones): natural chokepoints.
+  - Each base sits in a **plaza** (radius 14), each geyser in a cleared lot
+    (radius 5); scrap fields lie in rubble-strewn squares of street; a plaza
+    fills the centre of the city.
+  - About a fifth of the city can be built on, against most of the
+    wasteland. Mirrored through the centre like the wasteland.
+  - Drawn as a city: asphalt with kerbs and faded centre lines, rooftops in
+    four tints with parapets, vents and tall shadows, broken concrete for
+    rubble, tree canopies, stone canal banks and bridge railings.
+  - In computer-against-computer tests both sides build full bases (11–18
+    buildings, six Extractors) and battles end in 16–46 minutes.
+
 ### Size and grid
 
 | Setting | Value |
@@ -270,7 +303,7 @@ to build it.
 | Repair Drone | Repairer | 90 | 8 s | 150 | 68 | 240 | 10 | Recycler II | Recycler upgrade |
 | Scout | Combat | 50 | 5 s | 140 | 98 | 330 | 11 | Factory | — |
 | Tank | Combat | 100 | 9 s | 400 | 40 | 260 | 15 | Factory | — |
-| Juggernaut (heavy, two turrets) | Combat | 150 | 13 s | 650 | 32 | 270 | 18 | Factory | — |
+| Juggernaut (heavy, two turrets) | Combat | 200 | 14 s | 715 | 32 | 270 | 18 | Factory | — |
 | Artillery | Combat | 140 | 12 s | 200 | 32 | 220 | 15 | Factory | — |
 | Hornet (light rocket tank) | Combat | 75 | 7 s | 250 | 68 | 280 | 13 | Factory | — |
 | Sentry (defensive turret) | Combat | 90 | 8 s | 320 | 36 | 260 | 12 | Factory | — |
@@ -279,7 +312,7 @@ to build it.
 | Artillery Mk II | Combat | 200 | 16 s | 300 | 36 | 220 | 15 | Factory II | Advanced Artillery |
 | Hornet Mk II | Combat | 110 | 9 s | 380 | 80 | 280 | 13 | Factory II | Advanced Hornets |
 | Sentry Mk II | Combat | 130 | 11 s | 500 | 40 | 280 | 12 | Factory II | Advanced Sentries |
-| Juggernaut Mk II | Combat | 220 | 17 s | 975 | 36 | 270 | 18 | Factory II | Advanced Juggernauts |
+| Juggernaut Mk II | Combat | 290 | 18 s | 1,073 | 36 | 270 | 18 | Factory II | Advanced Juggernauts |
 
 **Speeds:** Scavengers and Constructors 43, Tank 40, Sentry 36, Artillery 32
 (kept the slowest), Hornet 68, Scout 98. (Transports, removed in October, were 39.)
@@ -325,12 +358,12 @@ Artillery vehicles reload in 3.85 s (10% slower than before, 12 November);
 Artillery Towers are unchanged.
 
 **The Juggernaut** (Kethra: Colossus) is the heavy vehicle: more health than
-a Tank (650 against 400), slower (32, Artillery speed, against the Tank's 40),
-and 50% dearer (150). It has **two turrets that aim on their own**: a Tank's
+a Tank (715 against 400), slower (32, Artillery speed, against the Tank's 40),
+and twice the price (200). It has **two turrets that aim on their own**: a Tank's
 cannon on the front turret and a Sentry's minigun on the back one, far enough
 apart that they never overlap. The cannon takes the main target; the minigun picks a **different** enemy in its
 range when there is one, so it fires at two at once. Its **Mk II** (Advanced
-Juggernauts, 225 scrap at a Research Lab; built at a Factory II for 220) puts
+Juggernauts, 225 scrap at a Research Lab; built at a Factory II for 290) puts
 twin barrels on both turrets, a double cannon and a double minigun, for the
 usual Mk II +40% damage and +50% armour, and a little more speed (36).
 
@@ -342,7 +375,7 @@ usual Mk II +40% damage and +50% armour, and a little more speed (36).
 | Scavenger | Collects loose scrap automatically. Carries 25. **Cannot** deploy on geysers. |
 | Scavenger II | As Scavenger, plus **Deploy on geyser:** becomes an Extractor (8 s to set up). |
 | Constructor | Builds buildings and finishes construction sites. **Cannot** repair a finished building (that's the Repair Drone's job). |
-| Repair Drone (Kethra: Mender) | Fast (as fast as a Hornet) and unarmed. **Repairs** your buildings and vehicles at 30 HP a second from up to 55 px away. Starts on **Auto repair**: it goes wherever something of yours needs fixing, vehicles before buildings and the most damaged first, rechecking about once a second and switching if something much more urgent comes up; with nothing to fix it waits by the Recycler. Tap or right-click a damaged building or vehicle to send it there; once that's fixed it goes back to Auto repair. |
+| Repair Drone (Kethra: Mender) | Fast (as fast as a Hornet) and unarmed. **Repairs** your buildings and vehicles at 30 HP a second from up to 55 px away. Starts on **Auto repair**: it goes wherever something of yours needs fixing, vehicles before buildings and the most damaged first, rechecking about once a second and switching if something much more urgent comes up; with nothing to fix it waits by the Recycler. Tap or right-click a damaged building or vehicle to send it there; once that's fixed it goes back to Auto repair. **Follow:** press it, then pick one of your vehicles: the drones keep close behind it wherever it goes and repair it whenever it is hurt; if it is destroyed they go back to Auto repair. |
 | Scout (and Mk II) | **Scout** (alone) or **Scout as pack** / **Scout solo** (groups). |
 | Tank (and Mk II) | **Patrol:** loops around all your buildings. |
 | Sentry (and Mk II) | **Purely defensive.** **Deploy** digs it in where it stands: it lowers four legs (0.6 s) and then fires five rounds a second at anything its side can see in range. Dug in, it never moves, never chases and isn't pushed aside, and an attack order on something out of range is ignored. **Pack up**, or any move, patrol, scout or repair order, folds the legs (0.6 s) so it can drive. Packed up it **cannot fire** at all. It can't take Guard posts. |
@@ -625,7 +658,7 @@ minutes, one 26.5.
 | Order | Who | What it does |
 | --- | --- | --- |
 | Move | Any vehicle | Drives to the point; how armed vehicles behave on the way depends on their stance (below). Groups spread into a grid about 34 pixels apart at the destination. |
-| Attack-move | Armed vehicles | Moves, but stops to fight anything seen on the way. |
+| Attack-move | Armed vehicles (keyboard only: `A`, then click) | Moves, but stops to fight anything seen on the way. The button was removed on 13 November: Aggressive, the default stance, already fights on the way. |
 | Attack | Armed vehicles | Chases and fires at one target until it dies or is lost from sight. |
 | Stop | Any vehicle | Stops and stands guard. |
 | Gather | Scavengers | Collects a chosen scrap pile, then carries on automatically. |
@@ -633,6 +666,7 @@ minutes, one 26.5.
 | Build | Constructor (either tier) | Places a building or finishes a construction site. |
 | Repair | Repair Drones | Restores a damaged building or vehicle of yours. |
 | Auto repair | Repair Drones | Goes wherever something needs fixing (the default). |
+| Follow | Repair Drones | Stays with one of your vehicles and keeps it repaired. |
 | Scout | Scouts | Explores: unexplored ground first, then areas under fog. Fires at enemies passed without stopping. Picks a new destination on arrival or after 45 seconds. |
 | Scout as pack | 2+ Scouts | As Scout, but the group travels together in a loose ring of about 34 pixels and picks a new destination when any of them arrives (or after 40 seconds). |
 | Hunt | Armed vehicles (not Sentries) | Seek and destroy (below). **Hunt as pack** (2+) or **Hunt solo**. |
@@ -1075,7 +1109,7 @@ Phones work held upright or sideways.
 - **Pause screen (❚❚):** Resume; Save, Load, Help, Full screen; game speed,
   music and volume; Leave battle (campaign) or Quit to menu (pressed twice).
 - **Bottom panel:** the selected unit or building's details, plus its
-  commands. Armed vehicles get **Attack-move**, **Hunt ▾** (as pack / solo),
+  commands. Armed vehicles get **Hunt ▾** (as pack / solo),
   the stance drop-down (shows the current stance: **Aggressive ▾**, **Return
   fire ▾**, **Stealth ▾**), **Orders ▾** (Guard, Patrol, Scout as pack /
   solo, Go repair) and **Stop**; deploy buttons appear when they apply.
@@ -1494,7 +1528,7 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `js/campaign.js` | The campaign's rules: the theater, war reports, support, starting bonuses, battle results (section 16, "Campaign") |
 | `js/war.js` | The war map screen and starting campaign battles (drop-in, Take command, Reinforce) |
 | `js/saves.js` | Where saved games are kept: the published page's private per-person store, or this browser (see section 16, "Saving") |
-| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (172 checks). |
+| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (181 checks). |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
 tables), `ROADMAP.md` (planned stages), `ECONOMY_TEST_REPORT.md` (the October
@@ -1546,7 +1580,7 @@ rebuilt.
 
 | Test type | Method | What it checks |
 | --- | --- | --- |
-| **Rules tests** (`tests/rules.js`, 172 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 44.9 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Orders** (Aggressive by default: an enemy beside the route is attacked, then they carry on to where they were sent; Stealth holds fire and arrives sooner; Return fire shoots in passing and keeps going; Hunt as a pack destroys a known enemy building across the map and keeps together; Hunt with nothing known goes searching; a guard goes after whoever attacks what it guards, even out of its range, then returns to its post; an idle vehicle helps a friend under fire nearby; a group attacking one target fans out in an arc; 100 units a side; 200 vehicles fighting take well under a second per battle second); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused); **Campaign** (fifteen battlefields all joined up; each side starts with its half and two battles under way; only neighbouring enemy battlefields can be attacked; more neighbours held means more starting vehicles, and they appear in the battle; each battlefield keeps its own map; war reports come in on time at the chosen pace, at most 12 while away, none on Hold; on Normal the AI commanders alone don't decide the war in 60 reports; winning takes the battlefield; leaving puts it back on paper from how it stood; Reinforce: the allied commander never moves your strike force and sends you some of what it builds); **Uplinks and call-ins** (three uplinks on open ground, the middle in the middle, the sides mirrored; one vehicle captures in about 15 s, three three times as fast; contested means no change; holding two counts only once online; hold two for 3 minutes to win; uplinks earn call-ins; everyone starts with one call-in; the computer opponent uses its call-ins; supply drop lands with 300 scrap; none left, nothing called; reinforcements land where chosen, only on explored ground); **Campaign battlefields** (the holder starts with a base; more support and time held means more built up; two landing zones clear of the defences, one to liberate from level 2; you land where you chose with a strike force, three call-ins, supply crates and knowledge of their Recycler; campaign battles run faster; some battlefields are capture-and-hold; landing zones always on the far half of the map); **Hit and miss** (less likely to hit a fast mover, at long range, or on the move; buildings always hit; in a fight some shots miss; vehicles keep moving while they fire); **Shields** (no field without a Generator; with one it boots after its reboot time; a powered projector burns 6 scrap a minute; fire from the front is stopped by the field, from behind it gets through; shot down it collapses and the projector is open, then reboots after 13.5 s partly charged; one Generator powers four; no scrap, no shields); **Radar and Forcefield Tech** (a Radar builds anywhere explored and lets you build around it; pings every 30 s, Radar II every 15 s, Radar III constantly; upgrades cost 250 then 500, and stop at III; Shield Projectors need Forcefield Tech and cost 180); **Veterans and armour** (two kills make a Veteran, five an Elite with more health; veterans hit much more often even on the move; side hits do 25% more, rear 50% more); **Repair Drones, Fight then repair, the Juggernaut** (tuning: Extractor income, shield strength and reboot, Artillery reload but not the tower's; a drone on Auto repair fixes a vehicle before a building, then both; a Constructor can't repair; Fight then repair goes to the pad at yellow and comes back; the Juggernaut's stats, slower than a Tank; its Mk II with +40% damage on both guns; it fires at two targets at once). |
+| **Rules tests** (`tests/rules.js`, 181 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 44.9 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Orders** (Aggressive by default: an enemy beside the route is attacked, then they carry on to where they were sent; Stealth holds fire and arrives sooner; Return fire shoots in passing and keeps going; Hunt as a pack destroys a known enemy building across the map and keeps together; Hunt with nothing known goes searching; a guard goes after whoever attacks what it guards, even out of its range, then returns to its post; an idle vehicle helps a friend under fire nearby; a group attacking one target fans out in an arc; 100 units a side; 200 vehicles fighting take well under a second per battle second); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused); **Campaign** (fifteen battlefields all joined up; each side starts with its half and two battles under way; only neighbouring enemy battlefields can be attacked; more neighbours held means more starting vehicles, and they appear in the battle; each battlefield keeps its own map; war reports come in on time at the chosen pace, at most 12 while away, none on Hold; on Normal the AI commanders alone don't decide the war in 60 reports; winning takes the battlefield; leaving puts it back on paper from how it stood; Reinforce: the allied commander never moves your strike force and sends you some of what it builds); **Uplinks and call-ins** (three uplinks on open ground, the middle in the middle, the sides mirrored; one vehicle captures in about 15 s, three three times as fast; contested means no change; holding two counts only once online; hold two for 3 minutes to win; uplinks earn call-ins; everyone starts with one call-in; the computer opponent uses its call-ins; supply drop lands with 300 scrap; none left, nothing called; reinforcements land where chosen, only on explored ground); **Campaign battlefields** (the holder starts with a base; more support and time held means more built up; two landing zones clear of the defences, one to liberate from level 2; you land where you chose with a strike force, three call-ins, supply crates and knowledge of their Recycler; campaign battles run faster; some battlefields are capture-and-hold; landing zones always on the far half of the map); **Hit and miss** (less likely to hit a fast mover, at long range, or on the move; buildings always hit; in a fight some shots miss; vehicles keep moving while they fire); **Shields** (no field without a Generator; with one it boots after its reboot time; a powered projector burns 6 scrap a minute; fire from the front is stopped by the field, from behind it gets through; shot down it collapses and the projector is open, then reboots after 13.5 s partly charged; one Generator powers four; no scrap, no shields); **Radar and Forcefield Tech** (a Radar builds anywhere explored and lets you build around it; pings every 30 s, Radar II every 15 s, Radar III constantly; upgrades cost 250 then 500, and stop at III; Shield Projectors need Forcefield Tech and cost 180); **Veterans and armour** (two kills make a Veteran, five an Elite with more health; veterans hit much more often even on the move; side hits do 25% more, rear 50% more); **Repair Drones, Fight then repair, the Juggernaut** (tuning: Extractor income, shield strength and reboot, Artillery reload but not the tower's; a drone on Auto repair fixes a vehicle before a building, then both; a Constructor can't repair; Fight then repair goes to the pad at yellow and comes back; the Juggernaut's stats, slower than a Tank; its Mk II with +40% damage on both guns; it fires at two targets at once); **Drone Follow and the ruined city** (a drone on Follow stays with its vehicle and repairs it, and goes back to Auto repair when it is lost; the city is mirrored, everything can be driven to, a canal with bridges crosses it, building room is scarce, nothing can be built on a street, and there is a route between the bases). |
 | **AI duels** (`tests/balance/duels.sh`) | The current opponent plays an earlier version of itself (`tests/balance/ai_previous.js`, the first one; `ai_v2.js` with `OPP=v2`, the 18 October one) on many seeds, 4 games at a time, up to 60 minutes each. With `BOTHOLD=1` both sides use the previous version, giving the baseline for the same seeds. | Whether a change to the opponent actually makes it stronger. Each tactic was tried alone, then in combinations; see the results below. |
 | **AI-vs-AI batches** | Run 30 to 120 full games between two computer players on different seeds. | Games end, typical length, and **fairness** by team and by corner. |
 | **AI tech progression** | Log when the AI reaches each milestone at each difficulty. | The AI actually upgrades, researches and fields Mk II units. |
@@ -2017,3 +2051,11 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     never overlap. Slowed to 32 (slower than a Tank). New Juggernaut Mk II
     (research Advanced Juggernauts): twin cannons and twin miniguns, +40%
     damage, +50% armour.
+34. **Ruined city map, drone Follow, Juggernaut price** (13 November 2026):
+    a second map for single battles, a ruined city with a street grid you
+    can't build on, towers, alleys, courtyards, lots, parks, rubble
+    barricades and a canal with five bridges. Repair Drones have white
+    propellers and a Follow order (stay with one vehicle and keep it
+    repaired). Juggernauts cost twice a Tank (200; Mk II 290) with 10% more
+    health (715; Mk II 1,073). The Attack-move button is gone (the `A` key
+    still works).
