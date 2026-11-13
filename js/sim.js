@@ -40,10 +40,10 @@ const turnToward = (cur, target, maxStep) => {
 // `uplinks`: three capture-and-hold points (hold two for UPLINK_WIN seconds
 // to win). `tempo`: campaign battles run their economy and production this
 // much faster, so a battle takes 10–15 minutes rather than half an hour.
-function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams = [2], factions = {}, mapSeed = seed, bonus = {}, uplinks = false, tempo = 1 } = {}) {
-  const map = generateMap(mapSeed);
+function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams = [2], factions = {}, mapSeed = seed, bonus = {}, uplinks = false, tempo = 1, mapType = 'wasteland' } = {}) {
+  const map = mapType === 'urban' ? generateUrbanMap(mapSeed) : generateMap(mapSeed);
   const game = {
-    map, seed, difficulty, aiTeams,
+    map, seed, difficulty, aiTeams, mapType,
     rng: makeRng(seed * 7 + 1),
     tick: 0, time: 0,
     entities: [], byId: new Map(), nextId: 1,
@@ -196,6 +196,7 @@ function canPlaceBuilding(game, team, type, tx, ty) {
     const i = y * m.W + x;
     if (!tm.explored[i]) return { ok: false, why: 'Unexplored ground' };
     if (isBlockedTile(game, x, y)) return { ok: false, why: 'Something is in the way' };
+    if (m.noBuild && m.noBuild[i]) return { ok: false, why: "Can't build on the streets: use open lots, plazas and courtyards" };
   }
   // Repair pads don't block vehicles, but nothing can be built on top of one.
   for (const e of game.entities) {
@@ -324,6 +325,13 @@ function issueCommand(game, team, cmd) {
       const able = units.filter(u => u.def.role === 'builder' && b.built < 1);
       if (!able.length && !drones.length && units.some(u => u.def.role === 'builder')) { pushEvent(game, team, 'Repairs need a Repair Drone (built by a Recycler II)', 'warn'); return; }
       for (const u of able) { u.order = { type: 'build', targetId: b.id }; planPathNear(game, u, b); }
+      break;
+    }
+    case 'follow': {
+      // Repair Drones stay with one of your vehicles and keep it repaired.
+      const v = own(cmd.targetId);
+      if (!v || v.kind !== 'unit') return;
+      for (const u of units) if (u.def.role === 'repairer' && u !== v) { u.order = { type: 'follow', targetId: v.id }; u.path = []; }
       break;
     }
     case 'autorepair': {
@@ -884,7 +892,7 @@ function updateUnit(game, u, dt) {
     case 'patrol': updatePatrol(game, u, dt); break;
     case 'guard': updateGuard(game, u, dt); break;
     case 'hunt': updateHunt(game, u, dt); break;
-    case 'mend': case 'automend': updateDrone(game, u, dt); break;
+    case 'mend': case 'automend': case 'follow': updateDrone(game, u, dt); break;
     case 'deploy': updateDeploy(game, u, dt); break;
   }
 }
@@ -1015,6 +1023,7 @@ function needsMend(e, u) {
 const mendScore = (u, e) => dist(u, e) + (e.hp / e.maxHp) * 900 - (e.kind === 'unit' ? 300 : 0);
 function updateDrone(game, u, dt) {
   const o = u.order;
+  if (o.type === 'follow') return followAndMend(game, u, dt);
   let t = o.targetId ? game.byId.get(o.targetId) : null;
   if (!needsMend(t, u)) { t = null; o.targetId = 0; }
   if (!t && o.type === 'mend') { u.order = { type: 'automend', gx: u.x, gy: u.y }; return updateDrone(game, u, dt); }
@@ -1053,6 +1062,31 @@ function updateDrone(game, u, dt) {
   t.hp = Math.min(t.maxHp, t.hp + u.def.repairRate * dt);
   t.repairing = 0.3; u.mending = game.time;
   if ((game.tick + u.id) % 6 === 0) game.effects.push({ kind: 'heal', x: t.x + (game.rng() - 0.5) * 20, y: t.y, t: 0, life: 0.8 });
+}
+
+// Follow: keep close behind one vehicle and repair it whenever it is hurt.
+// When it is destroyed, go back to Auto repair.
+function followAndMend(game, u, dt) {
+  const v = game.byId.get(u.order.targetId);
+  if (!v || v.hp <= 0) { u.order = { type: 'automend', gx: u.x, gy: u.y }; u.path = []; return; }
+  const hurt = v.hp < v.maxHp, reach = u.def.repairReach + v.radius;
+  // A spot just behind it (or right beside it while repairing).
+  const back = v.angle + Math.PI + ((u.id % 3) - 1) * 0.6, off = hurt ? v.radius + 16 : v.radius + 34;
+  const gx = v.x + Math.cos(back) * off, gy = v.y + Math.sin(back) * off;
+  const d = Math.hypot(u.x - gx, u.y - gy);
+  if (d > (hurt ? 14 : 40)) {
+    if (!u.path.length || (u.repath = (u.repath || 0) - dt) <= 0) {
+      u.repath = 0.5;
+      if (hasClearLine(game, u.x, u.y, gx, gy)) u.path = [{ x: gx, y: gy }]; else planPath(game, u, gx, gy);
+    }
+    followPath(game, u, dt, 8);
+  } else u.path = [];
+  if (hurt && dist(u, v) <= reach) {
+    if (!u.path.length) u.angle = turnToward(u.angle, angleTo(u, v), 4 * dt);
+    v.hp = Math.min(v.maxHp, v.hp + u.def.repairRate * dt);
+    v.repairing = 0.3; u.mending = game.time;
+    if ((game.tick + u.id) % 6 === 0) game.effects.push({ kind: 'heal', x: v.x + (game.rng() - 0.5) * 20, y: v.y, t: 0, life: 0.8 });
+  }
 }
 
 // --- A second turret (the Juggernaut's minigun): picks its own target in

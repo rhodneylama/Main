@@ -420,6 +420,8 @@
     <div class="row opts">
       <label>Battle <select id="modesel" title="How a single battle is won">
         <option value="recycler">Destroy the Recycler</option><option value="uplinks">Capture the uplinks</option></select></label>
+      <label>Map <select id="mapsel" title="Where the battle is fought">
+        <option value="wasteland">Wasteland</option><option value="urban">Ruined city</option></select></label>
       <label>Difficulty <select id="diffsel"><option value="easy">Easy</option><option value="normal" selected>Normal</option><option value="hard">Hard</option></select></label>
     </div>
     <div class="row" style="margin-top:16px">
@@ -522,7 +524,8 @@
       <li><b>Deploy your base.</b> You start with your Recycler on wheels. Drive it onto a glowing scrap geyser and
         press <b>Deploy base</b>. It becomes your headquarters and slowly pumps that geyser.</li>
       <li><b>Collect scrap.</b> Scavengers gather loose scrap automatically. Scrap pays for everything.</li>
-      <li><b>Upgrade your Recycler</b> to Recycler II. Only its <b>Scavenger IIs</b> can deploy on geysers, and it builds <b>Repair Drones</b>, fast flyers that fix your buildings and vehicles (on <b>Auto repair</b> they find the work themselves).</li>
+      <li><b>Upgrade your Recycler</b> to Recycler II. Only its <b>Scavenger IIs</b> can deploy on geysers, and it builds <b>Repair Drones</b>, fast flyers that fix your buildings and vehicles (on <b>Auto repair</b> they find the work themselves; <b>Follow</b> keeps them with one vehicle).</li>
+      <li><b>Ruined city map:</b> you can drive down the streets but only build in open lots, plazas, courtyards and parks. A canal with five bridges splits the city.</li>
       <li><b>Claim more geysers.</b> Send a Scavenger II to another geyser to turn it into an <b>Extractor</b>. Its scrap flows straight into your total.</li>
       <li><b>Mind your storage.</b> You can only hold as much scrap as you have room for (300 to start).
         Build <b>Base Silos</b> next to your Recycler to hold more.</li>
@@ -548,7 +551,6 @@
       <tr><td><b>Press, hold, drag</b></td><td>Draw a box to select a group</td></tr>
       <tr><td><b>One-finger drag</b></td><td>Scroll the map</td></tr>
       <tr><td><b>Pinch</b></td><td>Zoom in and out</td></tr>
-      <tr><td><b>Attack-move</b></td><td>Press the button, then tap: vehicles travel there and fight anything on the way</td></tr>
       <tr><td><b>Army ▾ · Call-in · ❚❚</b></td><td>Top bar. <b>Army</b> selects all fighters or one kind, and jumps to an idle worker or your base. <b>❚❚</b> pauses: speed, save, help, full screen, quit.</td></tr>
       <tr><td><b>Hunt ▾ · Stance ▾ · Orders ▾</b></td><td>With vehicles selected: seek and destroy; how they behave (Aggressive, Return fire, Stealth, Fight then repair); Guard, Patrol, Scout, Go repair.</td></tr>
       <tr><td><b>Aggressive · Return fire · Stealth</b></td><td>How selected vehicles behave. <b>Aggressive</b> (the default): fight anything met on the way, chase a little, then carry on; idle, they help friends under fire nearby. <b>Return fire</b>: shoot what comes in range but keep going. <b>Stealth</b>: hold fire and just get there. <b>Fight, then repair</b>: like Aggressive, but at yellow health they pull back to a Repair Pad or to your Repair Drones, then return.</td></tr>

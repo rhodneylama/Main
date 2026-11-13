@@ -239,20 +239,26 @@ silences sound and music together.
 
 ## Your forces
 
+**Maps:** pick **Wasteland** or **Ruined city** from the Map drop-down on the
+start screen. The ruined city is a grid of streets between city blocks:
+you can drive down the streets but only build in open lots, plazas,
+courtyards and parks. Rubble blocks some streets, and a canal crosses the
+city between the two bases with only five bridges.
+
 | Unit | Cost | Role | Special order |
 | --- | --- | --- | --- |
 | Scavenger | 60 | Collects loose scrap automatically. Cannot deploy. | |
 | Scavenger II | 80 | Built by a Recycler II. Collects scrap. | **Deploy on geyser**: drives onto a scrap geyser and becomes an Extractor. |
 | Recycler (mobile) | — | Your starting vehicle. Your base on wheels. | **Deploy base**: drive onto a scrap geyser and become your Recycler. |
 | Constructor | 80 | Builds buildings. Cannot repair. | |
-| Repair Drone | 90 | Built by a Recycler II. Fast (like a Hornet), unarmed flying repairer: fixes your buildings **and vehicles**. | **Auto repair** (its default): goes wherever something needs fixing, vehicles first. Or tap a damaged building or vehicle to send it there. |
+| Repair Drone | 90 | Built by a Recycler II. Fast (like a Hornet), unarmed flying repairer with white propellers: fixes your buildings **and vehicles**. | **Auto repair** (its default): goes wherever something needs fixing, vehicles first. **Follow**: press it, then tap one of your vehicles; the drones stay with it and keep it repaired. Or tap a damaged building or vehicle to send them there. |
 | Scout | 50 | Fast, sees far. Spots targets for artillery. | **Scout**: explores the map. With several selected, **Scout as pack** keeps them together; **Scout solo** spreads them out. **Guard** (all armed vehicles): press it, then tap one of your buildings or vehicles to protect it. |
 | Hornet | 75 | Light rocket tank, between a Scout and a Tank: much faster and cheaper than a Tank, less armour, hard-hitting rockets. Fast enough for raids. | |
 | Tank | 100 | Tough all-rounder. | **Patrol**: loops around your buildings and fights anything it meets. |
-| Juggernaut | 150 | Heavy vehicle: more armour than a Tank but slower. Two turrets, a Tank's cannon in front and a Sentry's minigun behind, that can fire at two enemies at once. Its Mk II has twin barrels on both turrets. | |
+| Juggernaut | 200 | Heavy vehicle: more armour than a Tank but slower. Two turrets, a Tank's cannon in front and a Sentry's minigun behind, that can fire at two enemies at once. Its Mk II has twin barrels on both turrets. | |
 | Sentry | 90 | Purely defensive turret on tracks. It cannot fire while packed up. | **Deploy**: digs in where it stands and guards that spot with a rapid stream of fire; it never moves or chases. **Pack up** (or any move order) to move it again. |
 | Artillery | 140 | Very long range and splash damage, but very slow and slow to reload, and it can only hit what your side can see: keep a Tank or Scout ahead of it to spot, and it fires on its own out to full range. It must stop and lower its legs (about half a second) before it can fire. | **Guard** a building to dig in beside it and shell anything in range. |
-| Scout / Hornet / Tank / Sentry / Artillery / Juggernaut Mk II | 70 / 110 / 145 / 130 / 200 / 220 | Researched at a Research Lab, built at a Factory II. About +50% armour and +40% damage, some extra speed, and one signature edge each: Scout sees further, Hornet fires a third rocket, Tank and dug-in Sentry outrange a basic Tank, Artillery reaches further with a bigger blast. Marked with gold chevrons. | As the basic version. |
+| Scout / Hornet / Tank / Sentry / Artillery / Juggernaut Mk II | 70 / 110 / 145 / 130 / 200 / 290 | Researched at a Research Lab, built at a Factory II. About +50% armour and +40% damage, some extra speed, and one signature edge each: Scout sees further, Hornet fires a third rocket, Tank and dug-in Sentry outrange a basic Tank, Artillery reaches further with a bigger blast. Marked with gold chevrons. | As the basic version. |
 
 | Building | Cost | Role |
 | --- | --- | --- |

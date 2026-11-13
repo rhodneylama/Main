@@ -126,11 +126,25 @@ function generateMap(seed) {
   for (let y = 0; y < H; y++) { tiles[idx(0, y)] = TILE_ROCK; tiles[idx(W - 1, y)] = TILE_ROCK; }
 
   // Make sure everything important can be driven to from both bases.
+  connectAll(tiles, W, H, bases[1], [bases[2], ...clearings, ...fieldTiles, ...geyserTiles],
+    (x, y) => { for (const [px, py] of [[x, y], mirror(x, y)]) clear(px, py, 1, TILE_DIRT); });
+
+  const T = CONFIG.TILE;
+  const scrap = scatterScrap(rng, halfFields, W, H);
+
+  const geysers = geyserTiles.map((g, i) => ({ id: i + 1, x: g.x * T, y: g.y * T, tx: g.x, ty: g.y, extractorId: 0 }));
+
+  return { W, H, tiles, bases, scrap, geysers, seed, fields: fieldTiles };
+}
+
+// Digs roads until everything important can be driven to from `start`.
+// dig(x, y) opens the ground around one square (and its mirror image).
+function connectAll(tiles, W, H, start, important, dig) {
+  const idx = (x, y) => y * W + x;
   const passable = i => tiles[i] !== TILE_ROCK && tiles[i] !== TILE_WATER;
-  const important = [bases[2], ...clearings, ...fieldTiles, ...geyserTiles];
   for (let pass = 0; pass < 80; pass++) {
     const reach = new Uint8Array(W * H);
-    const stack = [idx(bases[1].x, bases[1].y)];
+    const stack = [idx(start.x, start.y)];
     reach[stack[0]] = 1;
     while (stack.length) {
       const i = stack.pop(), x = i % W, y = (i / W) | 0;
@@ -142,7 +156,7 @@ function generateMap(seed) {
       }
     }
     const lost = important.find(p => !reach[idx(p.x, p.y)]);
-    if (!lost) break;
+    if (!lost) return;
     // Dig a road from the unreachable spot toward the nearest reachable tile.
     let best = null, bestD = Infinity;
     for (let i = 0; i < W * H; i++) {
@@ -151,15 +165,13 @@ function generateMap(seed) {
       if (d < bestD) { bestD = d; best = { x: i % W, y: (i / W) | 0 }; }
     }
     const steps = Math.ceil(Math.sqrt(bestD)) * 2 + 1;
-    for (let s = 0; s <= steps; s++) {
-      const x = Math.round(lost.x + (best.x - lost.x) * s / steps);
-      const y = Math.round(lost.y + (best.y - lost.y) * s / steps);
-      for (const [px, py] of [[x, y], mirror(x, y)]) clear(px, py, 1, TILE_DIRT);
-    }
+    for (let s = 0; s <= steps; s++) dig(Math.round(lost.x + (best.x - lost.x) * s / steps), Math.round(lost.y + (best.y - lost.y) * s / steps));
   }
+}
 
-  const T = CONFIG.TILE;
-  const scrap = [];
+// Loose scrap: a handful of piles around each field centre, mirrored.
+function scatterScrap(rng, halfFields, W, H) {
+  const T = CONFIG.TILE, scrap = [];
   let sid = 1;
   for (const f of halfFields) {
     const count = rng.int(5, 7);
@@ -171,10 +183,149 @@ function generateMap(seed) {
       scrap.push({ id: sid++, x: W * T - x, y: H * T - y, amount: amt, max: amt });
     }
   }
+  return scrap;
+}
 
+// The same starting spots, geysers and scrap fields as the wasteland map
+// (bottom-left player's half; mirrored for the other side).
+const HALF_FIELDS = [
+  { x: 21, y: 156 }, { x: 8, y: 144 }, { x: 40, y: 158 },
+  { x: 59, y: 132 }, { x: 32, y: 105 }, { x: 91, y: 157 }, { x: 76, y: 158 }, { x: 12, y: 120 },
+  { x: 10, y: 69 }, { x: 64, y: 93 }, { x: 47, y: 73 }, { x: 30, y: 70 }, { x: 80, y: 90 },
+  { x: 118, y: 127 }, { x: 124, y: 140 }, { x: 69, y: 39 }, { x: 86, y: 69 }, { x: 100, y: 60 },
+];
+const HALF_GEYSERS = base => [
+  { x: base.x, y: base.y + 1 },
+  { x: 33, y: 146 }, { x: 60, y: 143 },
+  { x: 51, y: 113 }, { x: 14, y: 90 },
+  { x: 103, y: 142 }, { x: 116, y: 158 }, { x: 29, y: 56 },
+  { x: 96, y: 91 }, { x: 66, y: 40 },
+];
+
+// -----------------------------------------------------------------------------
+// The urban map: a ruined city. A grid of streets (you can drive but not build
+// on them) between city blocks: solid towers, blocks split by narrow alleys,
+// walled courtyards, open lots and parks with trees. Some streets are choked
+// with rubble, and a canal crosses the city between the two bases with only
+// five bridges. You can only build on open ground: plazas, lots, courtyards
+// and parks. Mirrored through the centre like the wasteland map.
+//
+// Each square also has a style for drawing: 0 plain, 1 park, 2 bridge,
+// 3 rubble, 4 tree. map.noBuild marks the streets.
+// -----------------------------------------------------------------------------
+const URBAN = { P: 18, VX: 1, VW: 5, HY: 1, HW: 4 };   // street grid: period, offsets, widths
+function generateUrbanMap(seed) {
+  const W = CONFIG.MAP_W, H = CONFIG.MAP_H, { P, VX, VW, HY, HW } = URBAN;
+  const rng = makeRng(seed);
+  const tiles = new Uint8Array(W * H).fill(TILE_DIRT), style = new Uint8Array(W * H);
+  const idx = (x, y) => y * W + x;
+  const mirror = (x, y) => [W - 1 - x, H - 1 - y];
+  const inMap = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
+  // Paints a square and its mirror image.
+  const put = (x, y, t, st = 0) => { for (const [px, py] of [[x, y], mirror(x, y)]) if (inMap(px, py)) { tiles[idx(px, py)] = t; style[idx(px, py)] = st; } };
+  const disc = (cx, cy, r, t, st = 0) => { for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r + r) put(x, y, t, st); };
+  const bases = { 1: { x: 10, y: H - 11 }, 2: { x: W - 11, y: 10 } };
+
+  // City blocks. Block (kx, ky) covers x 6+18kx..18+18kx and y 5+18ky..18+18ky;
+  // its mirror image is block (11-kx, 8-ky).
+  const BX = Math.floor((W - VX - VW) / P), BY = Math.floor((H - HY - HW) / P);
+  const blockAt = (kx, ky) => ({ x0: VX + VW + kx * P, y0: HY + HW + ky * P, w: P - VW, h: P - HW });
+  const forced = new Map();   // block -> type
+  const blockOf = (x, y) => [Math.floor((x - VX - VW) / P), Math.floor((y - HY - HW) / P)];
+  const mid = { x: Math.floor(W / 2), y: Math.floor(H / 2) };
+  { const [kx, ky] = blockOf(mid.x - 4, mid.y); forced.set(kx + ',' + ky, 'plaza'); }
+  for (const g of HALF_GEYSERS(bases[1])) { const [kx, ky] = blockOf(g.x, g.y); if (!forced.has(kx + ',' + ky)) forced.set(kx + ',' + ky, 'lot'); }
+  for (let ky = 0; ky < BY; ky++) for (let kx = 0; kx < BX; kx++) {
+    const mkx = BX - 1 - kx, mky = BY - 1 - ky;
+    if (ky * BX + kx > mky * BX + mkx) continue;    // the mirror image is painted with it
+    const r = makeRng((seed * 977 + ky * 131 + kx * 7) >>> 0);
+    let type = forced.get(kx + ',' + ky) || forced.get(mkx + ',' + mky);
+    if (!type) { const v = r(); type = v < 0.45 ? 'tower' : v < 0.67 ? 'alley' : v < 0.82 ? 'court' : v < 0.93 ? 'lot' : 'park'; }
+    const { x0, y0, w, h } = blockAt(kx, ky);
+    const fill = (t, st = 0) => { for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) put(x, y, t, st); };
+    if (type === 'tower') fill(TILE_ROCK);
+    else if (type === 'alley') {
+      // A solid block cut by a narrow alley (2 squares, no building).
+      fill(TILE_ROCK);
+      const along = r() < 0.5, at = 4 + Math.floor(r() * ((along ? h : w) - 9));
+      for (let k = 0; k < 2; k++) for (let j = 0; j < (along ? w : h); j++) put(along ? x0 + j : x0 + at + k, along ? y0 + at + k : y0 + j, TILE_DIRT);
+    } else if (type === 'court') {
+      // A walled courtyard with one gateway: open ground inside.
+      fill(TILE_ROCK);
+      for (let y = y0 + 3; y < y0 + h - 3; y++) for (let x = x0 + 3; x < x0 + w - 3; x++) put(x, y, TILE_GRASS);
+      const side = Math.floor(r() * 4), cxm = x0 + (w >> 1), cym = y0 + (h >> 1);
+      for (let k = -1; k <= 1; k++) for (let d = 0; d < 3; d++) {
+        if (side === 0) put(cxm + k, y0 + d, TILE_GRASS); else if (side === 1) put(cxm + k, y0 + h - 1 - d, TILE_GRASS);
+        else if (side === 2) put(x0 + d, cym + k, TILE_GRASS); else put(x0 + w - 1 - d, cym + k, TILE_GRASS);
+      }
+    } else if (type === 'lot' || type === 'plaza') {
+      // A cleared lot (rubble heaps round the edge) or the central plaza.
+      fill(TILE_GRASS);
+      if (type === 'lot') for (let k = 0; k < 5; k++) {
+        const ex = r() < 0.5, x = ex ? x0 + Math.floor(r() * w) : (r() < 0.5 ? x0 : x0 + w - 2), y = ex ? (r() < 0.5 ? y0 : y0 + h - 2) : y0 + Math.floor(r() * h);
+        put(x, y, TILE_ROCK, 3); if (r() < 0.5) put(x + 1, y, TILE_ROCK, 3);
+      }
+    } else {
+      // A park: open ground with trees, which block vehicles.
+      fill(TILE_GRASS, 1);
+      for (let k = 0; k < 7; k++) put(x0 + 1 + Math.floor(r() * (w - 2)), y0 + 1 + Math.floor(r() * (h - 2)), TILE_ROCK, 4);
+    }
+  }
+  // The central plaza runs across the avenue between its two halves.
+  for (let y = mid.y - 6; y <= mid.y + 6; y++) for (let x = mid.x - 3; x <= mid.x + 3; x++) put(x, y, TILE_GRASS);
+
+  // Rubble barricades: some street stretches are blocked, making dead ends.
+  for (let a = 0; a <= BX; a++) for (let ky = 0; ky < BY; ky++) {
+    if (rng() > 0.07) continue;
+    const x0 = VX + a * P, y0 = HY + HW + ky * P + 5;
+    for (let y = y0; y < y0 + 3; y++) for (let x = x0; x < x0 + VW; x++) put(x, y, TILE_ROCK, 3);
+  }
+  for (let b = 0; b <= BY; b++) for (let kx = 0; kx < BX; kx++) {
+    if (rng() > 0.07) continue;
+    const y0 = HY + b * P, x0 = VX + VW + kx * P + 5;
+    for (let y = y0; y < y0 + HW; y++) for (let x = x0; x < x0 + 3; x++) put(x, y, TILE_ROCK, 3);
+  }
+
+  // The canal: from the top-left to the bottom-right, between the bases.
+  // Only five streets cross it on bridges.
+  const cx0 = (W - 1) / 2, cy0 = (H - 1) / 2;
+  const bridgeV = new Set([2, 6, 10]), bridgeH = new Set([1, BY - 1]);
+  const isBridge = (x, y) => (((x - VX) % P + P) % P < VW && bridgeV.has(Math.floor((x - VX) / P))) ||
+                             (((y - HY) % P + P) % P < HW && bridgeH.has(Math.floor((y - HY) / P)));
+  for (let x = 0; x < W; x++) {
+    const yc = cy0 + (x - cx0) * 0.66 + 7 * Math.sin((x - cx0) * 0.045);
+    for (let y = Math.floor(yc - 4); y <= Math.ceil(yc + 4); y++) {
+      if (!inMap(x, y) || Math.abs(y - yc) > 3.4) continue;
+      const i = idx(x, y);
+      if (isBridge(x, y)) { tiles[i] = TILE_DIRT; style[i] = 2; } else { tiles[i] = TILE_WATER; style[i] = 0; }
+    }
+  }
+
+  // Scrap fields lie in cleared squares of street; geysers in open lots; each
+  // base in a wide plaza.
+  const fieldTiles = [];
+  for (const f of HALF_FIELDS) { fieldTiles.push(f); const [x, y] = mirror(f.x, f.y); fieldTiles.push({ x, y }); }
+  for (const f of HALF_FIELDS) disc(f.x, f.y, 3, TILE_DIRT);
+  const halfGeysers = HALF_GEYSERS(bases[1]), geyserTiles = [];
+  for (const g of halfGeysers) { geyserTiles.push(g); geyserTiles.push({ x: W - g.x, y: H - g.y }); }
+  for (const g of halfGeysers) { disc(g.x, g.y, 5, TILE_GRASS); disc(g.x - 1, g.y - 1, 5, TILE_GRASS); }
+  disc(bases[1].x, bases[1].y, 14, TILE_GRASS);
+
+  // Map edge is a wall.
+  for (let x = 0; x < W; x++) { put(x, 0, TILE_ROCK); }
+  for (let y = 0; y < H; y++) { put(0, y, TILE_ROCK); }
+
+  connectAll(tiles, W, H, bases[1], [bases[2], mid, ...fieldTiles, ...geyserTiles],
+    (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const t = tiles[idx(x + dx, y + dy)]; if (inMap(x + dx, y + dy) && (t === TILE_ROCK || t === TILE_WATER)) put(x + dx, y + dy, TILE_DIRT, 3); } });
+
+  // Streets, bridges and rubble tracks can be driven on but not built on.
+  const noBuild = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) noBuild[i] = tiles[i] === TILE_DIRT ? 1 : 0;
+
+  const T = CONFIG.TILE;
+  const scrap = scatterScrap(rng, HALF_FIELDS, W, H);
   const geysers = geyserTiles.map((g, i) => ({ id: i + 1, x: g.x * T, y: g.y * T, tx: g.x, ty: g.y, extractorId: 0 }));
-
-  return { W, H, tiles, bases, scrap, geysers, seed, fields: fieldTiles };
+  return { W, H, tiles, bases, scrap, geysers, seed, fields: fieldTiles, urban: true, style, noBuild };
 }
 
 // -----------------------------------------------------------------------------

@@ -24,6 +24,21 @@ const TERRAIN_COLORS = {
   [TILE_ROCK]:  [[74, 72, 70], [68, 66, 64], [80, 78, 75]],
   [TILE_WATER]: [[34, 58, 78], [32, 55, 74], [36, 61, 82]],
 };
+// The ruined city: concrete lots, asphalt streets, rooftops, a dark canal;
+// plus parks (and their trees), bridge decks and rubble, by square style.
+const URBAN_COLORS = {
+  [TILE_GRASS]: [[128, 124, 113], [122, 118, 108], [133, 129, 118]],
+  [TILE_DIRT]:  [[56, 57, 60], [52, 53, 56], [60, 61, 64]],
+  [TILE_ROCK]:  [[80, 74, 71], [76, 70, 67], [84, 78, 74]],
+  [TILE_WATER]: [[27, 50, 62], [25, 47, 58], [30, 54, 66]],
+};
+const URBAN_STYLE_COLORS = {
+  1: [[66, 88, 52], [62, 83, 49], [70, 93, 55]],      // park
+  2: [[88, 86, 82], [84, 82, 78], [92, 90, 86]],      // bridge deck
+  3: [[63, 64, 67], [59, 60, 63], [67, 68, 71]],      // rubble (lies on the street)
+  4: [[66, 88, 52], [62, 83, 49], [70, 93, 55]],      // tree (on park ground)
+};
+const tileColors = (map, i) => (map.urban && map.style[i] && URBAN_STYLE_COLORS[map.style[i]]) || (map.urban ? URBAN_COLORS : TERRAIN_COLORS)[map.tiles[i]];
 
 function buildTerrain(game) {
   const { W, H } = game.map;
@@ -34,7 +49,7 @@ function buildTerrain(game) {
   const flat = document.createElement('canvas'); flat.width = W; flat.height = H;
   const fg = flat.getContext('2d'), img = fg.createImageData(W, H);
   for (let i = 0; i < W * H; i++) {
-    const c = TERRAIN_COLORS[game.map.tiles[i]][1];
+    const c = tileColors(game.map, i)[1];
     img.data[i * 4] = c[0]; img.data[i * 4 + 1] = c[1]; img.data[i * 4 + 2] = c[2]; img.data[i * 4 + 3] = 255;
   }
   fg.putImageData(img, 0, 0);
@@ -66,13 +81,14 @@ function paintChunk(game, cx, cy) {
     return r;
   };
   for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
-    g.fillStyle = rgb(TERRAIN_COLORS[tiles[y * W + x]][rngOf(x, y).color]);
+    g.fillStyle = rgb(tileColors(game.map, y * W + x)[rngOf(x, y).color]);
     g.fillRect(x * T, y * T, T, T);
   }
   // Neighbouring squares (one ring outside the chunk) are included below, because
   // their speckles and rock shadows reach a little way into this chunk.
   const ring = [];
   for (let y = Math.max(0, y0 - 1); y < Math.min(H, y1 + 1); y++) for (let x = Math.max(0, x0 - 1); x < Math.min(W, x1 + 1); x++) ring.push([x, y]);
+  if (game.map.urban) { paintCity(game, g, ring, rngOf); return finishChunk(game, g, c, x0, y0, x1, y1); }
   // Soft speckles so the ground doesn't look like a chessboard.
   for (const [x, y] of ring) {
     const r = rngOf(x, y);
@@ -103,6 +119,11 @@ function paintChunk(game, cx, cy) {
       g.moveTo(wx, wy); g.quadraticCurveTo(wx + 6, wy - 3, wx + 12, wy); g.stroke();
     }
   }
+  return finishChunk(game, g, c, x0, y0, x1, y1);
+}
+
+function finishChunk(game, g, c, x0, y0, x1, y1) {
+  const T = CONFIG.TILE;
   // Tactical grid, like a military map.
   g.strokeStyle = 'rgba(255,255,255,0.05)'; g.lineWidth = 1;
   for (let x = Math.ceil(x0 / 4) * 4; x <= x1; x += 4) { g.beginPath(); g.moveTo(x * T, y0 * T); g.lineTo(x * T, y1 * T); g.stroke(); }
@@ -110,6 +131,106 @@ function paintChunk(game, cx, cy) {
   const chunk = { canvas: c, x: x0 * T, y: y0 * T, w: c.width, h: c.height, used: Render.frame };
   for (const sc of Render.scorches) paintScorch(chunk, sc);
   return chunk;
+}
+
+// The city's details: kerbs and lane markings on streets, parapets, roof
+// fittings and tall shadows on buildings, broken concrete for rubble, tree
+// canopies in parks, stone banks on the canal and railings on bridges.
+function paintCity(game, g, ring, rngOf) {
+  const { W, H, tiles, style } = game.map, T = CONFIG.TILE, { P, VX, VW, HY, HW } = URBAN;
+  const at = (x, y) => (x < 0 || y < 0 || x >= W || y >= H) ? TILE_ROCK : tiles[y * W + x];
+  const st = (x, y) => (x < 0 || y < 0 || x >= W || y >= H) ? 0 : style[y * W + x];
+  const solid = (x, y) => at(x, y) === TILE_ROCK && st(x, y) === 0;   // a building, not rubble or a tree
+  // Ground first: cracks and stains.
+  for (const [x, y] of ring) {
+    const r = rngOf(x, y), t = at(x, y);
+    if (t === TILE_ROCK && st(x, y) === 0) continue;
+    for (let k = 0; k < 2; k++) {
+      g.fillStyle = r() < 0.5 ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.05)';
+      g.beginPath(); g.arc((x + r()) * T, (y + r()) * T, 1.5 + r() * 4, 0, Math.PI * 2); g.fill();
+    }
+    if (t === TILE_GRASS && st(x, y) === 0 && r() < 0.25) {   // a crack in the concrete
+      g.strokeStyle = 'rgba(40,38,34,0.35)'; g.lineWidth = 1; g.beginPath();
+      const sx = (x + r()) * T, sy = (y + r()) * T; g.moveTo(sx, sy); g.lineTo(sx + (r() - 0.5) * 20, sy + (r() - 0.5) * 20); g.stroke();
+    }
+  }
+  for (const [x, y] of ring) {
+    const t = at(x, y), s = st(x, y), r = rngOf(x, y), px = x * T, py = y * T;
+    if (t === TILE_DIRT && s !== 2) {
+      // Kerbs where the street meets anything else.
+      g.fillStyle = 'rgba(190,186,176,0.35)';
+      if (at(x, y - 1) !== TILE_DIRT) g.fillRect(px, py, T, 2);
+      if (at(x, y + 1) !== TILE_DIRT) g.fillRect(px, py + T - 2, T, 2);
+      if (at(x - 1, y) !== TILE_DIRT) g.fillRect(px, py, 2, T);
+      if (at(x + 1, y) !== TILE_DIRT) g.fillRect(px + T - 2, py, 2, T);
+      // Faded centre lines, away from the crossings.
+      const mx = ((x - VX) % P + P) % P, my = ((y - HY) % P + P) % P;
+      g.fillStyle = 'rgba(214,180,70,0.45)';
+      if (mx === 2 && my >= HW) g.fillRect(px + T / 2 - 1, py + 6, 2, 14);
+      if (my === 2 && mx >= VW) g.fillRect(px + 6, py, 14, 2);
+    } else if (s === 2) {
+      // Bridge deck: seams and railings over the water.
+      g.strokeStyle = 'rgba(0,0,0,0.18)'; g.lineWidth = 1; g.beginPath(); g.moveTo(px, py + T / 2); g.lineTo(px + T, py + T / 2); g.stroke();
+      g.fillStyle = '#3a3936';
+      for (const [dx, dy, rx, ry, rw, rh] of [[0, -1, 0, 0, T, 3], [0, 1, 0, T - 3, T, 3], [-1, 0, 0, 0, 3, T], [1, 0, T - 3, 0, 3, T]])
+        if (at(x + dx, y + dy) === TILE_WATER) g.fillRect(px + rx, py + ry, rw, rh);
+    } else if (t === TILE_WATER) {
+      // Stone banks and slow ripples.
+      g.fillStyle = 'rgba(150,145,135,0.55)';
+      if (at(x, y - 1) !== TILE_WATER) g.fillRect(px, py, T, 3);
+      if (at(x, y + 1) !== TILE_WATER) g.fillRect(px, py + T - 3, T, 3);
+      if (at(x - 1, y) !== TILE_WATER) g.fillRect(px, py, 3, T);
+      if (at(x + 1, y) !== TILE_WATER) g.fillRect(px + T - 3, py, 3, T);
+      g.strokeStyle = 'rgba(140,180,200,0.14)'; g.lineWidth = 1.5;
+      g.beginPath(); const wy = py + 8 + r() * 16, wx = px + r() * 10; g.moveTo(wx, wy); g.quadraticCurveTo(wx + 6, wy - 3, wx + 12, wy); g.stroke();
+    } else if (s === 3) {
+      // Rubble: heaped broken concrete.
+      for (let k = 0; k < 4; k++) {
+        const cx = px + 4 + r() * (T - 8), cy = py + 4 + r() * (T - 8), sz = 5 + r() * 7, a = r() * 6;
+        g.fillStyle = r() < 0.5 ? '#7d776f' : '#5f5a54'; g.strokeStyle = 'rgba(0,0,0,0.4)'; g.lineWidth = 1;
+        g.beginPath(); for (let j = 0; j < 5; j++) { const aa = a + j * 1.26, rr = sz * (0.6 + r() * 0.4); g[j ? 'lineTo' : 'moveTo'](cx + Math.cos(aa) * rr, cy + Math.sin(aa) * rr); }
+        g.closePath(); g.fill(); g.stroke();
+      }
+    } else if (s === 4) {
+      // A tree: shadow, canopy and a lighter top.
+      const cx = px + T / 2, cy = py + T / 2;
+      g.fillStyle = 'rgba(0,0,0,0.25)'; g.beginPath(); g.arc(cx + 4, cy + 6, 15, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#2f5a2a'; g.beginPath(); g.arc(cx, cy, 15, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#3f7436'; g.beginPath(); g.arc(cx - 3, cy - 3, 9, 0, Math.PI * 2); g.fill();
+    }
+  }
+  // Buildings last, so their shadows fall across the street below them.
+  // Each block's roof has its own tint: slate, brick, tar or weathered concrete.
+  const ROOFS = ['#4f4a49', '#5e4a42', '#47494d', '#5a5650'];
+  for (const [x, y] of ring) {
+    if (!solid(x, y)) continue;
+    const kx = Math.floor((x - VX - VW) / P), ky = Math.floor((y - HY - HW) / P);
+    if (kx < 0 || ky < 0 || kx > 11 || ky > 8) continue;   // the map's outer wall
+    const k = Math.min(kx * 9 + ky, (11 - kx) * 9 + (8 - ky));   // mirrored blocks match
+    g.fillStyle = ROOFS[((k * 2654435761) >>> 0) % 4]; g.fillRect(x * T, y * T, T, T);
+  }
+  for (const [x, y] of ring) {
+    if (!solid(x, y)) continue;
+    const r = rngOf(x, y), px = x * T, py = y * T;
+    if (!solid(x, y + 1)) { g.fillStyle = 'rgba(0,0,0,0.38)'; g.fillRect(px + 4, py + T, T, 14); }
+    if (!solid(x + 1, y)) { g.fillStyle = 'rgba(0,0,0,0.30)'; g.fillRect(px + T, py + 6, 8, T); }
+  }
+  for (const [x, y] of ring) {
+    if (!solid(x, y)) continue;
+    const r = rngOf(x, y), px = x * T, py = y * T;
+    g.fillStyle = 'rgba(205,198,186,0.55)';   // parapet round the roof edge
+    if (!solid(x, y - 1)) g.fillRect(px, py, T, 4);
+    if (!solid(x - 1, y)) g.fillRect(px, py, 4, T);
+    g.fillStyle = 'rgba(40,36,33,0.55)';
+    if (!solid(x, y + 1)) g.fillRect(px, py + T - 4, T, 4);
+    if (!solid(x + 1, y)) g.fillRect(px + T - 4, py, 4, T);
+    // Roof fittings: vents, air units and skylights.
+    const v = r();
+    if (v < 0.12) { g.fillStyle = '#b8b2a6'; g.fillRect(px + 8, py + 9, 14, 11); g.strokeStyle = 'rgba(0,0,0,0.4)'; g.strokeRect(px + 8, py + 9, 14, 11); g.beginPath(); g.arc(px + 15, py + 14.5, 3.5, 0, Math.PI * 2); g.stroke(); }
+    else if (v < 0.2) { g.fillStyle = 'rgba(30,30,30,0.45)'; g.beginPath(); g.arc(px + 16, py + 16, 5, 0, Math.PI * 2); g.fill(); }
+    else if (v < 0.26) { g.fillStyle = 'rgba(120,150,170,0.5)'; g.fillRect(px + 6, py + 6, 20, 8); }
+    else if (v < 0.4) { g.strokeStyle = 'rgba(0,0,0,0.12)'; g.lineWidth = 1; g.beginPath(); g.moveTo(px, py + 16); g.lineTo(px + T, py + 16); g.stroke(); }
+  }
 }
 
 function paintScorch(chunk, sc) {
@@ -535,9 +656,10 @@ function drawCustomUnit(ctx, u, time) {
     for (let k = 0; k < 4; k++) {
       const a = Math.PI / 4 + k * Math.PI / 2, ax = Math.cos(a) * r * 0.95, ay = Math.sin(a) * r * 0.95;
       ctx.strokeStyle = plate; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(ax, ay); ctx.stroke();
-      ctx.fillStyle = kethra ? 'rgba(111,240,255,0.25)' : 'rgba(200,210,190,0.25)';
-      ctx.beginPath(); ctx.arc(ax, ay, r * 0.5, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = kethra ? 'rgba(111,240,255,0.7)' : 'rgba(30,30,30,0.8)'; ctx.lineWidth = 1.2;
+      // White propellers, so drones stand out on any ground.
+      ctx.fillStyle = 'rgba(255,255,255,0.32)'; ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.arc(ax, ay, r * 0.55, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.8;
       const sp = time * 40 + k;
       ctx.beginPath(); ctx.moveTo(ax - Math.cos(sp) * r * 0.5, ay - Math.sin(sp) * r * 0.5); ctx.lineTo(ax + Math.cos(sp) * r * 0.5, ay + Math.sin(sp) * r * 0.5); ctx.stroke();
     }
