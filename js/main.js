@@ -864,6 +864,10 @@ const STANCES = [
   ['stealth', 'Stealth', 'Hold fire and just go where they are sent.'],
   ['repair', 'Fight, then repair', 'Fight like Aggressive until health turns yellow, then go to a Repair Pad (or back to base for a Repair Drone) and come back once fixed.'],
 ];
+// The narrow panel layout (phones, upright or sideways): matches the CSS.
+const compactQuery = window.matchMedia('(max-width: 760px), (max-height: 520px)');
+const compactPanel = () => compactQuery.matches;
+compactQuery.addEventListener && compactQuery.addEventListener('change', () => { panelKey = ''; game && refreshPanel(); });
 function refreshPanel() {
   const info = $('selinfo'), cmds = $('commands');
   const sel = view.selected.filter(e => e.hp > 0);
@@ -878,7 +882,7 @@ function refreshPanel() {
     Object.values(UNIT_TYPES).concat(Object.values(BUILDING_TYPES)).map(d => game.teams[view.team].scrap >= d.cost)]) : '';
   const rebuild = key !== panelKey;
   panelKey = key;
-  if (rebuild) cmds.innerHTML = '';
+  if (rebuild) { cmds.innerHTML = ''; $('quickcmds').innerHTML = ''; }
   if (!game || !sel.length) {
     info.innerHTML = `<div class="dim">Nothing selected.<br>${isTouch ? 'Tap a vehicle, or press, hold and drag to select a group.' : 'Left-click or drag a box to select your vehicles.'}</div>`;
     return;
@@ -982,7 +986,9 @@ function refreshPanel() {
       b.querySelector('.row').prepend(k);
     }
     onPress(b, () => { onClick(); sound('click'); });
-    cmds.appendChild(b);
+    // On phones, Group and the stance go up beside the unit's name.
+    if (opts.top && compactPanel()) { b.style.order = opts.top; $('quickcmds').appendChild(b); }
+    else cmds.appendChild(b);
     return b;
   };
   // A button that opens a drop-down of further orders.
@@ -1136,7 +1142,7 @@ function refreshPanel() {
     return;
   }
   // Orders for the selection: the everyday ones as buttons, the rest in
-  // drop-downs (Hunt ▾, Stance ▾, Orders ▾) so the panel stays small.
+  // drop-downs (Stance ▾, Orders ▾ with Hunt, Group ▾) so the panel stays small.
   const keys = [...HOTKEYS];
   const scouts = ofType(sel, 'scout'), tanks = ofType(sel, 'tank'), scavs = ofType(sel, 'scavenger');
   const order = (type, list, extra = {}) => { issueCommand(game, view.team, { type, ids: list.map(u => u.id), ...extra }); sound('ack'); };
@@ -1159,21 +1165,19 @@ function refreshPanel() {
     { active: view.aim === 'follow' || drones.every(d => d.order.type === 'follow'), title: 'Pick one of your vehicles: the drones stay with it and keep it repaired' });
   const armed = sel.filter(e => e.kind === 'unit' && e.def.weapon && !e.def.deployable);
   if (armed.length) {
-    // Hunt: seek and destroy, as a pack or each on its own.
-    const hunting = armed.every(u => u.order.type === 'hunt');
-    addMenu('Hunt', keys.shift(), [
-      armed.length > 1 && { label: 'Hunt as pack', note: 'Together: the nearest enemy you know of, or search for one', active: hunting && armed.every(u => u.order.packId), onClick: () => order('hunt', armed, { pack: true }) },
-      { label: armed.length > 1 ? 'Hunt solo' : 'Hunt', note: armed.length > 1 ? 'Each goes after enemies on its own' : 'Go after the nearest enemy you know of, or search for one', active: hunting && armed.every(u => !u.order.packId), onClick: () => order('hunt', armed, { pack: false }) },
-    ], { active: hunting, title: 'Seek and destroy' });
     // How they behave on the move and when idle.
     const now = new Set(armed.map(u => stanceOf(game, u)));
     const cur = now.size === 1 ? STANCES.find(st => now.has(st[0])) : null;
     addMenu(cur ? cur[1] : 'Stance', keys.shift(), STANCES.map(([k, label, tip]) => ({ label, note: tip, active: !!cur && cur[0] === k, onClick: () => { order('stance', armed, { stance: k }); refreshPanel(); } })),
-      { title: 'Stance: how they behave on the move and when idle' });
+      { title: 'Stance: how they behave on the move and when idle', top: 2 });
   }
   // Everything else.
   const hurt = sel.filter(e => e.kind === 'unit' && e.hp < e.maxHp);
+  // Hunt (seek and destroy, as a pack or each on its own) heads the Orders menu.
+  const hunting = armed.length && armed.every(u => u.order.type === 'hunt');
   const more = [
+    armed.length > 1 && { label: 'Hunt as pack', note: 'Together: the nearest enemy you know of, or search for one', active: hunting && armed.every(u => u.order.packId), onClick: () => order('hunt', armed, { pack: true }) },
+    armed.length && { label: armed.length > 1 ? 'Hunt solo' : 'Hunt', note: armed.length > 1 ? 'Each goes after enemies on its own' : 'Go after the nearest enemy you know of, or search for one', active: hunting && armed.every(u => !u.order.packId), onClick: () => order('hunt', armed, { pack: false }) },
     armed.length && { label: 'Guard', note: 'Then pick one of your buildings or vehicles to protect', onClick: () => { view.aim = 'guard'; refreshPanel(); } },
     tanks.length && { label: 'Patrol', note: 'Loop around your buildings, fighting anything met', onClick: () => order('patrol', tanks) },
     scouts.length > 1 && { label: 'Scout as pack', note: 'The scouts roam the map together', onClick: () => order('scout', scouts, { pack: true }) },
@@ -1198,7 +1202,7 @@ function refreshPanel() {
       for (const k of addable) items.push({ label: `Battle group ${k}`, note: `${groupMembers(k).length} in it now`, onClick: () => setGroup(k, 'add') });
     }
     if (anyIn) items.push({ heading: 'Remove' }, { label: 'Leave battle group', note: 'Take these out of their group', onClick: () => setGroup(null, 'leave') });
-    addMenu(inGroup ? `Group ${inGroup}` : 'Group', keys.shift(), items, { active: !!inGroup, title: 'Battle groups: save these vehicles as a group you can pick with one tap' });
+    addMenu(inGroup ? `Group ${inGroup}` : 'Group', keys.shift(), items, { active: !!inGroup, title: 'Battle groups: save these vehicles as a group you can pick with one tap', top: 1 });
   }
   const parked = recycleCandidates(sel);
   const recycleTip = document.createElement('div'); recycleTip.className = 'dim small tip';

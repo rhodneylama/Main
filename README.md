@@ -76,7 +76,7 @@ The game works on touch screens, held upright or sideways. For the whole screen,
 | Scroll / zoom | Drag one finger / pinch |
 | Build | Select the Constructor, pick a building, tap where it goes, then press **Build here** |
 | Select a battle group or your whole army, jump home, find an idle worker, deselect | **Army ▾** in the top bar |
-| Hunt, stance, guard, patrol | **Hunt ▾**, the stance drop-down (e.g. **Aggressive ▾**) and **Orders ▾** in the bottom panel |
+| Hunt, stance, guard, patrol | The stance drop-down (e.g. **Aggressive ▾**) and **Orders ▾** (Hunt as pack / solo, Guard, Patrol, Scout, Go repair) in the bottom panel. On a phone, **Group ▾** and the stance sit beside the vehicle's name. |
 | Game speed, save, help, full screen, quit | **❚❚** (pause) |
 | Help | Press **Pause**, then **Help** |
 | Hide or show the minimap | **Map** button above it |
