@@ -1180,9 +1180,9 @@ Phones work held upright or sideways.
 - **Pause screen (❚❚):** Resume; Save, Load, Help, Full screen; game speed,
   music and volume; Leave battle (campaign) or Quit to menu (pressed twice).
 - **Bottom panel:** the selected unit or building's details, plus its
-  commands. Any vehicles get **Group ▾** (battle groups, below). Armed vehicles get **Hunt ▾** (as pack / solo),
+  commands. Any vehicles get **Group ▾** (battle groups, below). Armed vehicles get
   the stance drop-down (shows the current stance: **Aggressive ▾**, **Return
-  fire ▾**, **Stealth ▾**), **Orders ▾** (Guard, Patrol, Scout as pack /
+  fire ▾**, **Stealth ▾**), **Orders ▾** (Hunt as pack / solo, Guard, Patrol, Scout as pack /
   solo, Go repair) and **Stop**; deploy buttons appear when they apply.
   Buildings keep their production and upgrade buttons. On phones the details
   shrink to a short summary and the panel takes at most 38% of the height.
@@ -2148,3 +2148,8 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     islands joined by sand that floods and drains on a tide, with stone
     causeways and scrap washing up. Towers, the Recycler, dug-in Sentries
     and deployed Artillery aim better.
+38. **Tighter vehicle panel** (14 November 2026): Hunt (as pack / solo)
+    moved into Orders ▾. On phones (upright or sideways) Group ▾ and the
+    stance drop-down sit beside the selected vehicle's name and details,
+    so a vehicle's buttons take two rows instead of three: name, Group,
+    stance; then Orders and Stop.
