@@ -41,7 +41,7 @@ const turnToward = (cur, target, maxStep) => {
 // to win). `tempo`: campaign battles run their economy and production this
 // much faster, so a battle takes 10–15 minutes rather than half an hour.
 function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams = [2], factions = {}, mapSeed = seed, bonus = {}, uplinks = false, tempo = 1, mapType = 'wasteland' } = {}) {
-  const map = mapType === 'urban' ? generateUrbanMap(mapSeed) : generateMap(mapSeed);
+  const map = mapType === 'urban' ? generateUrbanMap(mapSeed) : mapType === 'tidal' ? generateTidalMap(mapSeed) : generateMap(mapSeed);
   const game = {
     map, seed, difficulty, aiTeams, mapType,
     rng: makeRng(seed * 7 + 1),
@@ -68,6 +68,7 @@ function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams
       callins: CONFIG.CALLIN_START, callinProgress: 0,
       stats: { built: 0, lost: 0, killed: 0, scrapGathered: 0 },
       research: {},  // key -> true once researched
+      loadouts: {},  // vehicle kind -> { main, light }: Armory weapons fitted to new vehicles
       pings: [],     // active radar reveals: { x, y, r, until }
     };
     // Everyone starts on wheels: the Recycler must be deployed on a geyser.
@@ -196,7 +197,7 @@ function canPlaceBuilding(game, team, type, tx, ty) {
     const i = y * m.W + x;
     if (!tm.explored[i]) return { ok: false, why: 'Unexplored ground' };
     if (isBlockedTile(game, x, y)) return { ok: false, why: 'Something is in the way' };
-    if (m.noBuild && m.noBuild[i]) return { ok: false, why: "Can't build on the streets: use open lots, plazas and courtyards" };
+    if (m.noBuild && m.noBuild[i]) return { ok: false, why: m.tidalMap ? "Can't build on the sand or the causeways: build on solid ground" : "Can't build on the streets: use open lots, plazas and courtyards" };
   }
   // Repair pads don't block vehicles, but nothing can be built on top of one.
   for (const e of game.entities) {
@@ -332,6 +333,18 @@ function issueCommand(game, team, cmd) {
       const v = own(cmd.targetId);
       if (!v || v.kind !== 'unit') return;
       for (const u of units) if (u.def.role === 'repairer' && u !== v) { u.order = { type: 'follow', targetId: v.id }; u.path = []; }
+      break;
+    }
+    case 'loadout': {
+      // Which weapon new vehicles of one kind get on one hardpoint.
+      const def = UNIT_TYPES[cmd.unit], tm = game.teams[team];
+      if (!def || !def.hardpoints || !def.hardpoints[cmd.slot]) return;
+      if (cmd.weapon !== 'stock') {
+        const w = WEAPONS[cmd.weapon];
+        if (!w || w.slot !== cmd.slot) return;
+        if (!tm.research['w_' + cmd.weapon]) { pushEvent(game, team, `Research the ${w.name} at an Armory first`, 'warn'); return; }
+      }
+      tm.loadouts[cmd.unit] = Object.assign({}, tm.loadouts[cmd.unit], { [cmd.slot]: cmd.weapon });
       break;
     }
     case 'autorepair': {
@@ -612,6 +625,7 @@ function stepGame(game) {
   if (game.winner) return;
   const dt = 1 / CONFIG.TICK_RATE;
   game.tick++; game.time += dt;
+  if (game.map.tidalMap) updateTide(game);
   // Losing a Base Silo loses whatever no longer fits.
   if (game.tick % 15 === 0) for (const t of [1, 2]) game.teams[t].scrap = Math.min(game.teams[t].scrap, scrapCapacity(game, t));
 
@@ -681,7 +695,7 @@ function updateBuilding(game, b, dt) {
     b.researching.t += dt * (game.tempo || 1);
     if (b.researching.t >= r.time) {
       game.teams[b.team].research[b.researching.key] = true;
-      pushEvent(game, b.team, r.unlocks ? `${r.name} researched: you can build ${r.unlocks}.` : `${r.name} researched. Build them at a Factory II.`, 'good', b.x, b.y);
+      pushEvent(game, b.team, r.weapon ? `${r.name} ready. Fit it to your vehicles at a Factory: Loadouts.` : r.unlocks ? `${r.name} researched: you can build ${r.unlocks}.` : `${r.name} researched. Build them at a Factory II.`, 'good', b.x, b.y);
       b.researching = null;
     }
   }
@@ -799,6 +813,7 @@ function spawnFromBuilding(game, b, type) {
   const exitX = lowerLeft ? b.tx + b.size : b.tx - 1;
   const spot = nearestOpenTile(game, exitX, exitY, 6) || { x: b.tx, y: b.ty };
   const u = addUnit(game, type, b.team, (spot.x + 0.5) * T, (spot.y + 0.5) * T);
+  applyLoadout(game, u);
   game.teams[b.team].stats.built++;
   // Campaign reinforcements: an allied commander hands every few fighting
   // vehicles it builds to the player fighting beside it.
@@ -1122,12 +1137,7 @@ function secondaryFire(game, u, dt) {
   u.cooldown2 = w.cooldown * (1 - CONFIG.VET_RELOAD * (u.rank || 0));
   u.lastShot2 = game.time;
   const mx = u.x + Math.cos(u.turret2) * (u.radius * 0.6), my = u.y + Math.sin(u.turret2) * (u.radius * 0.6);
-  const p = { kind: w.projectile, team: u.team, owner: u.id, x: mx, y: my, sx: mx, sy: my, damage: w.damage, splash: 0, vsBuilding: w.vsBuilding, speed: 900 };
-  if (game.rng() < hitChance(game, u, t, edgeDist(u, t), w)) { p.targetId = t.id; p.tx = t.x; p.ty = t.y; }
-  else { const a = want + (game.rng() < 0.5 ? -1 : 1) * (0.08 + game.rng() * 0.12), len = dist(u, t) + 30 + game.rng() * 60; p.tx = mx + Math.cos(a) * len; p.ty = my + Math.sin(a) * len; p.miss = true; }
-  game.projectiles.push(p);
-  game.effects.push({ kind: 'flash', x: mx, y: my, a: u.turret2, t: 0, life: 0.06, big: false });
-  game.events.push({ sound: w.projectile, x: mx, y: my });
+  launchShot(game, u, t, w, mx, my, u.turret2, edgeDist(u, t), false);
 }
 
 const goIdle = u => { u.order = { type: 'idle', gx: u.x, gy: u.y }; u.path = []; };
@@ -1332,7 +1342,7 @@ function followPath(game, u, dt, stopDist = 6) {
   u.movingTick = game.tick;
   u.angle = turnToward(u.angle, want, 5 * dt);
   const facing = Math.cos(wrapAngle(want - u.angle));
-  const step = Math.min(d, u.def.speed * dt * Math.max(0.25, facing) * (u.slowF || 1));
+  const step = Math.min(d, u.def.speed * dt * Math.max(0.25, facing) * (u.slowF || 1) * (u.shockUntil > game.time ? u.shockMul : 1));
   const ox = u.x, oy = u.y;
   moveWithCollision(game, u, Math.cos(want) * step, Math.sin(want) * step);
   const moved = Math.hypot(u.x - ox, u.y - oy);
@@ -1594,13 +1604,16 @@ function aimAtNearby(game, u, dt) {
 // The chance a shot from `e` at `t` (edge distance d) hits (CONFIG.ACCURACY).
 function hitChance(game, e, t, d, w = e.def.weapon) {
   if (t.kind === 'building') return 1;
-  const rank = e.rank || 0;
-  let k = (CONFIG.ACCURACY[w.projectile] || 0.9) * (1 - CONFIG.ACC_RANGE * Math.min(1, d / w.range)) * (1 + CONFIG.VET_ACC[rank]);
+  const rank = e.rank || 0, fixed = isFixedGun(e);
+  let k = (CONFIG.ACCURACY[w.projectile] || 0.9) * (w.acc || 1) * (1 - CONFIG.ACC_RANGE * Math.min(1, d / w.range)) * (1 + CONFIG.VET_ACC[rank]);
+  if (fixed) k *= CONFIG.ACC_FIXED;
   // Veterans lose less accuracy firing on the move (a third less per rank).
   if (e.kind === 'unit' && e.movingTick >= game.tick - 1) k *= 1 - (1 - CONFIG.ACC_SHOOTER_MOVING) * (1 - rank / 3);
-  if (t.movingTick >= game.tick - 1) k *= 1 - CONFIG.ACC_TARGET_SPEED * t.def.speed;
+  if (t.movingTick >= game.tick - 1) k *= 1 - CONFIG.ACC_TARGET_SPEED * t.def.speed * (fixed ? CONFIG.ACC_FIXED_TRACK : 1);
   return Math.max(CONFIG.ACC_MIN, Math.min(0.98, k));
 }
+// Fires from a fixed spot: a building, or a Sentry or Artillery with its legs down.
+const isFixedGun = e => e.kind === 'building' || (!!e.def.deployToFire && (e.legE || 0) >= 1);
 
 function aimAndFire(game, e, t, dt) {
   const w = e.def.weapon;
@@ -1621,24 +1634,38 @@ function aimAndFire(game, e, t, dt) {
   e.cooldown = w.cooldown * (1 - CONFIG.VET_RELOAD * (e.rank || 0));
   e.lastShot = game.time;  // drives barrel recoil and the muzzle flash
   const mx = e.x + Math.cos(e.turret) * (e.radius + 4), my = e.y + Math.sin(e.turret) * (e.radius + 4);
-  const p = { kind: w.projectile, team: e.team, owner: e.id, x: mx, y: my, sx: mx, sy: my, damage: w.damage, splash: w.splash || 0, vsBuilding: w.vsBuilding };
-  if (w.projectile === 'artillery') {
-    const spread = 20 + d * 0.06;
-    p.tx = t.x + (game.rng() - 0.5) * spread; p.ty = t.y + (game.rng() - 0.5) * spread;
-    p.speed = 260; p.total = Math.hypot(p.tx - mx, p.ty - my);
-  } else {
-    p.speed = w.projectile === 'bullet' ? 900 : w.projectile === 'rocket' ? 520 : 620;
-    if (game.rng() < hitChance(game, e, t, d)) { p.targetId = t.id; p.tx = t.x; p.ty = t.y; }
-    else {
-      // A miss: it flies a little wide and lands beyond the target.
-      const a = angleTo(e, t) + (game.rng() < 0.5 ? -1 : 1) * (0.08 + game.rng() * 0.12);
-      const len = dist(e, t) + 30 + game.rng() * 60;
-      p.tx = mx + Math.cos(a) * len; p.ty = my + Math.sin(a) * len; p.miss = true;
+  launchShot(game, e, t, w, mx, my, e.turret, d, w.projectile !== 'bullet');
+}
+
+// Speeds of each kind of shot, in pixels a second.
+const SHOT_SPEED = { bullet: 900, shell: 620, rocket: 520, rail: 3200, flame: 420, shock: 1100 };
+// Fires one trigger pull of weapon w from (mx, my) at t: one shot, or a salvo.
+// Each shot rolls to hit; a miss flies a little wide and lands beyond the target.
+function launchShot(game, e, t, w, mx, my, aim, d, big) {
+  const n = w.salvo || 1;
+  for (let k = 0; k < n; k++) {
+    const off = n > 1 ? (k - (n - 1) / 2) * 7 : 0;   // a salvo leaves side by side
+    const sx = mx - Math.sin(aim) * off, sy = my + Math.cos(aim) * off;
+    const p = { kind: w.projectile, team: e.team, owner: e.id, x: sx, y: sy, sx, sy, damage: w.damage, splash: w.splash || 0,
+                vsBuilding: w.vsBuilding, vsHeavy: w.vsHeavy, vsLight: w.vsLight, slow: w.slow, slowTime: w.slowTime };
+    if (w.projectile === 'artillery') {
+      const spread = (20 + d * 0.06) * (isFixedGun(e) ? CONFIG.ARTY_SPREAD_FIXED : 1);
+      p.tx = t.x + (game.rng() - 0.5) * spread; p.ty = t.y + (game.rng() - 0.5) * spread;
+      p.speed = 260; p.total = Math.hypot(p.tx - sx, p.ty - sy);
+    } else {
+      p.speed = SHOT_SPEED[w.projectile] || 620;
+      if (game.rng() < hitChance(game, e, t, d, w)) { p.targetId = t.id; p.tx = t.x; p.ty = t.y; }
+      else {
+        const a = angleTo(e, t) + (game.rng() < 0.5 ? -1 : 1) * (0.08 + game.rng() * 0.12);
+        const len = dist(e, t) + 30 + game.rng() * 60;
+        p.tx = sx + Math.cos(a) * len; p.ty = sy + Math.sin(a) * len; p.miss = true;
+      }
     }
+    if (w.projectile === 'rail') game.effects.push({ kind: 'beam', x: sx, y: sy, x2: p.tx, y2: p.ty, t: 0, life: 0.25, team: e.team });
+    game.projectiles.push(p);
   }
-  game.projectiles.push(p);
-  game.effects.push({ kind: 'flash', x: mx, y: my, a: e.turret, t: 0, life: 0.08, big: w.projectile !== 'bullet' });
-  game.events.push({ sound: w.projectile, x: mx, y: my });
+  game.effects.push({ kind: 'flash', x: mx, y: my, a: aim, t: 0, life: 0.08, big, fx: w.projectile });
+  game.events.push({ sound: w.projectile === 'rail' || w.projectile === 'flame' || w.projectile === 'shock' ? 'shell' : w.projectile, x: mx, y: my });
 }
 
 function updateProjectiles(game, dt) {
@@ -1669,8 +1696,18 @@ function updateProjectiles(game, dt) {
         game.effects.push({ kind: 'dust', x: p.tx, y: p.ty, t: 0, life: 0.4 });
       } else {
         const t = game.byId.get(p.targetId);
-        if (t && t.hp > 0) damage(game, t, p.damage, p);
-        game.effects.push({ kind: 'spark', x: p.tx, y: p.ty, t: 0, life: 0.25, big: p.kind !== 'bullet' });
+        if (t && t.hp > 0) {
+          damage(game, t, p.damage, p);
+          // Shock: the target is slowed for a while.
+          if (p.slow && t.kind === 'unit') { t.shockUntil = game.time + p.slowTime; t.shockMul = 1 - p.slow; }
+        }
+        // Flames (and anything else with splash) burn what stands around the hit.
+        if (p.splash) for (const o of game.entities) {
+          if (o === t || o.hp <= 0 || o.team === p.team) continue;
+          const od = Math.max(0, Math.hypot(o.x - p.tx, o.y - p.ty) - o.radius * 0.5);
+          if (od < p.splash) damage(game, o, p.damage * 0.5 * (1 - 0.5 * od / p.splash), p);
+        }
+        game.effects.push({ kind: p.kind === 'flame' ? 'burn' : p.kind === 'shock' ? 'zap' : 'spark', x: p.tx, y: p.ty, t: 0, life: p.kind === 'flame' ? 0.45 : 0.25, big: p.kind !== 'bullet', r: p.splash });
       }
     } else {
       p.x += (p.tx - p.x) / d * step; p.y += (p.ty - p.y) / d * step;
@@ -1679,10 +1716,92 @@ function updateProjectiles(game, dt) {
   game.projectiles = game.projectiles.filter(p => !p.done);
 }
 
+// --- Armory weapons and loadouts ---
+// The weapon an Armory weapon makes of a hardpoint's stock weapon.
+function makeWeapon(stock, key) {
+  if (!key || key === 'stock' || !WEAPONS[key]) return stock;
+  const m = WEAPONS[key].mod, w = Object.assign({}, stock, { key, name: WEAPONS[key].name });
+  w.damage = Math.round(stock.damage * (m.damage || 1) * 10) / 10;
+  w.cooldown = Math.round(stock.cooldown * (m.cooldown || 1) * 100) / 100;
+  w.range = Math.round(stock.range * (m.rangeMul || 1) + (m.rangeAdd || 0));
+  for (const k of ['projectile', 'minRange', 'splash', 'vsBuilding', 'vsHeavy', 'vsLight', 'salvo', 'acc', 'slow', 'slowTime']) if (m[k] !== undefined) w[k] = m[k];
+  return w;
+}
+// A vehicle kind's stats with a loadout fitted (shared by every vehicle with
+// the same loadout). Stock everywhere gives the plain stats.
+const LOADOUT_DEFS = new Map();
+function loadoutDef(type, lo) {
+  const def = UNIT_TYPES[type];
+  if (!def.hardpoints || !lo) return def;
+  const slots = Object.keys(def.hardpoints).filter(sl => lo[sl] && lo[sl] !== 'stock');
+  if (!slots.length) return def;
+  const key = type + ':' + slots.map(sl => sl + '=' + lo[sl]).join(',');
+  let d = LOADOUT_DEFS.get(key);
+  if (!d) {
+    d = Object.assign({}, def, { loadout: {} });
+    for (const sl of slots) { const field = def.hardpoints[sl]; d[field] = makeWeapon(def[field], lo[sl]); d.loadout[sl] = lo[sl]; }
+    LOADOUT_DEFS.set(key, d);
+  }
+  return d;
+}
+function applyLoadout(game, u) {
+  const lo = game.teams[u.team].loadouts && game.teams[u.team].loadouts[baseType(u)];
+  if (lo) u.def = loadoutDef(u.type, lo);
+}
+
+// --- Tidal Flats: the sea comes in over the sand and goes out again. ---
+function tideIsHigh(game) {
+  const T = CONFIG.TIDE, c = game.time % (T.low + T.high);
+  return c >= T.low;
+}
+function updateTide(game) {
+  const T = CONFIG.TIDE, c = game.time % (T.low + T.high), dt = 1 / CONFIG.TICK_RATE;
+  // Warnings a little before it turns.
+  for (const [at, text] of [[T.low - T.warn, `The tide is coming in: the sand flats flood in ${T.warn} seconds. Get off the sand!`],
+                            [T.low + T.high - T.warn, `The tide is going out in ${T.warn} seconds: the sand flats will open up.`]])
+    if (c >= at && c - dt < at) for (const t of [1, 2]) pushEvent(game, t, text, 'warn');
+  const high = tideIsHigh(game);
+  if ((game.map.tide === 'high') === high) return;
+  setTide(game, high);
+}
+function setTide(game, high) {
+  const m = game.map, T = CONFIG.TIDE, W = m.W, TL = CONFIG.TILE;
+  m.tide = high ? 'high' : 'low';
+  for (let i = 0; i < W * m.H; i++) if (m.tidal[i]) m.tiles[i] = high ? TILE_WATER : TILE_DIRT;
+  m.tideVersion = (m.tideVersion || 0) + 1;   // tells the renderer to repaint
+  for (const s of game.scrap) s.wet = high && !!m.tidal[Math.floor(s.y / TL) * W + Math.floor(s.x / TL)];
+  if (high) {
+    // Anything still on the sand is swamped and washed up on dry ground.
+    for (const u of game.entities) {
+      if (u.kind !== 'unit' || u.hp <= 0) continue;
+      const tx = Math.floor(u.x / TL), ty = Math.floor(u.y / TL);
+      if (!m.tidal[ty * W + tx]) continue;
+      const spot = nearestOpenTile(game, tx, ty, 30);
+      if (spot) { u.x = (spot.x + 0.5) * TL; u.y = (spot.y + 0.5) * TL; }
+      damage(game, u, u.maxHp * T.swamp, { kind: 'artillery', team: 0, owner: 0 });
+      game.effects.push({ kind: 'dust', x: u.x, y: u.y, t: 0, life: 0.6 });
+    }
+    for (const t of [1, 2]) pushEvent(game, t, 'High tide: the sand flats are under water. Only the causeways are open.', 'warn');
+  } else {
+    // Low tide washes fresh scrap up on the sand, the same on both sides.
+    const flats = [];
+    for (let i = 0; i < W * m.H; i++) if (m.tidal[i] && i < W * m.H - 1 - i) flats.push(i);
+    for (let k = 0; k < T.washup && flats.length; k++) {
+      const i = flats[Math.floor(game.rng() * flats.length)], x = (i % W + 0.5) * TL, y = (Math.floor(i / W) + 0.5) * TL;
+      const id = Math.max(0, ...game.scrap.map(s => s.id)) + 1;
+      game.scrap.push({ id, x, y, amount: T.washAmount, max: T.washAmount }, { id: id + 1, x: W * TL - x, y: m.H * TL - y, amount: T.washAmount, max: T.washAmount });
+    }
+    for (const t of [1, 2]) pushEvent(game, t, 'Low tide: the sand flats are open, and fresh scrap has washed up.', 'info');
+  }
+  // Routes planned across the sand (or round it) are out of date.
+  for (const u of game.entities) if (u.kind === 'unit' && u.path && u.path.length) { const g = u.path[u.path.length - 1]; planPath(game, u, g.x, g.y); }
+}
+
 function damage(game, e, amount, p) {
   if (e.kind === 'building') amount *= p.vsBuilding || 1;
+  else if (p.vsHeavy || p.vsLight) amount *= (HEAVY_KINDS.includes(baseType(e)) ? p.vsHeavy : p.vsLight) || 1;
   // Armour facing: a vehicle hit on the side or rear takes more (not by Artillery's splash).
-  else if (p.kind !== 'artillery' && p.sx !== undefined) {
+  if (e.kind !== 'building' && p.kind !== 'artillery' && p.sx !== undefined) {
     const rel = Math.abs(wrapAngle(Math.atan2(p.sy - e.y, p.sx - e.x) - e.angle));
     if (rel > Math.PI * 2 / 3) amount *= CONFIG.ARMOR_REAR;
     else if (rel > Math.PI / 3) amount *= CONFIG.ARMOR_SIDE;
@@ -1778,7 +1897,7 @@ function demolishInto(game, b) {
 function nearestScrap(game, u, maxDist = Infinity) {
   let best = null, bd = maxDist;
   for (const s of game.scrap) {
-    if (s.amount <= 0) continue;
+    if (s.amount <= 0 || s.wet) continue;
     if (!game.teams[u.team].explored[Math.floor(s.y / CONFIG.TILE) * game.map.W + Math.floor(s.x / CONFIG.TILE)]) continue;
     // Stay away from scrap that enemy combat units are sitting on.
     const d = dist(u, s);
@@ -1806,7 +1925,7 @@ function autoHarvest(game, u) {
 function updateHarvester(game, u, dt) {
   const o = u.order;
   if (o.phase === 'toNode' || o.phase === 'gather') {
-    let node = game.scrap.find(s => s.id === o.nodeId && s.amount > 0);
+    let node = game.scrap.find(s => s.id === o.nodeId && s.amount > 0 && !s.wet);
     if (!node) {
       if (u.carry > 0 && u.carry >= u.def.carryMax * 0.5) { o.phase = 'return'; u.path = []; return; }
       node = nearestScrap(game, u, 900);

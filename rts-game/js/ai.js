@@ -100,13 +100,15 @@ function aiUpdate(game, team) {
     // of the base, facing the middle of the map.
     else if (diff.shieldsAfter && game.time > diff.shieldsAfter && !has('generator')) want = 'generator';
     else if (diff.shieldsAfter && game.time > diff.shieldsAfter && tm.research.shields && has('shield') < 2) want = 'shield';
+    // Normal and Hard: an Armory, for better weapons, once established.
+    else if (diff.tactics && !has('armory') && game.time > 540) want = 'armory';
     else if (has('tower') < 1 + Math.floor(has('extractor') / (diff.towerEvery || 1)) && game.time > 200) {   // one per towerEvery Extractors
       // Guard the outpost that has the fewest towers nearby.
       want = 'tower';
       const outposts = buildings.filter(b => b.type === 'extractor' && b.built >= 1);
       near = outposts.find(s => !buildings.some(t => t.type === 'tower' && dist(t, s) < 260)) || null;
     }
-    if (want === 'factory' || want === 'basesilo' || want === 'lab' || want === 'radar' || want === 'repairpad' || want === 'generator') near = null;  // these go around the Recycler
+    if (want === 'factory' || want === 'basesilo' || want === 'lab' || want === 'radar' || want === 'repairpad' || want === 'generator' || want === 'armory') near = null;  // these go around the Recycler
     ai.saving = want === 'basesilo' && tm.scrap < BUILDING_TYPES[want].cost;
     if (want && tm.scrap >= BUILDING_TYPES[want].cost) {
       const spot = findBuildSpot(game, team, want, hq, toCenter, near);
@@ -129,6 +131,18 @@ function aiUpdate(game, team) {
     if (next && tm.scrap >= RESEARCH[next].cost) cmd({ type: 'research', buildingId: lab.id, key: next });
     else if (next) ai.savingUp = true;
   }
+  // Armory: armour-piercing cannons and heavy machine guns (and on Hard,
+  // swarm missiles), fitted to new vehicles as soon as they're ready.
+  for (const arm of buildings.filter(b => b.type === 'armory' && b.built >= 1 && !b.researching)) {
+    const topics = ['w_sabot', 'w_hmg'];
+    if (game.difficulty === 'hard') topics.push('w_swarm');
+    const next = topics.find(k => !tm.research[k] && !buildings.some(b => b.researching && b.researching.key === k));
+    if (next && tm.scrap >= RESEARCH[next].cost) cmd({ type: 'research', buildingId: arm.id, key: next });
+    else if (next) ai.savingUp = true;
+  }
+  const lo = tm.loadouts || {};
+  for (const [w, unit, slot] of [['sabot', 'tank', 'main'], ['sabot', 'heavy', 'main'], ['hmg', 'scout', 'light'], ['hmg', 'heavy', 'light'], ['swarm', 'hornet', 'light']])
+    if (tm.research['w_' + w] && !(lo[unit] && lo[unit][slot])) cmd({ type: 'loadout', unit, slot, weapon: w });
   if (Object.keys(tm.research).length) {
     const f = buildings.find(b => b.type === 'factory' && b.built >= 1 && b.level === 1 && b.upgrading === null);
     if (f && !buildings.some(b => b.type === 'factory' && b.upgrading !== null)) {

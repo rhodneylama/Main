@@ -101,13 +101,36 @@ The Recycler cannot be demolished by its owner.
 
 ## 3. The battlefield
 
-### Two maps
+### Three maps
 
 The start screen's **Map** drop-down picks the battlefield for a single
 battle (the campaign still uses the wasteland):
 
 - **Wasteland** (`generateMap`): open ground with rock ridges and lakes, as
   described below.
+- **Tidal Flats** (`generateTidalMap`, added 14 November 2026): an
+  archipelago where the sea comes and goes.
+  - Each base sits on a big **home island**; smaller islands carry the other
+    geysers, and the scrap lies on little islets.
+  - Between them are **sand flats** (`map.tidal`): dry and drivable at low
+    tide, under shallow water at high tide. A few narrow **stone causeways**
+    stay above water at every tide (from each base through the middle
+    islands to a central island, plus flank routes), so the sides are never
+    cut off, but at high tide every route runs along them.
+  - **The tide** (`updateTide` in `sim.js`, numbers in `CONFIG.TIDE`): 160 s
+    of low tide, then 80 s of high tide, over and over; the battle starts at
+    low tide. A warning comes 25 s before each turn. Anything still on the
+    sand when it floods loses **30% of its health** and is washed up on the
+    nearest dry ground. Scrap on the sand can't be gathered while it's under
+    water. Each low tide **washes up fresh scrap** on the sand: five mirrored
+    pairs of 120-scrap piles.
+  - **Nothing can be built** on the sand or the causeways.
+  - Drawn with wet sand and shells at low tide, shallow water with foam over
+    the sand at high tide (the ground and minimap repaint when it turns),
+    and edged stone causeways.
+  - In computer-against-computer tests (with the Armory) wins split evenly
+    (3–3) and battles last 15–55 minutes: some end quickly when low tide
+    opens a short route over the sand, others grind on along the causeways.
 - **Ruined city** (`generateUrbanMap`, added 13 November 2026): the same
   size, starting corners, geysers and scrap fields, inside a city.
   - **Streets** run in a grid every 18 squares (5 wide north–south, 4 wide
@@ -550,6 +573,46 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
   "Researched ✓".
 - A Factory II only shows a Mk II vehicle's button once it is researched.
 
+### The Armory: weapons and loadouts (14 November 2026)
+
+An **Armory** (Kethra: Forge; 200 scrap, 25 s, 1,000 HP, 2 × 2) researches
+new weapons, one at a time. A Factory then fits them: **Loadouts ▾** on a
+Factory picks, for each kind of vehicle, which weapon goes on each
+hardpoint, and every new vehicle of that kind is built with it (vehicles
+already built keep theirs). Loadouts belong to your side, not to one
+Factory.
+
+**Hardpoints** (`UNIT_TYPES.*.hardpoints`): a **main gun** (Tank, the
+Juggernaut's front turret) or a **light gun** (Scout, Hornet, Sentry, the
+Juggernaut's rear turret). Artillery has no hardpoint. Every vehicle starts
+with its **stock** weapon.
+
+Each Armory weapon changes the hardpoint's stock weapon by fixed factors
+(`WEAPONS` in `config.js`, built by `makeWeapon` in `sim.js`), so it suits
+light and heavy vehicles alike and a Mk II stays stronger than the basic
+version. "Heavy" targets are Tanks, Juggernauts, Sentries, Artillery and the
+Recycler; everything else is "light".
+
+| Weapon | Slot | Research | Effect on the stock weapon |
+| --- | --- | --- | --- |
+| Sabot Cannon | Main | 150, 45 s | Damage ×1.1; ×1.5 against heavy vehicles, ×0.75 against light ones |
+| Railgun | Main | 250, 70 s | Damage ×2.4, reload ×2.1, range +70, ×1.15 against heavy; an instant beam that almost never misses |
+| Mortar | Main | 200, 55 s | Arcing shells: range +100, can't hit closer than 90, damage ×1.15, reload ×1.7, 45 px splash, ×1.4 against buildings |
+| Rocket Battery | Main | 200, 55 s | A salvo of three homing rockets, each ×0.5 damage; reload ×1.5; ×1.2 against buildings |
+| Heavy Machine Gun | Light | 125, 40 s | Damage ×1.25; ×1.4 against light vehicles, ×0.8 against heavy ones |
+| Flamethrower | Light | 175, 50 s | Range ×0.55, damage ×1.8, burns everything within 40 px of the hit (half damage), ×1.5 against buildings, ×1.2 against light |
+| Swarm Missiles | Light | 150, 45 s | Two homing missiles, each ×0.65; reload ×1.15; ×1.3 against heavy |
+| Shock Emitter | Light | 200, 55 s | Damage ×0.7; each hit slows the target by 45% for 2.5 s (a blue crackle shows it) |
+
+Example: a Tank's stock cannon (34 damage, 1.2 s, range 200) becomes a
+Railgun of 81.6 damage, 2.5 s, range 270. A selected vehicle's info line
+names its weapons.
+
+The **computer opponent** (Normal and Hard) builds an Armory after about 9
+minutes, researches Sabot Cannons and Heavy Machine Guns (and Swarm Missiles
+on Hard), and fits them: Sabot on Tanks and Juggernauts, Machine Guns on
+Scouts and the Juggernaut's rear turret, Swarm Missiles on Hornets.
+
 ---
 
 ## 9. Combat rules
@@ -583,7 +646,13 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
   - if the target is moving, less by 0.2% per pixel a second of its speed
     (a Scout at 98 is hit 20% less often, a Tank at 40 8% less);
   - × 1.12 / 1.24 / 1.36 for a Veteran / Elite / Ace shooter (below);
-  - at least 15%, at most 98%; **buildings are always hit**.
+  - at least 15%, at most 98%; **buildings are always hit**;
+  - **guns firing from a fixed spot** (towers, the Recycler, dug-in
+    Sentries, Artillery with its legs down) are steadier: ×1.1, and a
+    quarter less penalty against moving targets; Artillery shells from a
+    fixed spot also land in a 25% tighter spread (`ACC_FIXED`,
+    `ACC_FIXED_TRACK`, `ARTY_SPREAD_FIXED`, 14 November 2026);
+  - some Armory weapons aim better (Railgun ×1.05).
 
   A hit homes in as before; a miss flies a little wide (5–11°) and lands 30–90
   px beyond the target, kicking up dust, and hurts nothing.
@@ -1530,7 +1599,7 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `js/campaign.js` | The campaign's rules: the theater, war reports, support, starting bonuses, battle results (section 16, "Campaign") |
 | `js/war.js` | The war map screen and starting campaign battles (drop-in, Take command, Reinforce) |
 | `js/saves.js` | Where saved games are kept: the published page's private per-person store, or this browser (see section 16, "Saving") |
-| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (181 checks). |
+| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (200 checks). |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
 tables), `ROADMAP.md` (planned stages), `ECONOMY_TEST_REPORT.md` (the October
@@ -1582,7 +1651,7 @@ rebuilt.
 
 | Test type | Method | What it checks |
 | --- | --- | --- |
-| **Rules tests** (`tests/rules.js`, 181 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 44.9 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Orders** (Aggressive by default: an enemy beside the route is attacked, then they carry on to where they were sent; Stealth holds fire and arrives sooner; Return fire shoots in passing and keeps going; Hunt as a pack destroys a known enemy building across the map and keeps together; Hunt with nothing known goes searching; a guard goes after whoever attacks what it guards, even out of its range, then returns to its post; an idle vehicle helps a friend under fire nearby; a group attacking one target fans out in an arc; 100 units a side; 200 vehicles fighting take well under a second per battle second); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused); **Campaign** (fifteen battlefields all joined up; each side starts with its half and two battles under way; only neighbouring enemy battlefields can be attacked; more neighbours held means more starting vehicles, and they appear in the battle; each battlefield keeps its own map; war reports come in on time at the chosen pace, at most 12 while away, none on Hold; on Normal the AI commanders alone don't decide the war in 60 reports; winning takes the battlefield; leaving puts it back on paper from how it stood; Reinforce: the allied commander never moves your strike force and sends you some of what it builds); **Uplinks and call-ins** (three uplinks on open ground, the middle in the middle, the sides mirrored; one vehicle captures in about 15 s, three three times as fast; contested means no change; holding two counts only once online; hold two for 3 minutes to win; uplinks earn call-ins; everyone starts with one call-in; the computer opponent uses its call-ins; supply drop lands with 300 scrap; none left, nothing called; reinforcements land where chosen, only on explored ground); **Campaign battlefields** (the holder starts with a base; more support and time held means more built up; two landing zones clear of the defences, one to liberate from level 2; you land where you chose with a strike force, three call-ins, supply crates and knowledge of their Recycler; campaign battles run faster; some battlefields are capture-and-hold; landing zones always on the far half of the map); **Hit and miss** (less likely to hit a fast mover, at long range, or on the move; buildings always hit; in a fight some shots miss; vehicles keep moving while they fire); **Shields** (no field without a Generator; with one it boots after its reboot time; a powered projector burns 6 scrap a minute; fire from the front is stopped by the field, from behind it gets through; shot down it collapses and the projector is open, then reboots after 13.5 s partly charged; one Generator powers four; no scrap, no shields); **Radar and Forcefield Tech** (a Radar builds anywhere explored and lets you build around it; pings every 30 s, Radar II every 15 s, Radar III constantly; upgrades cost 250 then 500, and stop at III; Shield Projectors need Forcefield Tech and cost 180); **Veterans and armour** (two kills make a Veteran, five an Elite with more health; veterans hit much more often even on the move; side hits do 25% more, rear 50% more); **Repair Drones, Fight then repair, the Juggernaut** (tuning: Extractor income, shield strength and reboot, Artillery reload but not the tower's; a drone on Auto repair fixes a vehicle before a building, then both; a Constructor can't repair; Fight then repair goes to the pad at yellow and comes back; the Juggernaut's stats, slower than a Tank; its Mk II with +40% damage on both guns; it fires at two targets at once); **Drone Follow and the ruined city** (a drone on Follow stays with its vehicle and repairs it, and goes back to Auto repair when it is lost; the city is mirrored, everything can be driven to, a canal with bridges crosses it, building room is scarce, nothing can be built on a street, and there is a route between the bases). |
+| **Rules tests** (`tests/rules.js`, 200 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 44.9 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Orders** (Aggressive by default: an enemy beside the route is attacked, then they carry on to where they were sent; Stealth holds fire and arrives sooner; Return fire shoots in passing and keeps going; Hunt as a pack destroys a known enemy building across the map and keeps together; Hunt with nothing known goes searching; a guard goes after whoever attacks what it guards, even out of its range, then returns to its post; an idle vehicle helps a friend under fire nearby; a group attacking one target fans out in an arc; 100 units a side; 200 vehicles fighting take well under a second per battle second); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused); **Campaign** (fifteen battlefields all joined up; each side starts with its half and two battles under way; only neighbouring enemy battlefields can be attacked; more neighbours held means more starting vehicles, and they appear in the battle; each battlefield keeps its own map; war reports come in on time at the chosen pace, at most 12 while away, none on Hold; on Normal the AI commanders alone don't decide the war in 60 reports; winning takes the battlefield; leaving puts it back on paper from how it stood; Reinforce: the allied commander never moves your strike force and sends you some of what it builds); **Uplinks and call-ins** (three uplinks on open ground, the middle in the middle, the sides mirrored; one vehicle captures in about 15 s, three three times as fast; contested means no change; holding two counts only once online; hold two for 3 minutes to win; uplinks earn call-ins; everyone starts with one call-in; the computer opponent uses its call-ins; supply drop lands with 300 scrap; none left, nothing called; reinforcements land where chosen, only on explored ground); **Campaign battlefields** (the holder starts with a base; more support and time held means more built up; two landing zones clear of the defences, one to liberate from level 2; you land where you chose with a strike force, three call-ins, supply crates and knowledge of their Recycler; campaign battles run faster; some battlefields are capture-and-hold; landing zones always on the far half of the map); **Hit and miss** (less likely to hit a fast mover, at long range, or on the move; buildings always hit; in a fight some shots miss; vehicles keep moving while they fire); **Shields** (no field without a Generator; with one it boots after its reboot time; a powered projector burns 6 scrap a minute; fire from the front is stopped by the field, from behind it gets through; shot down it collapses and the projector is open, then reboots after 13.5 s partly charged; one Generator powers four; no scrap, no shields); **Radar and Forcefield Tech** (a Radar builds anywhere explored and lets you build around it; pings every 30 s, Radar II every 15 s, Radar III constantly; upgrades cost 250 then 500, and stop at III; Shield Projectors need Forcefield Tech and cost 180); **Veterans and armour** (two kills make a Veteran, five an Elite with more health; veterans hit much more often even on the move; side hits do 25% more, rear 50% more); **Repair Drones, Fight then repair, the Juggernaut** (tuning: Extractor income, shield strength and reboot, Artillery reload but not the tower's; a drone on Auto repair fixes a vehicle before a building, then both; a Constructor can't repair; Fight then repair goes to the pad at yellow and comes back; the Juggernaut's stats, slower than a Tank; its Mk II with +40% damage on both guns; it fires at two targets at once); **Drone Follow and the ruined city** (a drone on Follow stays with its vehicle and repairs it, and goes back to Auto repair when it is lost; the city is mirrored, everything can be driven to, a canal with bridges crosses it, building room is scarce, nothing can be built on a street, and there is a route between the bases); **Fixed guns, Tidal Flats, the Armory** (a tower and a dug-in Sentry hit a moving target more often; Tidal Flats is mirrored, reachable at low tide and joined by causeways at high tide, nothing builds on the sand, the tide floods and drains on time, a vehicle caught on the sand is swamped and washed ashore, fresh scrap washes up; the Armory researches eight weapons, a weapon must be researched before it's fitted, new Tanks get the Railgun while older ones keep the cannon, weapons scale with the vehicle, Sabot hits heavy armour harder, a Flamethrower burns what's around its target, a Shock Emitter slows, a Rocket Battery fires three, saved games keep weapons and loadouts). |
 | **AI duels** (`tests/balance/duels.sh`) | The current opponent plays an earlier version of itself (`tests/balance/ai_previous.js`, the first one; `ai_v2.js` with `OPP=v2`, the 18 October one) on many seeds, 4 games at a time, up to 60 minutes each. With `BOTHOLD=1` both sides use the previous version, giving the baseline for the same seeds. | Whether a change to the opponent actually makes it stronger. Each tactic was tried alone, then in combinations; see the results below. |
 | **AI-vs-AI batches** | Run 30 to 120 full games between two computer players on different seeds. | Games end, typical length, and **fairness** by team and by corner. |
 | **AI tech progression** | Log when the AI reaches each milestone at each difficulty. | The AI actually upgrades, researches and fields Mk II units. |
@@ -2071,3 +2140,11 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
 36. **Army menu shows battle groups** (13 November 2026): Army ▾ now lists
     your battle groups (and All combat vehicles) instead of one entry per
     kind of vehicle.
+37. **The Armory, Tidal Flats, steadier fixed guns** (14 November 2026): a
+    new building, the Armory, researches eight weapons (Sabot Cannon,
+    Railgun, Mortar, Rocket Battery for main guns; Heavy Machine Gun,
+    Flamethrower, Swarm Missiles, Shock Emitter for light guns), fitted to
+    new vehicles from a Factory's Loadouts menu. A third map, Tidal Flats:
+    islands joined by sand that floods and drains on a tide, with stone
+    causeways and scrap washing up. Towers, the Recycler, dug-in Sentries
+    and deployed Artillery aim better.

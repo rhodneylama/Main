@@ -385,6 +385,45 @@ function setGroup(key, mode = 'set') {
   sound('ack');
   refreshPanel(); updateGroupBar(true);
 }
+// Loadouts: what a kind of vehicle's hardpoints carry, as text, and the menu
+// to change them. Stock weapons are what the vehicle comes with.
+const ownText = t => t && game ? factionText(game.teams[view.team].faction, t) : t;
+const SLOT_NAMES = { main: 'Main gun', light: 'Light gun' };
+function stockName(type, slot) {
+  const w = UNIT_TYPES[type][UNIT_TYPES[type].hardpoints[slot]];
+  return { bullet: slot === 'light' && type === 'heavy' ? 'Minigun' : 'Machine gun', shell: 'Cannon', rocket: 'Rockets' }[w.projectile] || 'Stock gun';
+}
+function loadoutText(tm, type) {
+  const lo = (tm.loadouts && tm.loadouts[type]) || {};
+  return Object.keys(UNIT_TYPES[type].hardpoints).map(sl => {
+    const k = lo[sl] || 'stock';
+    return k === 'stock' ? `${stockName(type, sl)} (stock)` : WEAPONS[k].name;
+  }).join(' + ');
+}
+function openLoadoutMenu(anchor, type) {
+  const tm = game.teams[view.team], lo = (tm.loadouts && tm.loadouts[type]) || {}, items = [];
+  const name = ownText(UNIT_TYPES[type].name);
+  for (const sl of Object.keys(UNIT_TYPES[type].hardpoints)) {
+    items.push({ heading: `${name}: ${SLOT_NAMES[sl]}` });
+    const cur = lo[sl] || 'stock', stock = UNIT_TYPES[type][UNIT_TYPES[type].hardpoints[sl]];
+    items.push({ label: `${stockName(type, sl)} (stock)`, note: `Damage ${stock.damage} · Range ${stock.range}`, active: cur === 'stock',
+      onClick: () => setLoadout(type, sl, 'stock') });
+    for (const [k, w] of Object.entries(WEAPONS)) {
+      if (w.slot !== sl) continue;
+      const have = tm.research['w_' + k], ww = makeWeapon(stock, k);
+      items.push({ label: w.name, active: cur === k, disabled: !have,
+        note: have ? `${w.note} Damage ${ww.damage}${ww.salvo ? ` × ${ww.salvo}` : ''} · Range ${ww.range}` : 'Research it at an Armory first',
+        onClick: () => setLoadout(type, sl, k) });
+    }
+  }
+  openPop(anchor, items);
+}
+function setLoadout(type, slot, weapon) {
+  issueCommand(game, view.team, { type: 'loadout', unit: type, slot, weapon });
+  const n = ownText(UNIT_TYPES[type].name);
+  logMessage(weapon === 'stock' ? `New ${n}s get the stock ${stockName(type, slot).toLowerCase()}` : `New ${n}s get the ${WEAPONS[weapon].name}`, 'info');
+  sound('ack'); refreshPanel();
+}
 // Which battle group the whole selection makes up exactly, if any.
 function selectionGroup() {
   const units = mine(view.selected).filter(u => u.kind === 'unit');
@@ -866,7 +905,11 @@ function refreshPanel() {
       extra = !e.powered ? (game.teams[e.team].scrap <= 0 ? 'No scrap to run it: field down' : 'No power: build a Power Generator (one powers 4)')
         : f && f.state === 'up' ? `Field ${Math.round(f.hp)} / ${d.field.hp}` : `Field rebooting: ${Math.ceil(f ? f.t : d.field.reboot)} s`;
     }
-    if (e.kind === 'unit' && d.weapon) extra = `Damage ${d.weapon.damage} · Range ${d.weapon.range} · Speed ${d.speed}`;
+    if (e.kind === 'unit' && d.weapon) {
+      const wn = d.loadout ? Object.values(d.loadout).map(k => WEAPONS[k].name).join(' + ') + ' · ' : '';
+      const vet = d.role === 'combat' && (e.kills || e.rank) ? ` · ${CONFIG.VET_NAMES[e.rank || 0]}, ${e.kills || 0} kill${e.kills === 1 ? '' : 's'}` : '';
+      extra = `${wn}Damage ${d.weapon.damage}${d.weapon.salvo ? ` × ${d.weapon.salvo}` : ''} · Range ${d.weapon.range} · Speed ${d.speed}${vet}`;
+    }
     if (e.kind === 'unit' && d.deployable) extra = e.deployed ? `Deployed: guarding this spot (range ${d.weapon.range}). Pack up to move it.` : 'Packed up: cannot fire. Move it into place, then press Deploy.';
     if (e.kind === 'building' && e.built < 1) extra = `Under construction — ${Math.floor(e.built * 100)}%`;
     if (e.kind === 'building' && d.weapon && e.built >= 1) extra = `Damage ${d.weapon.damage} · Range ${d.weapon.range}`;
@@ -978,6 +1021,15 @@ function refreshPanel() {
       }
       if (first.upgrading === null) tip.textContent = 'Upgrade once: an Artillery Tower shells targets far away (your side must see them); a Heavy Gun Tower is tougher and fires faster.';
     }
+    // Loadouts (Factory): which Armory weapons new vehicles of each kind get.
+    if (first.built >= 1 && first.def.produces && first.def.produces.some(t => UNIT_TYPES[t].hardpoints)) {
+      const kinds = [...new Set(producesOf(first).map(t => UNIT_TYPES[t].base || t))].filter(t => UNIT_TYPES[t].hardpoints);
+      const any = Object.keys(WEAPONS).some(k => tm.research['w_' + k]);
+      const lb = addMenu('Loadouts', keys.shift(), kinds.map(t => ({
+        label: own_(UNIT_TYPES[t].name), note: loadoutText(tm, t),
+        onClick: () => openLoadoutMenu(lb, t),
+      })), { title: any ? 'Pick the weapons new vehicles are built with' : 'Research weapons at an Armory, then fit them here' });
+    }
     // Research (Research Lab)
     if (first.built >= 1 && first.def.researches) {
       for (const key of first.def.researches) {
@@ -986,7 +1038,7 @@ function refreshPanel() {
         if (tm.research[key]) addBtn(r.name, null, keys.shift(), () => {}, { note: 'Researched ✓', locked: true });
         else if (elsewhere) addBtn(r.name, null, keys.shift(), () => {}, { note: `Researching ${Math.floor(elsewhere.researching.t / r.time * 100)}%`, locked: true });
         else addBtn(r.name, r.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'research', buildingId: first.id, key }),
-          { title: `${r.cost} scrap, ${r.time}s. ${r.unlocks ? `Unlocks ${r.unlocks}.` : `Unlocks ${UNIT_TYPES[key].name} at a Factory II.`}`, locked: !!first.researching });
+          { title: `${r.cost} scrap, ${r.time}s. ${r.weapon ? `${WEAPONS[r.weapon].note} Then fit it at a Factory (Loadouts ▾).` : r.unlocks ? `Unlocks ${r.unlocks}.` : `Unlocks ${UNIT_TYPES[key].name} at a Factory II.`}`, locked: !!first.researching });
       }
     }
     if (first.built >= 1 && first.def.produces) {

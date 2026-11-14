@@ -18,7 +18,7 @@ function load() {
   const ctx = { console, Math, performance: { now: () => Date.now() }, btoa, atob };
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
-    'createGame, generateMap, generateUrbanMap, TILE_DIRT, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
+    'createGame, generateMap, generateUrbanMap, generateTidalMap, WEAPONS, makeWeapon, loadoutDef, TILE_DIRT, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
     'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, damageForTest: damage });', ctx);
   return ctx;
 }
@@ -1039,6 +1039,107 @@ section('Drone Follow, the urban map');
   check("you can't build on the streets", !onStreet.ok && /street/.test(onStreet.why), onStreet.why);
   const p2 = S.findPath(g2, (m2.bases[1].x + 0.5) * 32, (m2.bases[1].y + 0.5) * 32, (m2.bases[2].x + 0.5) * 32, (m2.bases[2].y + 0.5) * 32);
   check('there is a route across the city between the bases', !!(p2 && p2.length));
+}
+
+section('Fixed guns, Tidal Flats, the Armory');
+{
+  // Guns firing from a fixed spot are steadier.
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const tower = placeDone(S, g, 1, 'tower', rec);
+  const tank = S.addUnitNear(g, 'tank', 1, rec.x + 120, rec.y), sentry = S.addUnitNear(g, 'sentry', 1, rec.x + 160, rec.y);
+  const foe = S.addUnitNear(g, 'scout', 2, rec.x + 200, rec.y - 100);
+  foe.movingTick = g.tick;
+  const pTank = S.hitChance(g, tank, foe, 180, tank.def.weapon), pTower = S.hitChance(g, tower, foe, 180, tower.def.weapon);
+  sentry.legE = 0; const packed = S.hitChance(g, sentry, foe, 180); sentry.legE = 1; const dug = S.hitChance(g, sentry, foe, 180);
+  check('a Gun Tower and a dug-in Sentry hit a moving target more often than guns on vehicles', pTower > pTank && dug > packed, `tower ${pTower.toFixed(2)} vs tank ${pTank.toFixed(2)}; sentry ${dug.toFixed(2)} dug in vs ${packed.toFixed(2)}`);
+}
+{
+  // Tidal Flats.
+  const S = load();
+  let sym = true, high = true, low = true;
+  for (const seed of [1, 7, 42]) {
+    const m = S.generateTidalMap(seed), { W, H, tiles } = m;
+    for (let i = 0; i < W * H && sym; i++) if (tiles[i] !== tiles[W * H - 1 - i] || m.tidal[i] !== m.tidal[W * H - 1 - i]) sym = false;
+    const reachFrom = (t) => { const r = new Uint8Array(W * H), st = [m.bases[1].y * W + m.bases[1].x]; r[st[0]] = 1;
+      while (st.length) { const i = st.pop(); for (const j of [i + 1, i - 1, i + W, i - W]) if (j >= 0 && j < W * H && !r[j] && t[j] !== S.TILE_ROCK && t[j] !== S.TILE_WATER) { r[j] = 1; st.push(j); } } return r; };
+    const rl = reachFrom(tiles);
+    for (const p of [m.bases[2], ...m.fields, ...m.geysers.map(gz => ({ x: gz.tx, y: gz.ty }))]) if (!rl[p.y * W + p.x]) low = false;
+    const ht = tiles.slice(); for (let i = 0; i < W * H; i++) if (m.tidal[i]) ht[i] = S.TILE_WATER;
+    if (!reachFrom(ht)[m.bases[2].y * W + m.bases[2].x]) high = false;
+  }
+  check('Tidal Flats is mirrored, sand and all', sym);
+  check('at low tide every geyser and scrap field can be reached over the sand', low);
+  check('at high tide the causeways still join the two bases', high);
+  const g = S.createGame({ seed: 7, mapType: 'tidal', aiTeams: [] });
+  const m = g.map;
+  let sand = -1; for (let i = 0; i < m.W * m.H; i++) if (m.tidal[i] && m.tidal[i + 1] && m.tidal[i - 1] && m.tidal[i + m.W] && m.tidal[i - m.W]) { sand = i; break; }
+  const tank = S.addUnit(g, 'tank', 1, (sand % m.W + 0.5) * 32, (Math.floor(sand / m.W) + 0.5) * 32);
+  g.teams[1].explored.fill(1);
+  const onSand = S.canPlaceBuilding(g, 1, 'tower', sand % m.W, Math.floor(sand / m.W));
+  check("nothing can be built on the sand", !onSand.ok, onSand.why);
+  check('the battle starts at low tide, with the sand dry', m.tide === 'low' && m.tiles[sand] === S.TILE_DIRT);
+  const scrapBefore = g.scrap.length;
+  run(g, S, S.CONFIG.TIDE.low + 1);
+  const ti = Math.floor(tank.y / 32) * m.W + Math.floor(tank.x / 32);
+  check('the tide comes in on time: the sand floods', m.tide === 'high' && m.tiles[sand] === S.TILE_WATER);
+  check('a vehicle caught on the sand is swamped and washed up on dry ground', !m.tidal[ti] && tank.hp < tank.maxHp && tank.hp > 0, `${Math.round(tank.hp)} / ${tank.maxHp}`);
+  run(g, S, S.CONFIG.TIDE.high);
+  check('then it goes out again and fresh scrap washes up on the sand', m.tide === 'low' && m.tiles[sand] === S.TILE_DIRT && g.scrap.length === scrapBefore + 2 * S.CONFIG.TIDE.washup, `${g.scrap.length - scrapBefore} new piles`);
+}
+{
+  // The Armory: research a weapon, fit it at the Factory, new vehicles carry it.
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const armory = placeDone(S, g, 1, 'armory', rec), factory = placeDone(S, g, 1, 'factory', rec);
+  check('an Armory researches eight weapons', armory && armory.def.researches.length === 8 && Object.keys(S.WEAPONS).length === 8);
+  S.issueCommand(g, 1, { type: 'loadout', unit: 'tank', slot: 'main', weapon: 'railgun' });
+  check('a weapon must be researched before it can be fitted', !g.teams[1].loadouts.tank);
+  const old = S.addUnitNear(g, 'tank', 1, rec.x + 100, rec.y);
+  g.teams[1].scrap = 900;
+  S.issueCommand(g, 1, { type: 'research', buildingId: armory.id, key: 'w_railgun' });
+  run(g, S, S.RESEARCH.w_railgun.time + 1);
+  S.issueCommand(g, 1, { type: 'loadout', unit: 'tank', slot: 'main', weapon: 'railgun' });
+  g.teams[1].scrap = 900;
+  S.issueCommand(g, 1, { type: 'produce', buildingId: factory.id, unit: 'tank' });
+  run(g, S, 12);
+  const fresh = g.entities.find(e => e.team === 1 && e.type === 'tank' && e !== old && e.def.loadout);
+  check('new Tanks come out with the Railgun', fresh && fresh.def.weapon.projectile === 'rail' && fresh.def.weapon.damage > S.UNIT_TYPES.tank.weapon.damage * 2 && fresh.def.weapon.range > S.UNIT_TYPES.tank.weapon.range,
+    fresh ? `damage ${fresh.def.weapon.damage}, range ${fresh.def.weapon.range}` : 'none built');
+  check('vehicles built before keep their stock weapon', old.def === S.UNIT_TYPES.tank);
+  // Weapons scale with the vehicle: a Mk II stays stronger.
+  check('a weapon scales with the vehicle (Tank Mk II railgun > Tank railgun)', S.makeWeapon(S.UNIT_TYPES.tank2.weapon, 'railgun').damage > S.makeWeapon(S.UNIT_TYPES.tank.weapon, 'railgun').damage);
+  // Damage against light and heavy armour.
+  const dmg = (wk, targetType) => {
+    const g2 = deployedGame(S), r2 = mine(g2, 1, 'recycler')[0];
+    const tgt = S.addUnitNear(g2, targetType, 2, r2.x + 200, r2.y); tgt.hp = tgt.maxHp = 10000;
+    const w = S.makeWeapon(S.UNIT_TYPES.tank.weapon, wk);
+    S.damageForTest(g2, tgt, w.damage, { kind: w.projectile, vsHeavy: w.vsHeavy, vsLight: w.vsLight });
+    return 10000 - tgt.hp;
+  };
+  check('Sabot rounds hit heavy armour harder and light vehicles softer', dmg('sabot', 'tank') > dmg('stock', 'tank') * 1.4 && dmg('sabot', 'scout') < dmg('sabot', 'tank'), `vs Tank ${dmg('sabot', 'tank')}, vs Scout ${dmg('sabot', 'scout')}`);
+  // Flamethrower burns what stands around the target; Shock slows it; a Rocket Battery fires three.
+  const g3 = deployedGame(S), r3 = mine(g3, 1, 'recycler')[0];
+  g3.teams[1].research.w_flamer = g3.teams[1].research.w_shock = g3.teams[1].research.w_rockets = true;
+  for (const [unit, slot, weapon] of [['scout', 'light', 'flamer'], ['hornet', 'light', 'shock'], ['tank', 'main', 'rockets']]) S.issueCommand(g3, 1, { type: 'loadout', unit, slot, weapon });
+  const dir = Math.sign(g3.map.W * 16 - r3.x);
+  const mk = (type, team, dx, dy) => { const u = S.addUnitNear(g3, type, team, r3.x + dx * dir, r3.y + dy); return u; };
+  const flamer = mk('scout', 1, 200, -120), rocketTank = mk('tank', 1, 200, 120), shocker = mk('hornet', 1, 200, 0);
+  for (const u of [flamer, rocketTank, shocker]) u.def = S.loadoutDef(u.type, g3.teams[1].loadouts[u.type]);   // fitted, as the Factory does
+  const a = mk('tank', 2, 270, -120), b = mk('tank', 2, 285, -100), victim = mk('scout', 2, 300, 0), rocketTarget = mk('tank', 2, 330, 120);
+  for (const e of [a, b, victim, rocketTarget]) { e.hp = e.maxHp = 9000; e.stance = 'stealth'; }
+  let salvo = 0;
+  for (let i = 0; i < 30 * 4; i++) { S.stepGame(g3); salvo = Math.max(salvo, g3.projectiles.filter(p => p.owner === rocketTank.id).length); }
+  check('a Flamethrower burns the vehicles around its target too', a.hp < 9000 && b.hp < 9000, `${Math.round(9000 - a.hp)} and ${Math.round(9000 - b.hp)} damage`);
+  check('a Shock Emitter slows what it hits', victim.shockUntil > g3.time - 3 && victim.shockMul < 1);
+  check('a Rocket Battery fires a salvo of three', salvo >= 3, `${salvo} in the air`);
+  // A saved game keeps the loadout.
+  const text = S.saveGame(g);
+  const back = S.loadGame(text).game;
+  const b2 = back.entities.find(e => e.id === fresh.id);
+  check('a saved game keeps each vehicle\'s weapons and the loadouts', b2 && b2.def.weapon.projectile === 'rail' && back.teams[1].loadouts.tank.main === 'railgun');
 }
 
 console.log(`\n${passes} passed, ${fails} failed`);
