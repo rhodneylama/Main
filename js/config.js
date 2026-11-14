@@ -35,8 +35,17 @@ const CONFIG = {
   // (× ACC_SHOOTER_MOVING) and when the target is moving (less per pixel a
   // second of its speed). Buildings never dodge. Artillery has its own
   // spread instead. A miss flies past and hits nothing.
-  ACCURACY: { bullet: 0.97, shell: 0.95, rocket: 0.95 },
+  ACCURACY: { bullet: 0.97, shell: 0.95, rocket: 0.95, rail: 0.98, flame: 0.96, shock: 0.96 },
   ACC_RANGE: 0.12, ACC_SHOOTER_MOVING: 0.92, ACC_TARGET_SPEED: 0.002, ACC_MIN: 0.15,
+  // Guns that fire from a fixed spot (towers, the Recycler, dug-in Sentries,
+  // Artillery with its legs down) are steadier: a higher hit chance, a
+  // quarter less penalty against moving targets, and a tighter shell spread.
+  ACC_FIXED: 1.1, ACC_FIXED_TRACK: 0.75, ARTY_SPREAD_FIXED: 0.75,
+  // Tidal Flats: each cycle is `low` seconds of low tide then `high` of high
+  // tide; warnings come `warn` seconds before it turns. Anything still on
+  // the sand when it floods loses `swamp` of its health and is washed up on
+  // the nearest dry ground. Each low tide washes up `washup` pairs of scrap.
+  TIDE: { low: 160, high: 80, warn: 25, swamp: 0.3, washup: 5, washAmount: 120 },
   // Veterancy: kills earn ranks (Veteran, Elite, Ace). Each rank adds to the
   // chance to hit (× 1 + VET_ACC[rank]), shrinks the penalty for firing on
   // the move, reloads faster (VET_RELOAD less per rank) and adds health.
@@ -85,7 +94,7 @@ const FACTIONS = {
       'Sentry': 'Pylon', 'Sentry Mk II': 'Pylon Mk II', 'Repair Drone': 'Mender', 'Juggernaut': 'Colossus', 'Juggernaut Mk II': 'Colossus Mk II',
       'Factory': 'Assembler', 'Factory II': 'Assembler II', 'Extractor': 'Siphon', 'Base Silo': 'Vault Orb',
       'Gun Tower': 'Prism Tower', 'Artillery Tower': 'Prism Lancer', 'Heavy Gun Tower': 'Heavy Prism',
-      'Research Lab': 'Archive', 'Radar': 'Sensor Array', 'Repair Pad': 'Mending Lattice',
+      'Research Lab': 'Archive', 'Armory': 'Forge', 'Radar': 'Sensor Array', 'Repair Pad': 'Mending Lattice',
       'Power Generator': 'Flux Well', 'Shield Projector': 'Aegis Pylon', 'Radar II': 'Sensor Array II', 'Radar III': 'Sensor Array III',
       'Advanced Scouts': 'Advanced Shards', 'Advanced Tanks': 'Advanced Bulwarks', 'Advanced Artillery': 'Advanced Spires',
       'Advanced Hornets': 'Advanced Talons', 'Advanced Sentries': 'Advanced Pylons', 'Advanced Juggernauts': 'Advanced Colossi',
@@ -152,13 +161,13 @@ const UNIT_TYPES = {
   },
   // No gun. A shield soaks up damage first and recharges once out of combat.
   scout: {
-    name: 'Scout', role: 'combat', cost: 50, buildTime: 5,
+    name: 'Scout', role: 'combat', hardpoints: { light: 'weapon' }, cost: 50, buildTime: 5,
     hp: 140, speed: 98, radius: 11, sight: 330,
     weapon: { range: 170, damage: 8, cooldown: 0.35, projectile: 'bullet', vsBuilding: 0.5 },
     desc: 'Fast and far-sighted. Can scout the map on its own or as a roaming pack.',
   },
   tank: {
-    name: 'Tank', role: 'combat', cost: 100, buildTime: 9,
+    name: 'Tank', role: 'combat', hardpoints: { main: 'weapon' }, cost: 100, buildTime: 9,
     hp: 400, speed: 40, radius: 15, sight: 260,
     weapon: { range: 200, damage: 34, cooldown: 1.2, projectile: 'shell', vsBuilding: 1 },
     desc: 'The backbone of your army. Tough, steady damage. Can patrol between your buildings.',
@@ -173,7 +182,7 @@ const UNIT_TYPES = {
   },
   // Light rocket tank: between a Scout and a Tank on cost, armour, speed and punch.
   hornet: {
-    name: 'Hornet', role: 'combat', cost: 75, buildTime: 7,
+    name: 'Hornet', role: 'combat', hardpoints: { light: 'weapon' }, cost: 75, buildTime: 7,
     hp: 250, speed: 68, radius: 13, sight: 280,
     weapon: { range: 220, damage: 26, cooldown: 0.9, projectile: 'rocket', vsBuilding: 1.2 },
     desc: 'Light rocket tank, between a Scout and a Tank: cheaper and much faster than a Tank, with less armour, and its rockets hit hard.',
@@ -182,7 +191,7 @@ const UNIT_TYPES = {
   // with two turrets that fire at two targets at once: a Tank's cannon in
   // front and a Sentry's minigun behind.
   heavy: {
-    name: 'Juggernaut', role: 'combat', cost: 200, buildTime: 14,
+    name: 'Juggernaut', role: 'combat', hardpoints: { main: 'weapon', light: 'weapon2' }, cost: 200, buildTime: 14,
     hp: 715, speed: 32, radius: 18, sight: 270,
     weapon: { range: 200, damage: 34, cooldown: 1.2, projectile: 'shell', vsBuilding: 1 },
     weapon2: { range: 220, damage: 7, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
@@ -192,7 +201,7 @@ const UNIT_TYPES = {
   // fires a rapid stream at anything in range and never moves or gives chase
   // until it is packed up again. It cannot fire while packed up.
   sentry: {
-    name: 'Sentry', role: 'combat', cost: 90, buildTime: 8,
+    name: 'Sentry', role: 'combat', hardpoints: { light: 'weapon' }, cost: 90, buildTime: 8,
     hp: 320, speed: 36, radius: 12, sight: 260, deployToFire: true, deployable: true,
     weapon: { range: 220, damage: 7, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
     desc: 'Defensive turret on tracks. Press Deploy and it digs in where it stands, then guards that spot with a rapid stream of fire. It never chases, and cannot fire until deployed.',
@@ -203,13 +212,13 @@ const UNIT_TYPES = {
   // Scout sees further, Hornet fires a third rocket, Tank and Sentry
   // outrange the basic Tank, Artillery reaches further with a bigger blast.
   scout2: {
-    name: 'Scout Mk II', base: 'scout', requires: 'scout2', role: 'combat', cost: 70, buildTime: 7,
+    name: 'Scout Mk II', base: 'scout', requires: 'scout2', role: 'combat', hardpoints: { light: 'weapon' }, cost: 70, buildTime: 7,
     hp: 210, speed: 120, radius: 11, sight: 420,
     weapon: { range: 170, damage: 11, cooldown: 0.35, projectile: 'bullet', vsBuilding: 0.5 },
     desc: 'Upgraded Scout: tougher and faster, and it sees much further, so it spots for Artillery from safety.',
   },
   tank2: {
-    name: 'Tank Mk II', base: 'tank', requires: 'tank2', role: 'combat', cost: 145, buildTime: 12,
+    name: 'Tank Mk II', base: 'tank', requires: 'tank2', role: 'combat', hardpoints: { main: 'weapon' }, cost: 145, buildTime: 12,
     hp: 620, speed: 46, radius: 15, sight: 260,
     weapon: { range: 220, damage: 48, cooldown: 1.2, projectile: 'shell', vsBuilding: 1 },
     desc: 'Upgraded Tank: much heavier armour and a bigger gun that outranges a basic Tank.',
@@ -217,7 +226,7 @@ const UNIT_TYPES = {
   // Juggernaut Mk II: both turrets get twin barrels (double cannon, double
   // minigun) for the usual +40% damage, with +50% armour and a little speed.
   heavy2: {
-    name: 'Juggernaut Mk II', base: 'heavy', requires: 'heavy2', role: 'combat', cost: 290, buildTime: 18,
+    name: 'Juggernaut Mk II', base: 'heavy', requires: 'heavy2', role: 'combat', hardpoints: { main: 'weapon', light: 'weapon2' }, cost: 290, buildTime: 18,
     hp: 1073, speed: 36, radius: 18, sight: 270,
     weapon: { range: 220, damage: 48, cooldown: 1.2, projectile: 'shell', vsBuilding: 1 },
     weapon2: { range: 240, damage: 10, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
@@ -232,13 +241,13 @@ const UNIT_TYPES = {
     desc: 'Upgraded Artillery: tougher, reaches further and has a bigger blast.',
   },
   hornet2: {
-    name: 'Hornet Mk II', base: 'hornet', requires: 'hornet2', role: 'combat', cost: 110, buildTime: 9,
+    name: 'Hornet Mk II', base: 'hornet', requires: 'hornet2', role: 'combat', hardpoints: { light: 'weapon' }, cost: 110, buildTime: 9,
     hp: 380, speed: 80, radius: 13, sight: 280,
     weapon: { range: 240, damage: 36, cooldown: 0.9, projectile: 'rocket', vsBuilding: 1.2 },
     desc: 'Upgraded Hornet: a third rocket, more armour and more speed.',
   },
   sentry2: {
-    name: 'Sentry Mk II', base: 'sentry', requires: 'sentry2', role: 'combat', cost: 130, buildTime: 11,
+    name: 'Sentry Mk II', base: 'sentry', requires: 'sentry2', role: 'combat', hardpoints: { light: 'weapon' }, cost: 130, buildTime: 11,
     hp: 500, speed: 40, radius: 12, sight: 280, deployToFire: true, deployable: true,
     weapon: { range: 250, damage: 10, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
     desc: 'Upgraded Sentry: heavier armour, harder-hitting, and once dug in it outranges a Tank.',
@@ -256,7 +265,46 @@ const RESEARCH = {
   heavy2:     { name: 'Advanced Juggernauts', cost: 225, time: 65 },
   // Unlocks a building rather than a vehicle (BUILDING_TYPES.shield.requires).
   shields:    { name: 'Forcefield Tech',    cost: 250, time: 60, unlocks: 'Shield Projectors' },
+  // Weapons, researched at an Armory (see WEAPONS).
+  w_sabot:    { name: 'Sabot Cannon',      cost: 150, time: 45, weapon: 'sabot' },
+  w_railgun:  { name: 'Railgun',           cost: 250, time: 70, weapon: 'railgun' },
+  w_mortar:   { name: 'Mortar',            cost: 200, time: 55, weapon: 'mortar' },
+  w_rockets:  { name: 'Rocket Battery',    cost: 200, time: 55, weapon: 'rockets' },
+  w_hmg:      { name: 'Heavy Machine Gun', cost: 125, time: 40, weapon: 'hmg' },
+  w_flamer:   { name: 'Flamethrower',      cost: 175, time: 50, weapon: 'flamer' },
+  w_swarm:    { name: 'Swarm Missiles',    cost: 150, time: 45, weapon: 'swarm' },
+  w_shock:    { name: 'Shock Emitter',     cost: 200, time: 55, weapon: 'shock' },
 };
+
+// Armory weapons. Every vehicle has one or two hardpoints (UNIT_TYPES.*.hardpoints):
+// a main gun (Tank, the Juggernaut's front turret) or a light gun (Scout,
+// Hornet, Sentry, the Juggernaut's rear turret). Each weapon changes that
+// hardpoint's stock weapon by these factors, so it suits light and heavy
+// vehicles alike and a Mk II stays stronger than the basic version.
+//   damage / cooldown / rangeMul multiply; rangeAdd adds; others replace.
+//   vsHeavy / vsLight: damage against heavy vehicles (Tanks, Juggernauts,
+//   Sentries, Artillery, the Recycler) or light ones (everything else).
+//   salvo: shots per trigger pull. splash: damage around the hit.
+//   slow / slowTime: the target moves this much slower for a while.
+const WEAPONS = {
+  sabot:   { slot: 'main', name: 'Sabot Cannon', note: 'Armour-piercing: +50% against heavy vehicles, less against light ones.',
+             mod: { damage: 1.1, vsHeavy: 1.5, vsLight: 0.75 } },
+  railgun: { slot: 'main', name: 'Railgun', note: 'Long range, huge hits, slow to reload, almost never misses.',
+             mod: { projectile: 'rail', rangeAdd: 70, damage: 2.4, cooldown: 2.1, vsHeavy: 1.15, acc: 1.05 } },
+  mortar:  { slot: 'main', name: 'Mortar', note: 'Lobs shells over cover: longer range, splash, good against groups and buildings. Can\'t hit anything very close.',
+             mod: { projectile: 'artillery', rangeAdd: 100, minRange: 90, damage: 1.15, cooldown: 1.7, splash: 45, vsBuilding: 1.4 } },
+  rockets: { slot: 'main', name: 'Rocket Battery', note: 'A salvo of three homing rockets: more damage up front, longer reload.',
+             mod: { projectile: 'rocket', salvo: 3, damage: 0.5, cooldown: 1.5, vsBuilding: 1.2 } },
+  hmg:     { slot: 'light', name: 'Heavy Machine Gun', note: 'Shreds light vehicles (+40%); weaker against armour.',
+             mod: { projectile: 'bullet', damage: 1.25, vsLight: 1.4, vsHeavy: 0.8 } },
+  flamer:  { slot: 'light', name: 'Flamethrower', note: 'Short range, burns everything around the target. Great against buildings.',
+             mod: { projectile: 'flame', rangeMul: 0.55, damage: 1.8, splash: 40, vsBuilding: 1.5, vsLight: 1.2 } },
+  swarm:   { slot: 'light', name: 'Swarm Missiles', note: 'Paired homing missiles, good against armour (+30%).',
+             mod: { projectile: 'rocket', salvo: 2, damage: 0.65, cooldown: 1.15, vsHeavy: 1.3, vsBuilding: 1 } },
+  shock:   { slot: 'light', name: 'Shock Emitter', note: 'Weaker hits, but each one slows the target by 45% for 2.5 seconds.',
+             mod: { projectile: 'shock', damage: 0.7, slow: 0.45, slowTime: 2.5 } },
+};
+const HEAVY_KINDS = ['tank', 'heavy', 'sentry', 'artillery', 'mobileRecycler'];
 
 // size is in map squares. produces = units this building can make.
 const BUILDING_TYPES = {
@@ -296,6 +344,12 @@ const BUILDING_TYPES = {
     name: 'Research Lab', cost: 200, buildTime: 20, hp: 900, size: 2, sight: 200, buildRadius: 6,
     researches: ['scout2', 'tank2', 'artillery2', 'hornet2', 'sentry2', 'heavy2', 'shields'],
     desc: 'Researches Mk II vehicles (a Factory II can then build them) and Forcefield Tech (Shield Projectors), one at a time.',
+  },
+  // Researches new weapons; a Factory then fits them to new vehicles (Loadouts).
+  armory: {
+    name: 'Armory', cost: 200, buildTime: 25, hp: 1000, size: 2, sight: 200, buildRadius: 6,
+    researches: ['w_sabot', 'w_railgun', 'w_mortar', 'w_rockets', 'w_hmg', 'w_flamer', 'w_swarm', 'w_shock'],
+    desc: 'Researches new weapons, one at a time. Then pick each vehicle\'s weapons at a Factory (Loadouts): new vehicles come out with them.',
   },
   // Every `every` seconds it pings, revealing a wide circle for `lasts` seconds.
   radar: {

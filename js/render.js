@@ -38,14 +38,37 @@ const URBAN_STYLE_COLORS = {
   3: [[63, 64, 67], [59, 60, 63], [67, 68, 71]],      // rubble (lies on the street)
   4: [[66, 88, 52], [62, 83, 49], [70, 93, 55]],      // tree (on park ground)
 };
-const tileColors = (map, i) => (map.urban && map.style[i] && URBAN_STYLE_COLORS[map.style[i]]) || (map.urban ? URBAN_COLORS : TERRAIN_COLORS)[map.tiles[i]];
+// Tidal Flats: sand that floods to shallow water at high tide, and stone causeways.
+const TIDAL_COLORS = {
+  sand: [[166, 148, 106], [160, 142, 101], [172, 154, 111]],
+  shallow: [[50, 96, 110], [47, 92, 106], [53, 100, 114]],
+  causeway: [[118, 112, 102], [112, 106, 97], [124, 118, 108]],
+};
+const tileColors = (map, i) => {
+  if (map.tidalMap) {
+    if (map.tidal[i]) return map.tide === 'high' ? TIDAL_COLORS.shallow : TIDAL_COLORS.sand;
+    if (map.style[i] === 5) return TIDAL_COLORS.causeway;
+    return TERRAIN_COLORS[map.tiles[i]];
+  }
+  return (map.urban && map.style[i] && URBAN_STYLE_COLORS[map.style[i]]) || (map.urban ? URBAN_COLORS : TERRAIN_COLORS)[map.tiles[i]];
+};
 
 function buildTerrain(game) {
   const { W, H } = game.map;
   Render.game = game;
   Render.chunks = new Map();
   Render.scorches = [];
-  // One pixel per square: shown blurred while detailed chunks are still being painted.
+  buildFlat(game);
+  const f = document.createElement('canvas');
+  f.width = W; f.height = H;
+  Render.fog = f;
+  Render.fogData = f.getContext('2d').createImageData(W, H);
+}
+
+// One pixel per square: shown blurred while detailed chunks are still being
+// painted, and the minimap's background. Rebuilt when the tide turns.
+function buildFlat(game) {
+  const { W, H } = game.map;
   const flat = document.createElement('canvas'); flat.width = W; flat.height = H;
   const fg = flat.getContext('2d'), img = fg.createImageData(W, H);
   for (let i = 0; i < W * H; i++) {
@@ -54,11 +77,8 @@ function buildTerrain(game) {
   }
   fg.putImageData(img, 0, 0);
   Render.flat = flat;
+  Render.tideVersion = game.map.tideVersion || 0;
   minimapBase = null;
-  const f = document.createElement('canvas');
-  f.width = W; f.height = H;
-  Render.fog = f;
-  Render.fogData = f.getContext('2d').createImageData(W, H);
 }
 
 // Each square has its own random numbers, so a chunk always paints the same
@@ -119,6 +139,7 @@ function paintChunk(game, cx, cy) {
       g.moveTo(wx, wy); g.quadraticCurveTo(wx + 6, wy - 3, wx + 12, wy); g.stroke();
     }
   }
+  if (game.map.tidalMap) paintTidal(game, g, ring, rngOf);
   return finishChunk(game, g, c, x0, y0, x1, y1);
 }
 
@@ -233,6 +254,30 @@ function paintCity(game, g, ring, rngOf) {
   }
 }
 
+// Ripples on the sand (or foam over it at high tide), and edge stones on the causeways.
+function paintTidal(game, g, ring, rngOf) {
+  const { W, H, tidal, style, tide } = game.map, T = CONFIG.TILE;
+  const wetAt = (x, y) => x < 0 || y < 0 || x >= W || y >= H || game.map.tiles[y * W + x] === TILE_WATER;
+  for (const [x, y] of ring) {
+    const i = y * W + x, r = rngOf(x, y), px = x * T, py = y * T;
+    if (tidal[i]) {
+      g.strokeStyle = tide === 'high' ? 'rgba(210,235,240,0.18)' : 'rgba(110,92,60,0.30)'; g.lineWidth = 1.2;
+      for (let k = 0; k < 2; k++) {
+        const wy = py + 6 + r() * 20, wx = px + r() * 8;
+        g.beginPath(); g.moveTo(wx, wy); g.quadraticCurveTo(wx + 8, wy - 3, wx + 16, wy); g.stroke();
+      }
+      if (tide !== 'high' && r() < 0.12) { g.fillStyle = 'rgba(235,225,200,0.6)'; g.beginPath(); g.arc(px + r() * T, py + r() * T, 1.6, 0, Math.PI * 2); g.fill(); }  // shells
+    } else if (style[i] === 5) {
+      g.fillStyle = 'rgba(60,56,50,0.55)';
+      if (wetAt(x, y - 1) || tidal[i - W]) g.fillRect(px, py, T, 4);
+      if (wetAt(x, y + 1) || tidal[i + W]) g.fillRect(px, py + T - 4, T, 4);
+      if (wetAt(x - 1, y) || tidal[i - 1]) g.fillRect(px, py, 4, T);
+      if (wetAt(x + 1, y) || tidal[i + 1]) g.fillRect(px + T - 4, py, 4, T);
+      g.strokeStyle = 'rgba(0,0,0,0.15)'; g.lineWidth = 1; g.strokeRect(px + 3, py + 3, T - 6, T - 6);
+    }
+  }
+}
+
 function paintScorch(chunk, sc) {
   if (sc.x + sc.r < chunk.x || sc.x - sc.r > chunk.x + chunk.w || sc.y + sc.r < chunk.y || sc.y - sc.r > chunk.y + chunk.h) return;
   const g = chunk.canvas.getContext('2d');
@@ -245,6 +290,8 @@ function paintScorch(chunk, sc) {
 // Paints the chunks that overlap the given world rectangle.
 function drawTerrain(ctx, game, vx0, vy0, vx1, vy1) {
   const T = CONFIG.TILE, S = CHUNK * T, { W, H } = game.map;
+  // The tide turned: repaint the ground.
+  if (game.map.tidalMap && (game.map.tideVersion || 0) !== Render.tideVersion) { Render.chunks = new Map(); buildFlat(game); }
   Render.frame++;
   const cx0 = Math.max(0, Math.floor(vx0 / S)), cy0 = Math.max(0, Math.floor(vy0 / S));
   const cx1 = Math.min(Math.ceil(W / CHUNK) - 1, Math.floor(vx1 / S)), cy1 = Math.min(Math.ceil(H / CHUNK) - 1, Math.floor(vy1 / S));
@@ -559,14 +606,14 @@ function drawScrap(ctx, s) {
 // Which design from the unit sheet (js/sprites.js) each game type uses.
 // No prototype, so a type like "constructor" isn't mistaken for a built-in.
 // Power Generators and Shield Projectors are drawn here (drawPowerBuilding); they borrow the Silo's explosion and crater.
-const SPRITE_ID = Object.assign(Object.create(null), { mobileRecycler: 'recyclerV', repairpad: 'repair', basesilo: 'silo', outsilo: 'exsilo', arttower: 'towerArt', heavytower: 'towerHeavy', generator: 'silo', shield: 'silo', drone: 'scout', heavy: 'juggernaut' });
+const SPRITE_ID = Object.assign(Object.create(null), { mobileRecycler: 'recyclerV', repairpad: 'repair', basesilo: 'silo', outsilo: 'exsilo', arttower: 'towerArt', heavytower: 'towerHeavy', generator: 'silo', shield: 'silo', armory: 'lab', drone: 'scout', heavy: 'juggernaut' });
 const spriteId = type => SPRITE_ID[type] || type;
 // The Kethra Concord's designs (js/sprites_kethra.js). Its towers have one
 // design; upgraded ones are drawn with its gold markings.
 const KETHRA_ID = Object.assign(Object.create(null), {
   mobileRecycler: 'monad', recycler: 'nexus', scavenger: 'skimmer', constructor: 'loom', scout: 'shard', tank: 'bulwark',
   artillery: 'spire', hornet: 'talon', sentry: 'pylon', factory: 'assembler', repairpad: 'lattice', extractor: 'siphon',
-  basesilo: 'vault', tower: 'prism', arttower: 'prism', heavytower: 'prism', lab: 'archive', radar: 'array', generator: 'vault', shield: 'vault', drone: 'shard', heavy: 'colossus',
+  basesilo: 'vault', tower: 'prism', arttower: 'prism', heavytower: 'prism', lab: 'archive', radar: 'array', generator: 'vault', shield: 'vault', armory: 'archive', drone: 'shard', heavy: 'colossus',
 });
 // Which set of designs, and which design in it, draws a thing of a given faction.
 const artFor = faction => (faction === 'kethra' && window.KethraSprites ? KethraSprites : UnitSprites);
@@ -583,6 +630,7 @@ function flashOver(ctx, x, y, r) {
 
 function drawBuilding(ctx, b, selected, ghost, time) {
   if (b.type === 'generator' || b.type === 'shield') { drawPowerBuilding(ctx, b, ghost, time); if (selected) drawSelection(ctx, b); return; }
+  if (b.type === 'armory') { drawArmory(ctx, b, ghost, time); if (selected) drawSelection(ctx, b); return; }
   const T = CONFIG.TILE, s = b.size * T, art = artFor(b.faction), id = artId(b.faction, b.variant || b.type), team = teamName(b.team);
   ctx.save();
   if (ghost) ctx.globalAlpha = 0.5;
@@ -635,6 +683,10 @@ function drawUnit(ctx, u, selected, time) {
   });
   if (u.hp < u.maxHp * 0.5) art.drawDamage(ctx, id, u.x, u.y, time);
   if (u.hitFlash > 0) flashOver(ctx, u.x, u.y, r);
+  if (u.shockUntil > time) {   // slowed by a Shock Emitter
+    ctx.strokeStyle = `rgba(140,228,255,${0.5 + 0.4 * Math.sin(time * 30)})`; ctx.lineWidth = 1.5;
+    ctx.beginPath(); for (let i = 0; i <= 10; i++) { const a = i / 10 * Math.PI * 2, rr = r + 3 + (i % 2) * 3; ctx[i ? 'lineTo' : 'moveTo'](u.x + Math.cos(a) * rr, u.y + Math.sin(a) * rr); } ctx.stroke();
+  }
   if (u.repairing > 0) {
     ctx.strokeStyle = `rgba(110,224,110,${0.5 + 0.4 * Math.sin(time * 10)})`; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(u.x, u.y, r + 4, 0, Math.PI * 2); ctx.stroke();
@@ -677,6 +729,50 @@ function drawCustomUnit(ctx, u, time) {
 // Power Generator (a coil with a glowing core that spins while it powers
 // something) and Shield Projector (an emitter fork pointing the way its
 // field faces). Kethra versions are rounder, with cyan light.
+// Armory: a squat bunker with a blast door and a gun rack on the roof
+// (Scrapline), or a rounded forge with a glowing core (Kethra). Sparks fly
+// from it while it researches.
+function drawArmory(ctx, b, ghost, time) {
+  const T = CONFIG.TILE, s = b.size * T, h = s / 2, col = TEAMS[b.team].color, kethra = b.faction === 'kethra';
+  ctx.save(); ctx.translate(b.x, b.y);
+  ctx.globalAlpha = ghost ? 0.5 : b.built < 1 ? 0.25 + 0.6 * b.built : 1;
+  ctx.strokeStyle = '#0d0f0c'; ctx.lineWidth = 2;
+  if (kethra) {
+    ctx.fillStyle = '#3c4254'; ctx.beginPath();
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 + Math.PI / 8; ctx[i ? 'lineTo' : 'moveTo'](Math.cos(a) * (h - 3), Math.sin(a) * (h - 3)); }
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#2a2e3a'; ctx.beginPath(); ctx.arc(0, 0, h * 0.55, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    const live = b.researching && b.built >= 1;
+    ctx.fillStyle = live ? `rgba(111,240,255,${0.6 + 0.4 * Math.sin(time * 8)})` : '#6ff0ff';
+    ctx.beginPath(); ctx.arc(0, 0, h * 0.22, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#8a5cff'; ctx.lineWidth = 2;
+    for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + (live ? time : 0); ctx.beginPath(); ctx.moveTo(Math.cos(a) * h * 0.3, Math.sin(a) * h * 0.3); ctx.lineTo(Math.cos(a) * h * 0.52, Math.sin(a) * h * 0.52); ctx.stroke(); }
+    ctx.fillStyle = col; ctx.fillRect(-h * 0.5, h - 9, h, 4);
+  } else {
+    ctx.fillStyle = '#5a6156'; ctx.beginPath(); ctx.rect(-h + 3, -h + 3, s - 6, s - 6); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#6f7869'; ctx.fillRect(-h + 7, -h + 7, s - 14, s * 0.42);
+    // Gun rack on the roof: three barrels.
+    ctx.fillStyle = '#2f332d';
+    for (let i = 0; i < 3; i++) ctx.fillRect(-h + 12, -h + 11 + i * 7, s - 30, 3.5);
+    ctx.fillStyle = '#c9ced4'; for (let i = 0; i < 3; i++) ctx.fillRect(h - 18, -h + 10 + i * 7, 5, 5.5);
+    // Blast door with hazard stripes.
+    ctx.fillStyle = '#e0b030'; ctx.fillRect(-h * 0.55, h * 0.12, h * 1.1, h * 0.62);
+    ctx.fillStyle = '#1b1d21';
+    for (let i = 0; i < 5; i++) { ctx.beginPath(); const x0 = -h * 0.55 + i * h * 0.24; ctx.moveTo(x0, h * 0.74); ctx.lineTo(x0 + h * 0.12, h * 0.74); ctx.lineTo(x0 + h * 0.24, h * 0.12); ctx.lineTo(x0 + h * 0.12, h * 0.12); ctx.closePath(); ctx.fill(); }
+    ctx.strokeStyle = '#0d0f0c'; ctx.lineWidth = 1.5; ctx.strokeRect(-h * 0.55, h * 0.12, h * 1.1, h * 0.62);
+    ctx.fillStyle = col; ctx.fillRect(-h + 5, -h + 5, 5, s - 10);
+  }
+  // Sparks from the work going on inside.
+  if (b.researching && b.built >= 1 && !ghost) {
+    for (let i = 0; i < 4; i++) {
+      const ph = (time * 2 + i * 0.27) % 1, a = i * 2.1 + Math.floor(time * 2 + i * 0.27) * 1.3;
+      ctx.fillStyle = `rgba(255,${200 - ph * 100 | 0},80,${1 - ph})`;
+      ctx.beginPath(); ctx.arc(Math.cos(a) * h * 0.3 * (1 + ph), -h * 0.1 + Math.sin(a) * h * 0.3 * (1 + ph) - ph * 10, 2, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
 function drawPowerBuilding(ctx, b, ghost, time) {
   const T = CONFIG.TILE, s = b.size * T, h = s / 2, col = TEAMS[b.team].color, kethra = b.faction === 'kethra';
   const glow = kethra ? '#6ff0ff' : '#ffd25a', body = kethra ? '#2a2e3a' : '#4a5446', plate = kethra ? '#3c4254' : '#6b7866';
@@ -788,6 +884,22 @@ function drawProjectile(ctx, p) {
     ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - Math.cos(a) * 10, p.y - Math.sin(a) * 10); ctx.stroke();
   } else if (p.kind === 'shell') {
     ctx.fillStyle = '#ffcf6a'; ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill();
+  } else if (p.kind === 'rail') {
+    // A railgun slug: a white-hot streak (the beam itself is an effect).
+    const a = Math.atan2(p.ty - p.y, p.tx - p.x);
+    ctx.strokeStyle = '#e8f6ff'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - Math.cos(a) * 26, p.y - Math.sin(a) * 26); ctx.stroke();
+  } else if (p.kind === 'flame') {
+    // A tongue of fire that swells as it flies.
+    const f = 1 - Math.min(1, Math.hypot(p.tx - p.x, p.ty - p.y) / 120);
+    ctx.fillStyle = 'rgba(255,120,30,0.55)'; ctx.beginPath(); ctx.arc(p.x, p.y, 5 + f * 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,220,90,0.85)'; ctx.beginPath(); ctx.arc(p.x, p.y, 2.5 + f * 3, 0, Math.PI * 2); ctx.fill();
+  } else if (p.kind === 'shock') {
+    // A crackling blue bolt.
+    const a = Math.atan2(p.ty - p.y, p.tx - p.x), c = Math.cos(a), s = Math.sin(a);
+    ctx.strokeStyle = '#8fe4ff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(p.x, p.y);
+    for (let i = 1; i <= 4; i++) { const j = (i % 2 ? 1 : -1) * 3; ctx.lineTo(p.x - c * i * 4 - s * j, p.y - s * i * 4 + c * j); }
+    ctx.stroke();
   } else if (p.kind === 'rocket') {
     // A small rocket with a smoky trail back toward where it was fired.
     const a = Math.atan2(p.ty - p.y, p.tx - p.x), c = Math.cos(a), s = Math.sin(a);
@@ -876,7 +988,30 @@ function drawEffect(ctx, fx) {
       }
       break;
     }
+    case 'beam': {
+      // The railgun's line of light, fading fast.
+      ctx.strokeStyle = `rgba(200,240,255,${0.9 * (1 - k)})`; ctx.lineWidth = 3 * (1 - k) + 1;
+      ctx.beginPath(); ctx.moveTo(fx.x, fx.y); ctx.lineTo(fx.x2, fx.y2); ctx.stroke();
+      ctx.strokeStyle = `${TEAMS[fx.team].color}${Math.round(160 * (1 - k)).toString(16).padStart(2, '0')}`; ctx.lineWidth = 7 * (1 - k);
+      ctx.beginPath(); ctx.moveTo(fx.x, fx.y); ctx.lineTo(fx.x2, fx.y2); ctx.stroke();
+      break;
+    }
+    case 'burn': {
+      // Fire spreading round the hit.
+      const r = Math.max(10, fx.r || 20) * (0.5 + k * 0.7);
+      ctx.fillStyle = `rgba(255,${150 - k * 100 | 0},40,${0.55 * (1 - k)})`;
+      ctx.beginPath(); ctx.arc(fx.x, fx.y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = `rgba(255,230,120,${0.7 * (1 - k)})`;
+      ctx.beginPath(); ctx.arc(fx.x, fx.y, r * 0.45, 0, Math.PI * 2); ctx.fill();
+      break;
+    }
+    case 'zap':
+      ctx.strokeStyle = `rgba(140,228,255,${1 - k})`; ctx.lineWidth = 2;
+      for (let i = 0; i < 4; i++) { const a = i * 1.6 + k * 3; ctx.beginPath(); ctx.moveTo(fx.x, fx.y); ctx.lineTo(fx.x + Math.cos(a) * (6 + 12 * k), fx.y + Math.sin(a) * (6 + 12 * k)); ctx.stroke(); }
+      break;
     case 'flash':
+      if (fx.fx === 'flame') { ctx.fillStyle = `rgba(255,140,40,${0.8 * (1 - k)})`; ctx.beginPath(); ctx.arc(fx.x, fx.y, 6, 0, Math.PI * 2); ctx.fill(); break; }
+      if (fx.fx === 'shock') { ctx.fillStyle = `rgba(140,228,255,${1 - k})`; ctx.beginPath(); ctx.arc(fx.x, fx.y, 5, 0, Math.PI * 2); ctx.fill(); break; }
       ctx.fillStyle = `rgba(255,230,150,${1 - k})`;
       ctx.beginPath(); ctx.arc(fx.x, fx.y, fx.big ? 7 : 4, 0, Math.PI * 2); ctx.fill();
       break;

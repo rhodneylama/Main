@@ -329,6 +329,118 @@ function generateUrbanMap(seed) {
 }
 
 // -----------------------------------------------------------------------------
+// Tidal Flats: an archipelago where the sea comes and goes. Each base sits on
+// a big home island; smaller islands carry the other geysers, and the scrap
+// lies on little islets. Between them are sand flats ("tidal" squares): dry
+// at low tide, under water at high tide (see updateTide in sim.js). A few
+// narrow stone causeways stay above water at every tide, so the two sides
+// are never cut off, but at high tide every route runs along them. Nothing
+// can be built on the sand. Mirrored through the centre.
+//
+// Square styles here: 5 causeway. map.tidal marks the sand flats.
+// -----------------------------------------------------------------------------
+function generateTidalMap(seed) {
+  const W = CONFIG.MAP_W, H = CONFIG.MAP_H;
+  const rng = makeRng(seed);
+  const n1 = makeNoise(rng, 9), n2 = makeNoise(rng, 17);
+  const tiles = new Uint8Array(W * H).fill(TILE_WATER), style = new Uint8Array(W * H), tidal = new Uint8Array(W * H);
+  const idx = (x, y) => y * W + x;
+  const mirror = (x, y) => [W - 1 - x, H - 1 - y];
+  const inMap = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
+  const bases = { 1: { x: 10, y: H - 11 }, 2: { x: W - 11, y: 10 } };
+  const mid = { x: Math.floor(W / 2), y: Math.floor(H / 2) };
+  // Islands (bottom-left player's half; mirrored): centre and radius.
+  const islands = [
+    { x: 18, y: 150, r: 25, home: true },
+    { x: 60, y: 143, r: 10 }, { x: 51, y: 113, r: 11 }, { x: 14, y: 90, r: 11 },
+    { x: 103, y: 142, r: 11 }, { x: 116, y: 156, r: 9 }, { x: 29, y: 56, r: 11 },
+    { x: 96, y: 91, r: 10 }, { x: 66, y: 40, r: 10 },
+    { x: mid.x, y: mid.y, r: 12 },
+  ];
+  // Islets for the scrap fields that aren't on an island already.
+  const onIsland = p => islands.some(i => Math.hypot(p.x - i.x, p.y - i.y) < i.r - 2);
+  const islets = HALF_FIELDS.filter(f => !onIsland(f)).map(f => ({ x: f.x, y: f.y, r: 3.5 }));
+  const half = [...islands, ...islets];
+  // Both players' islands (the centre one only once), so sandbars can join
+  // islands on either side of the middle.
+  const all = [...half, ...half.filter(i => i.x !== mid.x || i.y !== mid.y).map(i => ({ x: W - 1 - i.x, y: H - 1 - i.y, r: i.r }))];
+  // Sandbars between neighbouring islands: dry at low tide only.
+  const bars = [];
+  for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
+    const a = all[i], b = all[j], d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (d < a.r + b.r + 26) bars.push({ a, b, w: 3 + (a.r > 6 && b.r > 6 ? 1.5 : 0) });
+  }
+  // Paint the canonical half (and its mirror image at the same time).
+  const put = (x, y, t, st = 0, td = 0) => { for (const [px, py] of [[x, y], mirror(x, y)]) if (inMap(px, py)) { const i = idx(px, py); tiles[i] = t; style[i] = st; tidal[i] = td; } };
+  const segDist = (px, py, a, b) => {
+    const vx = b.x - a.x, vy = b.y - a.y, L = vx * vx + vy * vy || 1;
+    const t = Math.max(0, Math.min(1, ((px - a.x) * vx + (py - a.y) * vy) / L));
+    return Math.hypot(px - a.x - vx * t, py - a.y - vy * t);
+  };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (idx(x, y) > idx(...mirror(x, y))) continue;
+    const wob = 0.82 + 0.36 * n1(x, y);
+    let land = false, flat = false;
+    for (const isl of all) {
+      const d = Math.hypot(x - isl.x, y - isl.y) / wob;
+      if (d < isl.r) land = true; else if (d < isl.r + (isl.r > 6 ? 7 : 5)) flat = true;
+    }
+    if (!land) for (const b of bars) if (segDist(x, y, b.a, b.b) < b.w * (0.75 + 0.5 * n2(x, y))) { flat = true; break; }
+    if (land) put(x, y, n2(x, y) > 0.62 ? TILE_DIRT : TILE_GRASS);
+    else if (flat) put(x, y, TILE_DIRT, 0, 1);
+  }
+  // Rocky outcrops on the bigger islands (never near a base or geyser).
+  const geyserHalf = HALF_GEYSERS(bases[1]);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (idx(x, y) > idx(...mirror(x, y)) || tidal[idx(x, y)] || tiles[idx(x, y)] === TILE_WATER) continue;
+    if (n1(x * 1.7, y * 1.7) > 0.8 && Math.hypot(x - bases[1].x, y - bases[1].y) > 15 && geyserHalf.every(g => Math.hypot(x - g.x, y - g.y) > 6) && HALF_FIELDS.every(f => Math.hypot(x - f.x, y - f.y) > 5))
+      put(x, y, TILE_ROCK);
+  }
+  // Stone causeways, above water at every tide: home -> middle island ->
+  // forward island -> centre; and a flank route.
+  const causeways = [[islands[0], islands[2]], [islands[2], islands[7]], [islands[7], islands[9]], [islands[0], islands[4]], [islands[3], islands[6]], [islands[2], islands[3]]];
+  const road = (a, b) => {
+    const steps = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) * 2);
+    for (let s = 0; s <= steps; s++) {
+      const cx = a.x + (b.x - a.x) * s / steps, cy = a.y + (b.y - a.y) * s / steps;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const x = Math.round(cx) + dx, y = Math.round(cy) + dy;
+        if (!inMap(x, y)) continue;
+        const i = idx(x, y);
+        if (tiles[i] === TILE_WATER || tidal[i] || tiles[i] === TILE_ROCK) put(x, y, TILE_DIRT, 5, 0);
+      }
+    }
+  };
+  for (const [a, b] of causeways) road(a, b);
+
+  // Geysers sit on solid ground; the base island has room to build.
+  const geyserTiles = [];
+  for (const g of geyserHalf) { geyserTiles.push(g); geyserTiles.push({ x: W - g.x, y: H - g.y }); }
+  const solid = (cx, cy, r) => { for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r + r && inMap(x, y)) { const i = idx(x, y); if (tiles[i] === TILE_WATER || tidal[i] || tiles[i] === TILE_ROCK) put(x, y, TILE_GRASS); } };
+  for (const g of geyserHalf) { solid(g.x, g.y, 4); solid(g.x - 1, g.y - 1, 4); }
+  solid(bases[1].x, bases[1].y, 13);
+  for (const f of HALF_FIELDS) solid(f.x, f.y, 2);
+  for (let x = 0; x < W; x++) put(x, 0, TILE_ROCK);
+  for (let y = 0; y < H; y++) put(0, y, TILE_ROCK);
+
+  const fieldTiles = [];
+  for (const f of HALF_FIELDS) { fieldTiles.push(f); const [x, y] = mirror(f.x, f.y); fieldTiles.push({ x, y }); }
+  // At high tide the two bases (and the centre) must still be joined, by
+  // causeway; at low tide everything must be reachable over the sand.
+  const high = tiles.slice(); for (let i = 0; i < W * H; i++) if (tidal[i]) high[i] = TILE_WATER;
+  connectAll(high, W, H, bases[1], [bases[2], mid], (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inMap(x + dx, y + dy)) { const i = idx(x + dx, y + dy); if (high[i] === TILE_WATER || high[i] === TILE_ROCK) { put(x + dx, y + dy, TILE_DIRT, 5, 0); const [mx, my] = mirror(x + dx, y + dy); high[i] = TILE_DIRT; high[idx(mx, my)] = TILE_DIRT; } } });
+  connectAll(tiles, W, H, bases[1], [bases[2], mid, ...fieldTiles, ...geyserTiles], (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inMap(x + dx, y + dy)) { const t = tiles[idx(x + dx, y + dy)]; if (t === TILE_WATER || t === TILE_ROCK) put(x + dx, y + dy, TILE_DIRT, 0, 1); } });
+
+  // Sand and causeways can't be built on.
+  const noBuild = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) noBuild[i] = tidal[i] || style[i] === 5 ? 1 : 0;
+  const T = CONFIG.TILE;
+  const scrap = scatterScrap(rng, HALF_FIELDS, W, H);
+  const geysers = geyserTiles.map((g, i) => ({ id: i + 1, x: g.x * T, y: g.y * T, tx: g.x, ty: g.y, extractorId: 0 }));
+  return { W, H, tiles, bases, scrap, geysers, seed, fields: fieldTiles, tidalMap: true, style, tidal, noBuild, tide: 'low' };
+}
+
+// -----------------------------------------------------------------------------
 // Pathfinding: the A* ("A-star") search finds the shortest route on the grid.
 // -----------------------------------------------------------------------------
 

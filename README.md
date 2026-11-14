@@ -240,8 +240,12 @@ silences sound and music together.
 
 ## Your forces
 
-**Maps:** pick **Wasteland** or **Ruined city** from the Map drop-down on the
-start screen. The ruined city is a grid of streets between city blocks:
+**Maps:** pick **Wasteland**, **Ruined city** or **Tidal Flats** from the Map
+drop-down on the start screen. On **Tidal Flats** the bases sit on islands
+joined by sand flats: the tide comes in every few minutes and floods the
+sand (anything caught on it is swamped and washed ashore), leaving only a
+few stone causeways open, then goes out again and washes up fresh scrap.
+You can't build on the sand. The ruined city is a grid of streets between city blocks:
 you can drive down the streets but only build in open lots, plazas,
 courtyards and parks. Rubble blocks some streets, and a canal crosses the
 city between the two bases with only five bridges.
@@ -269,6 +273,7 @@ city between the two bases with only five bridges.
 | Base Silo | 250 | Adds 300 to your scrap storage. Must be next to your Recycler. |
 | Gun Tower | 110 | Defensive turret. Upgrade once to an **Artillery Tower** (180: long-range shells with splash, range 520, needs your side to see the target) or a **Heavy Gun Tower** (150: tougher, faster twin cannon, range 280). |
 | Research Lab | 200 | Researches Advanced Scouts (150), Tanks (200), Artillery (250), Hornets (175), Sentries (175) and Juggernauts (225), one at a time. |
+| Armory | 200 | Researches new weapons: Sabot Cannon, Railgun, Mortar and Rocket Battery for main guns (Tank, Juggernaut front turret); Heavy Machine Gun, Flamethrower, Swarm Missiles and Shock Emitter for light guns (Scout, Hornet, Sentry, Juggernaut rear turret). Then use **Loadouts ▾** on a Factory to choose each vehicle's weapons: new vehicles are built with them. |
 | Radar | 150 | Every 30 seconds, a ping reveals a wide circle (750 px, 2.5× normal sight) for 4 seconds. |
 | Repair Pad | 150 | A flat 3×3 pad. Every vehicle parked on it is repaired at 30 health a second (shields too); workers wait there until fixed. **Go repair** sends damaged vehicles there; once fixed they drive to the pad's **waypoint** (or step off beside it). Vehicles parked on it can be **recycled** for half their cost: press Recycle, then Confirm recycle. |
 
