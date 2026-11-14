@@ -1,0 +1,492 @@
+// =============================================================================
+// config.js — THE BALANCE SHEET
+//
+// Every number that defines how the game plays lives here. If you want tanks
+// to be tougher, scouts to be faster, or the enemy to be meaner, this is the
+// file to change. You can ask an AI assistant things like:
+//   "In config.js, make tanks cost 120 and give them 450 health."
+// =============================================================================
+
+const CONFIG = {
+  TILE: 32,            // size of one map square, in pixels
+  MAP_W: 223,          // map width, in squares (182 before it grew by half again in area; 96 originally)
+  MAP_H: 168,          // map height, in squares (137 before; 72 originally)
+  TICK_RATE: 30,       // game updates per second
+
+  START_SCRAP: 300,    // scrap each side starts with (the Recycler's storage is full)
+  UNIT_CAP: 100,       // most units a side can have at once
+  // Uplinks (capture-and-hold battles): radius, seconds for one vehicle to
+  // capture (faster with up to three), seconds holding two to win.
+  UPLINK_RADIUS: 130, UPLINK_CAPTURE: 15, UPLINK_WIN: 180,
+  // Uplinks can be taken from the start, but holding two only counts toward
+  // a win once they come online, so a side that has just landed can get going.
+  UPLINK_ONLINE: 300,
+  // Campaign: the holder of a battlefield doesn't send its first attack wave
+  // before this (it still defends, and strikes back after beating one off).
+  DEFENDER_FIRST_WAVE: 480,
+  // ...and a side that has just landed doesn't send its first wave before this.
+  LANDER_FIRST_WAVE: 420,
+  // Call-ins: each side starts with one; every uplink held earns another
+  // every CALLIN_EARN seconds (up to CALLIN_MAX in hand). They land
+  // CALLIN_DELAY seconds after being called.
+  CALLIN_START: 1, CALLIN_EARN: 120, CALLIN_MAX: 5, CALLIN_DELAY: 4,
+  // Accuracy: the chance a shot hits. Each weapon's base chance falls with
+  // range (up to ACC_RANGE less at full range), when the shooter is moving
+  // (× ACC_SHOOTER_MOVING) and when the target is moving (less per pixel a
+  // second of its speed). Buildings never dodge. Artillery has its own
+  // spread instead. A miss flies past and hits nothing.
+  ACCURACY: { bullet: 0.97, shell: 0.95, rocket: 0.95, rail: 0.98, flame: 0.96, shock: 0.96 },
+  ACC_RANGE: 0.12, ACC_SHOOTER_MOVING: 0.92, ACC_TARGET_SPEED: 0.002, ACC_MIN: 0.15,
+  // Guns that fire from a fixed spot (towers, the Recycler, dug-in Sentries,
+  // Artillery with its legs down) are steadier: a higher hit chance, a
+  // quarter less penalty against moving targets, and a tighter shell spread.
+  ACC_FIXED: 1.1, ACC_FIXED_TRACK: 0.75, ARTY_SPREAD_FIXED: 0.75,
+  // Tidal Flats: each cycle is `low` seconds of low tide then `high` of high
+  // tide; warnings come `warn` seconds before it turns. Anything still on
+  // the sand when it floods loses `swamp` of its health and is washed up on
+  // the nearest dry ground. Each low tide washes up `washup` pairs of scrap.
+  TIDE: { low: 160, high: 80, warn: 25, swamp: 0.3, washup: 5, washAmount: 120 },
+  // Veterancy: kills earn ranks (Veteran, Elite, Ace). Each rank adds to the
+  // chance to hit (× 1 + VET_ACC[rank]), shrinks the penalty for firing on
+  // the move, reloads faster (VET_RELOAD less per rank) and adds health.
+  VET_KILLS: [2, 5, 10], VET_NAMES: ['Recruit', 'Veteran', 'Elite', 'Ace'],
+  VET_ACC: [0, 0.12, 0.24, 0.36], VET_RELOAD: 0.08, VET_HP: 0.1,
+  // Armour facing: hits on a vehicle's side or rear do more damage.
+  // Front is within 60° of where it faces, rear beyond 120°.
+  ARMOR_SIDE: 1.25, ARMOR_REAR: 1.5,
+  // Vehicles in a fight with an armed enemy keep moving (circling it at
+  // range) at this share of their speed, so they're harder to hit.
+  STRAFE_SPEED: 0.6,
+  // Campaign battles: economy and production this much faster.
+  CAMPAIGN_TEMPO: 1.5,
+  QUEUE_MAX: 99,       // most vehicles queued at one building (each is paid for when its turn comes)
+
+  WRECK_SCRAP_FRACTION: 0.3, // share of a destroyed unit's cost left as salvage
+  // Artillery must stop and put down four stabiliser legs before it can fire,
+  // and fold them away before it can move (seconds each way).
+  ARTILLERY_DEPLOY: 0.6,
+  ARTILLERY_RETRACT: 0.6,
+  SCRAP_NODE_AMOUNT: 400,    // scrap in each fresh scrap pile
+};
+
+const TEAMS = {
+  1: { name: 'Blue Command', color: '#4aa3ff', dark: '#1b4a78', light: '#a9d4ff' },
+  2: { name: 'Red Legion',   color: '#ff5a4a', dark: '#7a2018', light: '#ffb0a6' },
+};
+
+// The two playable factions. They play by exactly the same rules (every unit
+// and building has the same numbers); only the look and the names differ.
+// `names` maps the Scrapline name of anything to the faction's own name.
+const FACTIONS = {
+  scrapline: {
+    name: 'Scrapline', tagline: 'Salvage crews in tracked steel',
+    desc: 'Tracked steel war machines built from scrap. Tanks lead, artillery digs in behind them.',
+    names: {},
+  },
+  kethra: {
+    name: 'Kethra Concord', tagline: 'Hovering alien constructs',
+    desc: 'Hovering obsidian machines on gravity rings, with floating ceramic blades. Same strengths, alien look.',
+    names: {
+      'Recycler (mobile)': 'Monad', 'Recycler': 'Nexus', 'Recycler II': 'Nexus II',
+      'Scavenger': 'Skimmer', 'Scavenger II': 'Skimmer II', 'Constructor': 'Loom', 'Constructor II': 'Loom II',
+      'Scout': 'Shard', 'Scout Mk II': 'Shard Mk II', 'Tank': 'Bulwark', 'Tank Mk II': 'Bulwark Mk II',
+      'Artillery': 'Spire', 'Artillery Mk II': 'Spire Mk II', 'Hornet': 'Talon', 'Hornet Mk II': 'Talon Mk II',
+      'Sentry': 'Pylon', 'Sentry Mk II': 'Pylon Mk II', 'Repair Drone': 'Mender', 'Juggernaut': 'Colossus', 'Juggernaut Mk II': 'Colossus Mk II',
+      'Factory': 'Assembler', 'Factory II': 'Assembler II', 'Extractor': 'Siphon', 'Base Silo': 'Vault Orb',
+      'Gun Tower': 'Prism Tower', 'Artillery Tower': 'Prism Lancer', 'Heavy Gun Tower': 'Heavy Prism',
+      'Research Lab': 'Archive', 'Armory': 'Forge', 'Radar': 'Sensor Array', 'Repair Pad': 'Mending Lattice',
+      'Power Generator': 'Flux Well', 'Shield Projector': 'Aegis Pylon', 'Radar II': 'Sensor Array II', 'Radar III': 'Sensor Array III',
+      'Advanced Scouts': 'Advanced Shards', 'Advanced Tanks': 'Advanced Bulwarks', 'Advanced Artillery': 'Advanced Spires',
+      'Advanced Hornets': 'Advanced Talons', 'Advanced Sentries': 'Advanced Pylons', 'Advanced Juggernauts': 'Advanced Colossi',
+    },
+  },
+};
+// A name as a faction calls it.
+const factionName = (faction, name) => (FACTIONS[faction] && FACTIONS[faction].names[name]) || name;
+// A whole message in a faction's own words: every Scrapline name in it is
+// swapped for the faction's (longest names first, so "Tank Mk II" wins over "Tank").
+const factionText = (() => {
+  const cache = Object.create(null);
+  return (faction, text) => {
+    const f = FACTIONS[faction];
+    if (!f || !Object.keys(f.names).length) return text;
+    const re = cache[faction] || (cache[faction] = new RegExp('\\b(' + Object.keys(f.names).sort((a, b) => b.length - a.length)
+      .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')(s?)(?![\\w])', 'g'));
+    return text.replace(re, (m, n, pl) => f.names[n] + pl);
+  };
+})();
+
+// role: 'harvester' collects scrap, 'builder' constructs buildings,
+//       'combat' fights. Weapons: range and sight are in pixels.
+// Speeds (pixels per second): Scavengers and Constructors 43, Tanks 40,
+// Scouts 98. Artillery is kept the slowest of all.
+const UNIT_TYPES = {
+  // The starting vehicle. Drive it onto a scrap geyser and deploy it to
+  // found your base. While mobile it still holds your scrap.
+  mobileRecycler: {
+    name: 'Recycler (mobile)', role: 'hq', cost: 0, buildTime: 1,
+    hp: 2500, speed: 30, radius: 22, sight: 300, capacity: 300,
+    desc: 'Your base on wheels. Drive it to a scrap geyser and deploy it. If it is destroyed, you lose.',
+  },
+  scavenger: {
+    name: 'Scavenger', role: 'harvester', cost: 60, buildTime: 6,
+    hp: 180, speed: 43, radius: 13, sight: 200,
+    carryMax: 25, gatherRate: 4,
+    desc: 'Collects loose scrap and hauls it home. Cannot deploy onto geysers (that needs a Scavenger II).',
+  },
+  // Built by an upgraded Recycler (Recycler II). Only these can become Extractors.
+  scavenger2: {
+    name: 'Scavenger II', base: 'scavenger', role: 'harvester', cost: 80, buildTime: 7,
+    hp: 180, speed: 43, radius: 13, sight: 200,
+    carryMax: 25, gatherRate: 4, canDeploy: true,
+    desc: 'Collects loose scrap, and can deploy onto a scrap geyser to become an Extractor.',
+  },
+  constructor: {
+    name: 'Constructor', role: 'builder', cost: 80, buildTime: 8,
+    hp: 160, speed: 43, radius: 13, sight: 220,
+    desc: 'Builds structures. Repairs are the Repair Drone\'s job.',
+  },
+  // No longer built (repairs moved to the Repair Drone); kept so old saves load.
+  constructor2: {
+    name: 'Constructor II', base: 'constructor', role: 'builder', cost: 110, buildTime: 9,
+    hp: 200, speed: 43, radius: 13, sight: 220,
+    desc: 'Builds structures.',
+  },
+  // Built by a Recycler II. Repairs buildings and vehicles, as fast as a
+  // Hornet; set to Auto repair it goes wherever something needs fixing.
+  drone: {
+    name: 'Repair Drone', role: 'repairer', cost: 90, buildTime: 8,
+    hp: 150, speed: 68, radius: 10, sight: 240, repairRate: 30, repairReach: 55,
+    desc: 'Repairs your buildings and vehicles (30 health a second). Tap something damaged, or set it to Auto repair and it finds work on its own.',
+  },
+  // No gun. A shield soaks up damage first and recharges once out of combat.
+  scout: {
+    name: 'Scout', role: 'combat', hardpoints: { light: 'weapon' }, cost: 50, buildTime: 5,
+    hp: 140, speed: 98, radius: 11, sight: 330,
+    weapon: { range: 170, damage: 8, cooldown: 0.35, projectile: 'bullet', vsBuilding: 0.5 },
+    desc: 'Fast and far-sighted. Can scout the map on its own or as a roaming pack.',
+  },
+  tank: {
+    name: 'Tank', role: 'combat', hardpoints: { main: 'weapon' }, cost: 100, buildTime: 9,
+    hp: 400, speed: 40, radius: 15, sight: 260,
+    weapon: { range: 200, damage: 34, cooldown: 1.2, projectile: 'shell', vsBuilding: 1 },
+    desc: 'The backbone of your army. Tough, steady damage. Can patrol between your buildings.',
+  },
+  artillery: {
+    name: 'Artillery', role: 'combat', cost: 140, buildTime: 12,
+    hp: 200, speed: 32, radius: 15, sight: 220,
+    weapon: { range: 440, minRange: 110, damage: 60, cooldown: 3.85, projectile: 'artillery',
+              splash: 55, vsBuilding: 1.6 },
+    deployToFire: true,
+    desc: 'Huge range, splash damage, very slow. Needs scouts to see targets. Can dig in to defend a building.',
+  },
+  // Light rocket tank: between a Scout and a Tank on cost, armour, speed and punch.
+  hornet: {
+    name: 'Hornet', role: 'combat', hardpoints: { light: 'weapon' }, cost: 75, buildTime: 7,
+    hp: 250, speed: 68, radius: 13, sight: 280,
+    weapon: { range: 220, damage: 26, cooldown: 0.9, projectile: 'rocket', vsBuilding: 1.2 },
+    desc: 'Light rocket tank, between a Scout and a Tank: cheaper and much faster than a Tank, with less armour, and its rockets hit hard.',
+  },
+  // The heavy: tougher than a Tank and slower (Artillery speed), twice the price,
+  // with two turrets that fire at two targets at once: a Tank's cannon in
+  // front and a Sentry's minigun behind.
+  heavy: {
+    name: 'Juggernaut', role: 'combat', hardpoints: { main: 'weapon', light: 'weapon2' }, cost: 200, buildTime: 14,
+    hp: 715, speed: 32, radius: 18, sight: 270,
+    weapon: { range: 200, damage: 34, cooldown: 1.2, projectile: 'shell', vsBuilding: 1 },
+    weapon2: { range: 220, damage: 7, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
+    desc: 'Heavy tank: more armour than a Tank but slower, with two turrets: a cannon in front and a minigun behind, each picking its own target.',
+  },
+  // Mobile turret, purely defensive: Deploy it and it digs in where it stands,
+  // fires a rapid stream at anything in range and never moves or gives chase
+  // until it is packed up again. It cannot fire while packed up.
+  sentry: {
+    name: 'Sentry', role: 'combat', hardpoints: { light: 'weapon' }, cost: 90, buildTime: 8,
+    hp: 320, speed: 36, radius: 12, sight: 260, deployToFire: true, deployable: true,
+    weapon: { range: 220, damage: 7, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
+    desc: 'Defensive turret on tracks. Press Deploy and it digs in where it stands, then guards that spot with a rapid stream of fire. It never chases, and cannot fire until deployed.',
+  },
+  // Mk II versions: researched at a Research Lab, built by a Factory II.
+  // About +50% armour, +40% damage and some speed for +45% cost, so each is
+  // worth more per scrap than its basic version, plus one signature edge:
+  // Scout sees further, Hornet fires a third rocket, Tank and Sentry
+  // outrange the basic Tank, Artillery reaches further with a bigger blast.
+  scout2: {
+    name: 'Scout Mk II', base: 'scout', requires: 'scout2', role: 'combat', hardpoints: { light: 'weapon' }, cost: 70, buildTime: 7,
+    hp: 210, speed: 120, radius: 11, sight: 420,
+    weapon: { range: 170, damage: 11, cooldown: 0.35, projectile: 'bullet', vsBuilding: 0.5 },
+    desc: 'Upgraded Scout: tougher and faster, and it sees much further, so it spots for Artillery from safety.',
+  },
+  tank2: {
+    name: 'Tank Mk II', base: 'tank', requires: 'tank2', role: 'combat', hardpoints: { main: 'weapon' }, cost: 145, buildTime: 12,
+    hp: 620, speed: 46, radius: 15, sight: 260,
+    weapon: { range: 220, damage: 48, cooldown: 1.2, projectile: 'shell', vsBuilding: 1 },
+    desc: 'Upgraded Tank: much heavier armour and a bigger gun that outranges a basic Tank.',
+  },
+  // Juggernaut Mk II: both turrets get twin barrels (double cannon, double
+  // minigun) for the usual +40% damage, with +50% armour and a little speed.
+  heavy2: {
+    name: 'Juggernaut Mk II', base: 'heavy', requires: 'heavy2', role: 'combat', hardpoints: { main: 'weapon', light: 'weapon2' }, cost: 290, buildTime: 18,
+    hp: 1073, speed: 36, radius: 18, sight: 270,
+    weapon: { range: 220, damage: 48, cooldown: 1.2, projectile: 'shell', vsBuilding: 1 },
+    weapon2: { range: 240, damage: 10, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
+    desc: 'Upgraded Juggernaut: twin cannons on the front turret and twin miniguns on the back one, much heavier armour, and guns that outrange a basic Tank.',
+  },
+  artillery2: {
+    name: 'Artillery Mk II', base: 'artillery', requires: 'artillery2', role: 'combat', cost: 200, buildTime: 16,
+    hp: 300, speed: 36, radius: 15, sight: 220,
+    weapon: { range: 500, minRange: 110, damage: 80, cooldown: 3.85, projectile: 'artillery',
+              splash: 70, vsBuilding: 1.6 },
+    deployToFire: true,
+    desc: 'Upgraded Artillery: tougher, reaches further and has a bigger blast.',
+  },
+  hornet2: {
+    name: 'Hornet Mk II', base: 'hornet', requires: 'hornet2', role: 'combat', hardpoints: { light: 'weapon' }, cost: 110, buildTime: 9,
+    hp: 380, speed: 80, radius: 13, sight: 280,
+    weapon: { range: 240, damage: 36, cooldown: 0.9, projectile: 'rocket', vsBuilding: 1.2 },
+    desc: 'Upgraded Hornet: a third rocket, more armour and more speed.',
+  },
+  sentry2: {
+    name: 'Sentry Mk II', base: 'sentry', requires: 'sentry2', role: 'combat', hardpoints: { light: 'weapon' }, cost: 130, buildTime: 11,
+    hp: 500, speed: 40, radius: 12, sight: 280, deployToFire: true, deployable: true,
+    weapon: { range: 250, damage: 10, cooldown: 0.2, projectile: 'bullet', vsBuilding: 0.6 },
+    desc: 'Upgraded Sentry: heavier armour, harder-hitting, and once dug in it outranges a Tank.',
+  },
+};
+
+// What a Research Lab can research. Each one unlocks a Mk II unit, which a
+// Factory II can then build.
+const RESEARCH = {
+  scout2:     { name: 'Advanced Scouts',    cost: 150, time: 45 },
+  tank2:      { name: 'Advanced Tanks',     cost: 200, time: 60 },
+  artillery2: { name: 'Advanced Artillery', cost: 250, time: 75 },
+  hornet2:    { name: 'Advanced Hornets',   cost: 175, time: 50 },
+  sentry2:    { name: 'Advanced Sentries',  cost: 175, time: 50 },
+  heavy2:     { name: 'Advanced Juggernauts', cost: 225, time: 65 },
+  // Unlocks a building rather than a vehicle (BUILDING_TYPES.shield.requires).
+  shields:    { name: 'Forcefield Tech',    cost: 250, time: 60, unlocks: 'Shield Projectors' },
+  // Weapons, researched at an Armory (see WEAPONS).
+  w_sabot:    { name: 'Sabot Cannon',      cost: 150, time: 45, weapon: 'sabot' },
+  w_railgun:  { name: 'Railgun',           cost: 250, time: 70, weapon: 'railgun' },
+  w_mortar:   { name: 'Mortar',            cost: 200, time: 55, weapon: 'mortar' },
+  w_rockets:  { name: 'Rocket Battery',    cost: 200, time: 55, weapon: 'rockets' },
+  w_hmg:      { name: 'Heavy Machine Gun', cost: 125, time: 40, weapon: 'hmg' },
+  w_flamer:   { name: 'Flamethrower',      cost: 175, time: 50, weapon: 'flamer' },
+  w_swarm:    { name: 'Swarm Missiles',    cost: 150, time: 45, weapon: 'swarm' },
+  w_shock:    { name: 'Shock Emitter',     cost: 200, time: 55, weapon: 'shock' },
+};
+
+// Armory weapons. Every vehicle has one or two hardpoints (UNIT_TYPES.*.hardpoints):
+// a main gun (Tank, the Juggernaut's front turret) or a light gun (Scout,
+// Hornet, Sentry, the Juggernaut's rear turret). Each weapon changes that
+// hardpoint's stock weapon by these factors, so it suits light and heavy
+// vehicles alike and a Mk II stays stronger than the basic version.
+//   damage / cooldown / rangeMul multiply; rangeAdd adds; others replace.
+//   vsHeavy / vsLight: damage against heavy vehicles (Tanks, Juggernauts,
+//   Sentries, Artillery, the Recycler) or light ones (everything else).
+//   salvo: shots per trigger pull. splash: damage around the hit.
+//   slow / slowTime: the target moves this much slower for a while.
+const WEAPONS = {
+  sabot:   { slot: 'main', name: 'Sabot Cannon', note: 'Armour-piercing: +50% against heavy vehicles, less against light ones.',
+             mod: { damage: 1.1, vsHeavy: 1.5, vsLight: 0.75 } },
+  railgun: { slot: 'main', name: 'Railgun', note: 'Long range, huge hits, slow to reload, almost never misses.',
+             mod: { projectile: 'rail', rangeAdd: 70, damage: 2.4, cooldown: 2.1, vsHeavy: 1.15, acc: 1.05 } },
+  mortar:  { slot: 'main', name: 'Mortar', note: 'Lobs shells over cover: longer range, splash, good against groups and buildings. Can\'t hit anything very close.',
+             mod: { projectile: 'artillery', rangeAdd: 100, minRange: 90, damage: 1.15, cooldown: 1.7, splash: 45, vsBuilding: 1.4 } },
+  rockets: { slot: 'main', name: 'Rocket Battery', note: 'A salvo of three homing rockets: more damage up front, longer reload.',
+             mod: { projectile: 'rocket', salvo: 3, damage: 0.5, cooldown: 1.5, vsBuilding: 1.2 } },
+  hmg:     { slot: 'light', name: 'Heavy Machine Gun', note: 'Shreds light vehicles (+40%); weaker against armour.',
+             mod: { projectile: 'bullet', damage: 1.25, vsLight: 1.4, vsHeavy: 0.8 } },
+  flamer:  { slot: 'light', name: 'Flamethrower', note: 'Short range, burns everything around the target. Great against buildings.',
+             mod: { projectile: 'flame', rangeMul: 0.55, damage: 1.8, splash: 40, vsBuilding: 1.5, vsLight: 1.2 } },
+  swarm:   { slot: 'light', name: 'Swarm Missiles', note: 'Paired homing missiles, good against armour (+30%).',
+             mod: { projectile: 'rocket', salvo: 2, damage: 0.65, cooldown: 1.15, vsHeavy: 1.3, vsBuilding: 1 } },
+  shock:   { slot: 'light', name: 'Shock Emitter', note: 'Weaker hits, but each one slows the target by 45% for 2.5 seconds.',
+             mod: { projectile: 'shock', damage: 0.7, slow: 0.45, slowTime: 2.5 } },
+};
+const HEAVY_KINDS = ['tank', 'heavy', 'sentry', 'artillery', 'mobileRecycler'];
+
+// size is in map squares. produces = units this building can make.
+const BUILDING_TYPES = {
+  recycler: {
+    // Made by deploying the mobile Recycler over a geyser (buildTime = deploy time).
+    // It pumps that geyser very slowly: a twentieth of an Extractor.
+    name: 'Recycler', cost: 0, buildTime: 10, hp: 4000, size: 3, sight: 300, buildable: false,
+    income: 0.035, demolishable: false,
+    produces: ['scavenger', 'constructor'], dropoff: true, capacity: 300, buildRadius: 14,
+    // Upgrading (production pauses meanwhile) swaps in the better workers.
+    upgrade: { name: 'Recycler II', cost: 250, time: 40, hp: 5000,
+               produces: ['scavenger2', 'constructor', 'drone'] },
+    weapon: { range: 210, damage: 24, cooldown: 0.8, projectile: 'bullet', vsBuilding: 1 },
+    desc: 'Your headquarters, with a light defence gun. Lose it and you lose the battle.',
+  },
+  factory: {
+    name: 'Factory', cost: 150, buildTime: 18, hp: 1400, size: 3, sight: 220,
+    produces: ['scout', 'hornet', 'tank', 'heavy', 'sentry', 'artillery'], buildRadius: 10,
+    upgrade: { name: 'Factory II', cost: 200, time: 30, hp: 1800,
+               produces: ['scout', 'hornet', 'tank', 'heavy', 'sentry', 'artillery', 'scout2', 'hornet2', 'tank2', 'heavy2', 'sentry2', 'artillery2'] },
+    desc: 'Builds combat vehicles. Upgrade to Factory II to build researched Mk II vehicles.',
+  },
+  // Not built by a Constructor: a Scavenger deploys onto a scrap geyser and
+  // turns into one. buildTime is how long the deployment takes.
+  extractor: {
+    name: 'Extractor', cost: 0, buildTime: 8, hp: 900, size: 2, sight: 240,
+    income: 0.749, store: 120, buildRadius: 9, buildable: false, salvageValue: 60,
+    desc: 'Pumps scrap from a geyser straight into your total. When your storage is full it holds up to 120 until there is room.',
+  },
+  // Built next to the Recycler: raises how much scrap you can hold.
+  basesilo: {
+    name: 'Base Silo', cost: 250, buildTime: 14, hp: 1100, size: 2, sight: 200,
+    capacity: 300, dropoff: true, buildRadius: 8, placeNear: 'recycler', placeRange: 7,
+    desc: 'Adds 300 to your scrap storage. Must be built next to your Recycler.',
+  },
+  lab: {
+    name: 'Research Lab', cost: 200, buildTime: 20, hp: 900, size: 2, sight: 200, buildRadius: 6,
+    researches: ['scout2', 'tank2', 'artillery2', 'hornet2', 'sentry2', 'heavy2', 'shields'],
+    desc: 'Researches Mk II vehicles (a Factory II can then build them) and Forcefield Tech (Shield Projectors), one at a time.',
+  },
+  // Researches new weapons; a Factory then fits them to new vehicles (Loadouts).
+  armory: {
+    name: 'Armory', cost: 200, buildTime: 25, hp: 1000, size: 2, sight: 200, buildRadius: 6,
+    researches: ['w_sabot', 'w_railgun', 'w_mortar', 'w_rockets', 'w_hmg', 'w_flamer', 'w_swarm', 'w_shock'],
+    desc: 'Researches new weapons, one at a time. Then pick each vehicle\'s weapons at a Factory (Loadouts): new vehicles come out with them.',
+  },
+  // Every `every` seconds it pings, revealing a wide circle for `lasts` seconds.
+  radar: {
+    // Can be built anywhere you have explored, not just in your territory,
+    // and gives a small territory of its own (as small as a Lab's), so a
+    // lone Radar can anchor Gun Towers far from home.
+    name: 'Radar', cost: 150, buildTime: 16, hp: 600, size: 2, sight: 220, buildRadius: 6, anywhere: true,
+    ping: { every: 30, radius: 750, lasts: 4 },
+    // Upgraded twice, each dearer: pings twice as often, then a constant feed.
+    levels: [
+      { name: 'Radar II', cost: 250, time: 30, hp: 800, pingEvery: 15, desc: 'Pings every 15 seconds instead of 30.' },
+      { name: 'Radar III', cost: 500, time: 45, hp: 1000, continuous: true, desc: 'A constant radar feed: everything in its circle stays revealed.' },
+    ],
+    desc: 'Every 30 seconds, a radar ping briefly reveals everything in a wide circle (2.5 times normal sight). Can be built anywhere you have explored, and lets you build around it. Upgrades: pings every 15 s, then a constant feed.',
+  },
+  // A flat pad vehicles drive onto. Anything parked on it is repaired.
+  repairpad: {
+    name: 'Repair Pad', cost: 150, buildTime: 12, hp: 800, size: 3, sight: 180, walkable: true,
+    repairRate: 30,
+    desc: 'Every vehicle parked on the pad is repaired (30 health a second each). Vehicles parked here can be recycled for half their cost.',
+  },
+  tower: {
+    name: 'Gun Tower', cost: 110, buildTime: 14, hp: 1000, size: 2, sight: 300,
+    weapon: { range: 250, damage: 22, cooldown: 0.9, projectile: 'shell', vsBuilding: 1 },
+    desc: 'Defensive turret. Guards your base and outposts. Can be upgraded to an Artillery Tower or a Heavy Gun Tower.',
+    // A finished Gun Tower can be upgraded once, to one of these. Production
+    // isn't involved; the tower keeps firing its old gun while it upgrades.
+    upgrades: [
+      { key: 'arttower', name: 'Artillery Tower', cost: 180, time: 30, hp: 1200,
+        weapon: { range: 520, minRange: 120, damage: 70, cooldown: 4.5, projectile: 'artillery', splash: 60, vsBuilding: 1.6 },
+        desc: 'Long-range shells with splash damage (range 520). Cannot hit anything closer than 120, and only hits what your side can see.' },
+      { key: 'heavytower', name: 'Heavy Gun Tower', cost: 150, time: 25, hp: 1600,
+        weapon: { range: 280, damage: 30, cooldown: 0.6, projectile: 'shell', vsBuilding: 1 },
+        desc: 'A tougher bunker with a fast twin cannon and a little more reach (range 280).' },
+    ],
+  },
+  // Powers Shield Projectors: each Generator powers up to `powers` of them,
+  // and every powered projector burns `upkeep` scrap a second while its
+  // field is up or rebooting.
+  generator: {
+    name: 'Power Generator', cost: 150, buildTime: 15, hp: 700, size: 2, sight: 180, powers: 4, upkeep: 0.1,
+    desc: 'Powers up to 4 Shield Projectors. Each powered projector burns 0.1 scrap a second (6 a minute).',
+  },
+  // A directional forcefield: a wall of energy in front of the projector that
+  // stops enemy shots coming from that side (vehicles drive straight
+  // through, and shots from behind pass). Needs power from a Generator.
+  shield: {
+    name: 'Shield Projector', cost: 180, buildTime: 12, hp: 450, size: 2, sight: 200, facing: true, requires: 'shields',
+    field: { length: 200, offset: 58, hp: 1725, regen: 25, regenDelay: 4, reboot: 13.5, rebootHp: 0.35, vsArtillery: 1.5 },
+    desc: 'Needs Forcefield Tech (Research Lab). Projects a forcefield wall that stops enemy fire from the front. Turn it to face the threat while placing it. Build them side by side for a longer wall. Needs a Power Generator (one powers 4). The field can be shot down, then reboots after 13.5 s.',
+  },
+};
+
+// Hotkeys for the command buttons, in the order the buttons appear.
+// The game's own page outside claude.ai, if it has one (null if not): the
+// Full screen button points players there when full screen isn't allowed.
+const STANDALONE_URL = 'https://rhodneylama.github.io/Main/';
+
+// Call-ins (CONFIG.CALLIN_*).
+const CALLINS = {
+  supply:    { name: 'Supply drop', scrap: 300, desc: '+300 scrap, dropped beside your Recycler (any that doesn\'t fit is left as a pile to collect).' },
+  reinforce: { name: 'Reinforcements', units: ['tank', 'tank', 'hornet', 'hornet'], desc: '2 Tanks and 2 Hornets, dropped where you choose on ground you have explored.' },
+};
+
+const HOTKEYS = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I'];
+
+// How the computer opponent plays at each difficulty.
+//   incomeMult       share of normal scrap income it gets
+//   firstAttack      seconds before its first attack on you
+//   waveEvery        seconds between attacks after that
+//   waveBase/Growth  size of its first attack, and extra units per minute
+//   maxArmy          most combat vehicles it will build
+//   armyPerMinute    how fast its army may grow (0 = no limit)
+//   maxExtractors    how many scrap geysers it will claim
+//   maxBaseSilos     how many Base Silos it will build to store more scrap
+//   maxScavengers    most scavengers it will build
+//   thinkEvery       seconds between decisions (slower = sloppier)
+//   artilleryAfter   seconds before it starts building artillery
+//   upgradeBaseAfter seconds before it upgrades its Recycler (needed to claim geysers)
+//   labAfter         seconds before it builds a Research Lab (0 = never)
+//   radarAfter       seconds before it builds a Radar (0 = never)
+//   towerUpgradeAfter seconds before it upgrades Gun Towers (0 = never)
+//   towerEvery       one Gun Tower at home, then one per this many Extractors
+//                    (one per Extractor sank too much scrap into towers on the
+//                    bigger map and lost far more games; one per three won most)
+//   tactics          battle tactics (null = simple waves, as on Easy). Each was
+//                    tested on its own against the previous opponent:
+//     hold           seconds during which it holds back and lets the enemy's waves
+//                    break on its defences, unless it has beaten one off already
+//                    or its army is holdArmy times the wave size (default 2)
+//     counter        after beating off an attack, strike back at once once it has
+//                    this share of a full wave at home
+//     allIn          waves take everything at home, not just the wave size
+//     flank          chance a wave swings round the flank with fewer seen defences
+//     feint          chance a wave starts with a feigned retreat: two fast
+//                    vehicles poke the enemy and lead pursuers into an ambush
+//                    (0 on Hard: with combined arms it cost games; the trap
+//                    does the same job there)
+//     retreatAt      a group out fighting falls back when its strength drops below
+//                    this share of the enemy vehicles near it (0 = never)
+//     focus          vehicles in a fight shoot the weakest enemy in range
+//     raid           sneak raids with spare fast vehicles on workers and outposts;
+//                    raidAfter/raidEvery (seconds), raidSize, raidWithWave (raid
+//                    round the other flank as a wave goes in), raidRetreat
+//     cautious       how much seen defences put a raid off a target
+//     repair         seconds before it builds a Repair Pad and sends badly
+//                    damaged vehicles there (0 = never; it cost wins in tests)
+//     combined       combined-arms assaults: Tanks go in first, Artillery shells
+//                    from behind them, Scouts strike elsewhere; each kind also
+//                    picks targets for its job in every fight
+//     flankers       share of a wave's Scouts that swing round to hit a soft
+//                    target (or enemy Artillery) while the Tanks go in
+//     adapt          0 to 1: how strongly it changes what it builds to answer
+//                    what it has seen of the enemy (towers, artillery)
+//     trap           when a group falls back, vehicles at home lie in wait on
+//                    its way home for whatever chases it
+//     hornetsAfter   seconds before Hornets take half of the fast share of the
+//                    army (0 = never); hornetRatio Hornets per Scout (default 1)
+//     sentries       how many Sentries it digs in as defences (after
+//                    sentriesAfter seconds): the first covers the approach to its
+//                    base, the rest its outlying Extractors (over 600 px out)
+const DIFFICULTY = {
+  easy:   { label: 'Easy',   incomeMult: 0.5,  firstAttack: 600, waveEvery: 240, waveBase: 3, waveGrowth: 0.25,
+            maxArmy: 8,  armyPerMinute: 0.7, maxExtractors: 3, maxBaseSilos: 1, maxScavengers: 3, thinkEvery: 2.5, artilleryAfter: 1200, secondFactory: false,
+            upgradeBaseAfter: 300, labAfter: 0, radarAfter: 0, towerUpgradeAfter: 0, towerEvery: 2, tactics: null },
+  normal: { label: 'Normal', incomeMult: 1.0,  firstAttack: 300, waveEvery: 150, waveBase: 5, waveGrowth: 0.8,
+            maxArmy: 25, armyPerMinute: 3, maxExtractors: 6, maxBaseSilos: 2, maxScavengers: 6, thinkEvery: 1.0, artilleryAfter: 240, secondFactory: true,
+            upgradeBaseAfter: 120, labAfter: 360, radarAfter: 480, towerUpgradeAfter: 900, towerEvery: 3, shieldsAfter: 540,
+            tactics: { hold: 600, holdArmy: 2, counter: 0.6, allIn: true, flank: 0.7, feint: 0.4, retreatAt: 0.5, focus: true,
+                       raid: true, raidAfter: 420, raidEvery: 240, raidSize: 3, raidWithWave: true, raidRetreat: 1, cautious: 0.5, repair: 0,
+                       combined: true, flankers: 0.5, adapt: 0.5, trap: true,
+                       hornetsAfter: 900, sentries: 1, sentriesAfter: 900 } },
+  hard:   { label: 'Hard',   incomeMult: 1.35, firstAttack: 180, waveEvery: 100, waveBase: 6, waveGrowth: 1.5,
+            maxArmy: 40, armyPerMinute: 0, maxExtractors: 7, maxBaseSilos: 3, maxScavengers: 7, thinkEvery: 0.5, artilleryAfter: 150, secondFactory: true,
+            upgradeBaseAfter: 90, labAfter: 240, radarAfter: 360, towerUpgradeAfter: 600, towerEvery: 3, shieldsAfter: 420,
+            tactics: { hold: 360, holdArmy: 1.2, counter: 0.6, allIn: true, flank: 0.7, feint: 0, retreatAt: 0.5, focus: true,
+                       raid: true, raidAfter: 240, raidEvery: 150, raidSize: 4, raidWithWave: true, raidRetreat: 1.2, cautious: 1, repair: 0,
+                       combined: true, flankers: 1, adapt: 1, trap: true,
+                       hornetsAfter: 300, sentries: 1, sentriesAfter: 900 } },
+};
