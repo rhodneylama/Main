@@ -2153,3 +2153,7 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     stance drop-down sit beside the selected vehicle's name and details,
     so a vehicle's buttons take two rows instead of three: name, Group,
     stance; then Orders and Stop.
+39. **Offline play** (21 November 2026): a service worker (`sw.js`) keeps a
+    copy of the game on the device after the first visit, so it opens and
+    plays with no connection. Online it always fetches the newest files
+    first (giving up after 4 s) and refreshes the copy.

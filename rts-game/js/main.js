@@ -1538,3 +1538,11 @@ $('minimap').addEventListener('pointerdown', closePop);
 resize();
 requestAnimationFrame(frame);
 if (new URLSearchParams(location.search).has('watch')) startGame('normal', true);
+
+// Offline play: a service worker keeps a copy of the game on the device
+// (sw.js). Only on the real website; skipped inside embedded previews.
+try {
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost') && window.top === window) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  }
+} catch (err) { /* no offline support here */ }

@@ -240,6 +240,12 @@ silences sound and music together.
 
 ## Your forces
 
+**Playing offline:** open the game once with an internet connection
+(https://rhodneylama.github.io/Main/) and it keeps a copy on your device.
+After that it opens and plays with no connection at all, from the browser
+or from the Home Screen icon. Saved games stay on the device. When you're
+online again it picks up the newest version by itself.
+
 **Maps:** pick **Wasteland**, **Ruined city** or **Tidal Flats** from the Map
 drop-down on the start screen. On **Tidal Flats** the bases sit on islands
 joined by sand flats: the tide comes in every few minutes and floods the
