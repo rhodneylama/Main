@@ -135,14 +135,20 @@ function aiUpdate(game, team) {
   // swarm missiles), fitted to new vehicles as soon as they're ready.
   for (const arm of buildings.filter(b => b.type === 'armory' && b.built >= 1 && !b.researching)) {
     const topics = ['w_sabot', 'w_hmg'];
-    if (game.difficulty === 'hard') topics.push('w_swarm');
+    if (game.difficulty === 'hard') topics.push('w_swarm', 'w_shield');
     const next = topics.find(k => !tm.research[k] && !buildings.some(b => b.researching && b.researching.key === k));
     if (next && tm.scrap >= RESEARCH[next].cost) cmd({ type: 'research', buildingId: arm.id, key: next });
     else if (next) ai.savingUp = true;
   }
   const lo = tm.loadouts || {};
-  for (const [w, unit, slot] of [['sabot', 'tank', 'main'], ['sabot', 'heavy', 'main'], ['hmg', 'scout', 'light'], ['hmg', 'heavy', 'light'], ['swarm', 'hornet', 'light']])
+  for (const [w, unit, slot] of [['sabot', 'tank', 'cannon'], ['sabot', 'heavy', 'cannon'], ['hmg', 'scout', 'gun'], ['hmg', 'heavy', 'gun'], ['hmg', 'tank', 'gun'], ['swarm', 'hornet', 'rocket'], ['shield', 'heavy', 'special'], ['shield', 'scout', 'special']])
     if (tm.research['w_' + w] && !(lo[unit] && lo[unit][slot])) cmd({ type: 'loadout', unit, slot, weapon: w });
+  // Towers: fit the best researched weapon for their hardpoint (once, for good).
+  for (const b of buildings) {
+    if (!b.def.slots || b.weaponLocked || b.built < 1 || b.upgrading !== null) continue;
+    const pick = { gun: 'hmg', cannon: 'sabot', artillery: 'clusterA' }[b.def.slots[0].type];
+    if (pick && tm.research['w_' + pick]) cmd({ type: 'fitTower', buildingId: b.id, weapon: pick });
+  }
   if (Object.keys(tm.research).length) {
     const f = buildings.find(b => b.type === 'factory' && b.built >= 1 && b.level === 1 && b.upgrading === null);
     if (f && !buildings.some(b => b.type === 'factory' && b.upgrading !== null)) {

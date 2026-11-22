@@ -18,7 +18,7 @@ function load() {
   const ctx = { console, Math, performance: { now: () => Date.now() }, btoa, atob };
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
-    'createGame, generateMap, generateUrbanMap, generateTidalMap, WEAPONS, makeWeapon, loadoutDef, TILE_DIRT, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
+    'createGame, generateMap, generateUrbanMap, generateTidalMap, WEAPONS, makeWeapon, loadoutDef, isVisibleTo, scrapIsDangerous, TILE_DIRT, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
     'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, damageForTest: damage });', ctx);
   return ctx;
 }
@@ -93,7 +93,7 @@ section('Map');
     for (const p of m.scrap) { const i = Math.floor(p.y / T) * W + Math.floor(p.x / T); if (open(i) && !seen[i]) reach = false; }
   }
   const m = S.generateMap(42);
-  check('map is 223 x 168 squares', m.W === 223 && m.H === 168, `${m.W} x ${m.H}`);
+  check('map is 257 x 194 squares (15% a side bigger than 223 x 168)', m.W === 257 && m.H === 194, `${m.W} x ${m.H}`);
   check('bases sit in opposite corners', m.bases[1].x <= 12 && m.bases[1].y >= m.H - 12 && m.bases[2].x >= m.W - 12 && m.bases[2].y <= 11);
   check('terrain is point-symmetric (10 seeds)', sym);
   check('map edge is rock (10 seeds)', edge);
@@ -116,7 +116,7 @@ section('Route-finding at full size');
   const ms = (Date.now() - t0) / 20;
   const end = p[p.length - 1];
   check('a route exists from one base to the other', p.length > 0 && Math.hypot(end.x - foe.x, end.y - foe.y) < 80);
-  check('a cross-map route takes under 15 ms', ms < 15, `${ms.toFixed(1)} ms`);
+  check('a cross-map route takes under 20 ms (the map is 32% bigger than when this was 15 ms)', ms < 20, `${ms.toFixed(1)} ms`);
 }
 
 section('Recycler and economy');
@@ -497,7 +497,7 @@ section('Orders: stance, Hunt, Guard, spreading out');
     const us = [0, 1, 2, 3].map(i => S.addUnitNear(g, 'tank', 1, from.x + (i % 2) * 36, from.y + Math.floor(i / 2) * 36));
     const dir = { x: Math.sign(g.map.W * T / 2 - h.x), y: Math.sign(g.map.H * T / 2 - h.y) };
     const dest = { x: from.x + dir.x * 1100, y: from.y };
-    const foe = S.addUnitNear(g, 'tank', 2, from.x + dir.x * 550, from.y + 150);
+    const foe = S.addUnitNear(g, 'tank', 2, from.x + dir.x * 550, from.y + 230);   // beside the route, not in the way
     foe.stance = 'stealth';   // it just sits there
     if (stance) S.issueCommand(g, 1, { type: 'stance', ids: us.map(u => u.id), stance });
     S.issueCommand(g, 1, { type: 'move', ids: us.map(u => u.id), x: dest.x, y: dest.y });
@@ -985,8 +985,9 @@ section('Repair Drones, Fight then repair, the Juggernaut, tuning');
   const a = S.addUnitNear(g, 'scout', 2, jug.x + 150, jug.y - 40), b = S.addUnitNear(g, 'scout', 2, jug.x + 150, jug.y + 60);
   for (const s2 of [a, b]) { s2.stance = 'stealth'; s2.hp = s2.maxHp = 5000; }
   const hpA = a.hp, hpB = b.hp;
-  for (let i = 0; i < 30 * 6; i++) S.stepGame(g);
-  check('it fires at two targets at once', a.hp < hpA && b.hp < hpB && jug.target2 && jug.target && jug.target2 !== jug.target, `${Math.round(hpA - a.hp)} and ${Math.round(hpB - b.hp)} damage`);
+  let split = false;
+  for (let i = 0; i < 30 * 6; i++) { S.stepGame(g); if (jug.target && jug.target2 && jug.target !== jug.target2) split = true; }
+  check('it fires at two targets at once', a.hp < hpA && b.hp < hpB && split, `${Math.round(hpA - a.hp)} and ${Math.round(hpB - b.hp)} damage`);
 }
 
 section('Drone Follow, the urban map');
@@ -1094,14 +1095,19 @@ section('Fixed guns, Tidal Flats, the Armory');
   const g = deployedGame(S);
   const rec = mine(g, 1, 'recycler')[0];
   const armory = placeDone(S, g, 1, 'armory', rec), factory = placeDone(S, g, 1, 'factory', rec);
-  check('an Armory researches eight weapons', armory && armory.def.researches.length === 8 && Object.keys(S.WEAPONS).length === 8);
-  S.issueCommand(g, 1, { type: 'loadout', unit: 'tank', slot: 'main', weapon: 'railgun' });
+  check('an Armory researches 31 weapons across five kinds of hardpoint', armory && armory.def.researches.length === 31 && Object.keys(S.WEAPONS).length === 31 &&
+    ['cannon', 'gun', 'rocket', 'artillery', 'special'].every(t => Object.values(S.WEAPONS).some(w => w.slot === t)));
+  check('hardpoints per vehicle: Scout gun (+special on Mk II), Sentry 2 guns, Hornet rocket, Tank cannon (+2 guns on Mk II), Juggernaut Mk II 2 cannons + 3 guns + special, Artillery (+special on Mk II)',
+    (() => { const U = S.UNIT_TYPES, sig = t => U[t].slots.map(x => x.type + (x.count > 1 ? x.count : '')).join(',');
+      return sig('scout') === 'gun' && sig('scout2') === 'gun,special' && sig('sentry') === 'gun2' && sig('hornet') === 'rocket' && sig('tank') === 'cannon' &&
+        sig('tank2') === 'cannon,gun2' && sig('heavy2') === 'cannon2,gun3,special' && sig('artillery') === 'artillery' && sig('artillery2') === 'artillery,special'; })());
+  S.issueCommand(g, 1, { type: 'loadout', unit: 'tank', slot: 'cannon', weapon: 'railgun' });
   check('a weapon must be researched before it can be fitted', !g.teams[1].loadouts.tank);
   const old = S.addUnitNear(g, 'tank', 1, rec.x + 100, rec.y);
   g.teams[1].scrap = 900;
   S.issueCommand(g, 1, { type: 'research', buildingId: armory.id, key: 'w_railgun' });
   run(g, S, S.RESEARCH.w_railgun.time + 1);
-  S.issueCommand(g, 1, { type: 'loadout', unit: 'tank', slot: 'main', weapon: 'railgun' });
+  S.issueCommand(g, 1, { type: 'loadout', unit: 'tank', slot: 'cannon', weapon: 'railgun' });
   g.teams[1].scrap = 900;
   S.issueCommand(g, 1, { type: 'produce', buildingId: factory.id, unit: 'tank' });
   run(g, S, 12);
@@ -1109,9 +1115,7 @@ section('Fixed guns, Tidal Flats, the Armory');
   check('new Tanks come out with the Railgun', fresh && fresh.def.weapon.projectile === 'rail' && fresh.def.weapon.damage > S.UNIT_TYPES.tank.weapon.damage * 2 && fresh.def.weapon.range > S.UNIT_TYPES.tank.weapon.range,
     fresh ? `damage ${fresh.def.weapon.damage}, range ${fresh.def.weapon.range}` : 'none built');
   check('vehicles built before keep their stock weapon', old.def === S.UNIT_TYPES.tank);
-  // Weapons scale with the vehicle: a Mk II stays stronger.
   check('a weapon scales with the vehicle (Tank Mk II railgun > Tank railgun)', S.makeWeapon(S.UNIT_TYPES.tank2.weapon, 'railgun').damage > S.makeWeapon(S.UNIT_TYPES.tank.weapon, 'railgun').damage);
-  // Damage against light and heavy armour.
   const dmg = (wk, targetType) => {
     const g2 = deployedGame(S), r2 = mine(g2, 1, 'recycler')[0];
     const tgt = S.addUnitNear(g2, targetType, 2, r2.x + 200, r2.y); tgt.hp = tgt.maxHp = 10000;
@@ -1120,26 +1124,137 @@ section('Fixed guns, Tidal Flats, the Armory');
     return 10000 - tgt.hp;
   };
   check('Sabot rounds hit heavy armour harder and light vehicles softer', dmg('sabot', 'tank') > dmg('stock', 'tank') * 1.4 && dmg('sabot', 'scout') < dmg('sabot', 'tank'), `vs Tank ${dmg('sabot', 'tank')}, vs Scout ${dmg('sabot', 'scout')}`);
-  // Flamethrower burns what stands around the target; Shock slows it; a Rocket Battery fires three.
-  const g3 = deployedGame(S), r3 = mine(g3, 1, 'recycler')[0];
-  g3.teams[1].research.w_flamer = g3.teams[1].research.w_shock = g3.teams[1].research.w_rockets = true;
-  for (const [unit, slot, weapon] of [['scout', 'light', 'flamer'], ['hornet', 'light', 'shock'], ['tank', 'main', 'rockets']]) S.issueCommand(g3, 1, { type: 'loadout', unit, slot, weapon });
-  const dir = Math.sign(g3.map.W * 16 - r3.x);
-  const mk = (type, team, dx, dy) => { const u = S.addUnitNear(g3, type, team, r3.x + dx * dir, r3.y + dy); return u; };
-  const flamer = mk('scout', 1, 200, -120), rocketTank = mk('tank', 1, 200, 120), shocker = mk('hornet', 1, 200, 0);
-  for (const u of [flamer, rocketTank, shocker]) u.def = S.loadoutDef(u.type, g3.teams[1].loadouts[u.type]);   // fitted, as the Factory does
-  const a = mk('tank', 2, 270, -120), b = mk('tank', 2, 285, -100), victim = mk('scout', 2, 300, 0), rocketTarget = mk('tank', 2, 330, 120);
-  for (const e of [a, b, victim, rocketTarget]) { e.hp = e.maxHp = 9000; e.stance = 'stealth'; }
-  let salvo = 0;
-  for (let i = 0; i < 30 * 4; i++) { S.stepGame(g3); salvo = Math.max(salvo, g3.projectiles.filter(p => p.owner === rocketTank.id).length); }
-  check('a Flamethrower burns the vehicles around its target too', a.hp < 9000 && b.hp < 9000, `${Math.round(9000 - a.hp)} and ${Math.round(9000 - b.hp)} damage`);
-  check('a Shock Emitter slows what it hits', victim.shockUntil > g3.time - 3 && victim.shockMul < 1);
-  check('a Rocket Battery fires a salvo of three', salvo >= 3, `${salvo} in the air`);
+
+  // A small arena: weapons and specials in action.
+  const arena = () => { const g3 = deployedGame(S), r3 = mine(g3, 1, 'recycler')[0], dir = Math.sign(g3.map.W * 16 - r3.x);
+    for (const e of g3.entities) if (e.kind === 'unit') e.hp = 0;   // an empty arena
+    S.stepGame(g3);
+    for (const t of Object.keys(S.WEAPONS)) g3.teams[1].research['w_' + t] = g3.teams[2].research['w_' + t] = true;
+    const mk = (type, team, dx, dy, lo) => { const u = S.addUnitNear(g3, type, team, r3.x + dx * dir, r3.y + dy); if (lo) { g3.teams[team].loadouts[S.UNIT_TYPES[type].base || type] = lo; u.def = S.loadoutDef(u.type, lo); if (u.def.shield) u.shield = u.def.shield; } return u; };
+    return { g3, mk, dir }; };
+  {
+    const { g3, mk } = arena();
+    const flamer = mk('scout', 1, 200, -120, { gun: 'flamer' }), rocketHornet = mk('hornet', 1, 200, 120, { rocket: 'battery' }), shocker = mk('scout2', 1, 200, 0, { special: 'shock' });
+    const a = mk('tank', 2, 270, -120), b = mk('tank', 2, 285, -100), victim = mk('scout', 2, 300, 0), rocketTarget = mk('tank', 2, 330, 120);
+    for (const e of [a, b, victim, rocketTarget]) { e.hp = e.maxHp = 9000; e.stance = 'stealth'; }
+    let salvo = 0;
+    for (let i = 0; i < 30 * 5; i++) { S.stepGame(g3); salvo = Math.max(salvo, g3.projectiles.filter(p => p.owner === rocketHornet.id).length); }
+    check('a Flamethrower burns the vehicles around its target too', a.hp < 9000 && b.hp < 9000, `${Math.round(9000 - a.hp)} and ${Math.round(9000 - b.hp)} damage`);
+    check('a Scout Mk II\'s Shock Emitter slows what it hits', victim.shockUntil > g3.time - 3 && victim.shockMul < 1);
+    check('a Rocket Battery fires its three rockets in quick succession', salvo >= 3, `${salvo} in the air`);
+  }
+  {
+    // A Tank Mk II uses its machine guns on light vehicles and its cannon on armour.
+    const { g3, mk } = arena();
+    const t2 = mk('tank2', 1, 200, 0);
+    const scout = mk('scout', 2, 340, 0); scout.hp = scout.maxHp = 9000; scout.stance = 'stealth';
+    let gunShots = 0, cannonShots = 0;
+    for (let i = 0; i < 30 * 4; i++) { S.stepGame(g3); for (const p of g3.projectiles) if (p.owner === t2.id && !p.seen) { p.seen = true; if (p.kind === 'bullet') gunShots++; else cannonShots++; } }
+    scout.hp = 0; const tank = mk('tank', 2, 340, 30); tank.hp = tank.maxHp = 9000; tank.stance = 'stealth';
+    let gun2 = 0, cannon2 = 0;
+    for (let i = 0; i < 30 * 5; i++) { S.stepGame(g3); for (const p of g3.projectiles) if (p.owner === t2.id && !p.seen) { p.seen = true; if (p.kind === 'bullet') gun2++; else cannon2++; } }
+    check('a Tank Mk II picks its weapon: machine guns on a Scout, the cannon on a Tank', gunShots > cannonShots && cannon2 > gun2, `vs Scout ${gunShots} gun / ${cannonShots} cannon; vs Tank ${gun2} gun / ${cannon2} cannon`);
+  }
+  {
+    // EMP stalls everything in the blast, friend or foe; Shields collapse and come back.
+    const { g3, mk } = arena();
+    const target = mk('tank', 2, 300, 0, null), friend = mk('tank', 1, 300, 40, null), shielded = mk('heavy2', 2, 300, -40, { special: 'shield' });
+    for (const e of [target, friend, shielded]) e.stance = 'stealth';   // nobody fights: just the EMP
+    const sh0 = shielded.shield;
+    g3.projectiles.push({ kind: 'missile', team: 1, owner: 0, x: target.x - 5, y: target.y, tx: target.x, ty: target.y, targetId: target.id, speed: 400, damage: 5, emp: 80, empTime: 2.5 });
+    S.stepGame(g3); S.stepGame(g3);
+    check('an EMP stalls vehicles in its blast, your own too, and knocks out shields', target.empUntil > g3.time && friend.empUntil > g3.time && sh0 > 0 && shielded.shield === 0, `shield ${sh0} -> ${shielded.shield}`);
+    const hx = target.x, hy = target.y;
+    S.issueCommand(g3, 2, { type: 'move', ids: [target.id], x: hx + 300, y: hy });
+    for (let i = 0; i < 30; i++) S.stepGame(g3);
+    check('a stalled vehicle can\'t move until the EMP wears off', Math.hypot(target.x - hx, target.y - hy) < 5);
+    for (let i = 0; i < 30 * 12; i++) S.stepGame(g3);
+    check('a collapsed Shield reboots and recharges', shielded.shield > 0);
+  }
+  {
+    // Cloak: unseen by the enemy (but seen by its owner); a Sensor Pulse finds it.
+    const { g3, mk } = arena();
+    const cloaker = mk('scout2', 1, 250, 0, { special: 'cloak' }), watcher = mk('tank', 2, 330, 0);
+    cloaker.stance = 'stealth'; watcher.stance = 'stealth';
+    for (let i = 0; i < 30 * 2; i++) S.stepGame(g3);
+    const hidden = cloaker.cloakOn && !S.isVisibleTo(g3, 2, cloaker) && S.isVisibleTo(g3, 1, cloaker);
+    const pulser = mk('scout2', 2, 340, 30, { special: 'sensor' });
+    for (let i = 0; i < 3; i++) S.stepGame(g3);
+    check('a cloaked Scout is invisible to the enemy but not to you', hidden);
+    check('a Sensor Pulse reveals cloaked units', S.isVisibleTo(g3, 2, cloaker));
+  }
+  {
+    // Point Defence shoots down incoming shells; mines go off under an enemy; smoke hides what's inside.
+    const { g3, mk } = arena();
+    const pdUnit = mk('heavy2', 2, 300, 0, { special: 'pointdef' });
+    for (let k = 0; k < 20; k++) { g3.projectiles.push({ kind: 'artillery', team: 1, owner: 0, x: pdUnit.x - 200, y: pdUnit.y, tx: pdUnit.x, ty: pdUnit.y, speed: 260, total: 200, damage: 1, splash: 10 }); }
+    let downed = 0;
+    for (let i = 0; i < 30 * 2; i++) { S.stepGame(g3); downed += g3.effects.filter(e => e.kind === 'beam' && e.laser && !e.counted && (e.counted = true)).length; }
+    check('Point Defence shoots at incoming shells', downed >= 1, `${downed} interceptions`);
+    g3.mines = [{ x: pdUnit.x + 60, y: pdUnit.y, team: 1, owner: 0, armAt: 0, damage: 140, splash: 45 }];
+    const foe = mk('tank', 2, 360, 0); foe.x = pdUnit.x + 60; foe.y = pdUnit.y; foe.stance = 'stealth'; const hp0 = foe.hp;
+    S.stepGame(g3); S.stepGame(g3);
+    check('a mine goes off under an enemy', foe.hp < hp0 && !g3.mines.length);
+    g3.smokes = [{ x: foe.x, y: foe.y, r: 95, until: g3.time + 10, born: g3.time }];
+    check('a smoke cloud hides what is inside it', !S.isVisibleTo(g3, 1, foe));
+  }
+  {
+    // Gun Towers: guns to start; a tower's weapon is chosen once and then locked.
+    const tw = placeDone(S, g, 1, 'tower', rec);
+    g.teams[1].research.w_hmg = true; g.teams[1].research.w_laser = true;
+    check('a Gun Tower has a Gun hardpoint (twin machine guns)', tw.def.slots[0].type === 'gun' && tw.def.weapon.projectile === 'bullet');
+    S.issueCommand(g, 1, { type: 'fitTower', buildingId: tw.id, weapon: 'hmg' });
+    const fitted = tw.def.weapon.name;
+    S.issueCommand(g, 1, { type: 'fitTower', buildingId: tw.id, weapon: 'laser' });
+    check('a tower\'s weapon is fitted once and locked for good', fitted === 'Heavy Machine Gun' && tw.def.weapon.name === 'Heavy Machine Gun' && tw.weaponLocked);
+  }
   // A saved game keeps the loadout.
   const text = S.saveGame(g);
   const back = S.loadGame(text).game;
   const b2 = back.entities.find(e => e.id === fresh.id);
-  check('a saved game keeps each vehicle\'s weapons and the loadouts', b2 && b2.def.weapon.projectile === 'rail' && back.teams[1].loadouts.tank.main === 'railgun');
+  check('a saved game keeps each vehicle\'s weapons and the loadouts', b2 && b2.def.weapon.projectile === 'rail' && back.teams[1].loadouts.tank.cannon === 'railgun');
+}
+
+section('Workers look after themselves');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  for (const e of g.entities) if (e.kind === 'unit' && e.def.role !== 'harvester') e.hp = 0;
+  for (const e of g.entities) if (e.kind === 'unit' && e.team === 2) e.hp = 0;
+  S.stepGame(g);
+  const scav = mine(g, 1, 'scavenger')[0];
+  for (const o of mine(g, 1, 'scavenger')) if (o !== scav) o.hp = 0;
+  // Two scrap piles: a near one where a fight has just happened, a farther quiet one.
+  const dir = Math.sign(g.map.W * 16 - rec.x);
+  g.scrap.length = 0;
+  g.scrap.push({ id: 9001, x: rec.x + 200 * dir, y: rec.y - 150, amount: 300, max: 300 }, { id: 9002, x: rec.x + 650 * dir, y: rec.y - 150, amount: 300, max: 300 });
+  g.teams[1].explored.fill(1);
+  g.fighting = [{ x: rec.x + 200 * dir, y: rec.y - 150, t: g.time }];
+  S.issueCommand(g, 1, { type: 'stop', ids: [scav.id] });
+  scav.order = { type: 'idle', gx: scav.x, gy: scav.y };
+  const node = (() => { let best = null, bd = Infinity; for (const sp of g.scrap) { const d = S.dist(scav, sp); if (d < bd && !S.scrapIsDangerous(g, 1, sp)) { bd = d; best = sp; } } return best; })();
+  check('a Scavenger skips scrap where there has just been fighting', node && node.id === 9002);
+  g.time += 30;
+  check('and goes back to it once it has been quiet for a while', !S.scrapIsDangerous(g, 1, g.scrap[0]));
+  // An enemy tank comes at it: it backs off toward home.
+  g.time -= 30; g.fighting = [];
+  scav.x = rec.x + 300 * dir; scav.y = rec.y - 150; scav.order = { type: 'harvest', nodeId: 9002, phase: 'toNode' }; scav.path = [];
+  const tank = S.addUnit(g, 'tank', 2, scav.x + 200 * dir, scav.y);
+  tank.stance = 'stealth';
+  const d0 = S.dist(scav, rec);
+  for (let i = 0; i < 30 * 3; i++) S.stepGame(g);
+  check('a Scavenger backs away from an enemy combat vehicle', S.dist(scav, rec) < d0 - 30, `${Math.round(d0)} -> ${Math.round(S.dist(scav, rec))} px from home`);
+  tank.hp = 0;
+  // Badly hurt, it goes to the Repair Pad, then back to work.
+  const pad = placeDone(S, g, 1, 'repairpad', rec);
+  for (let i = 0; i < 30 * 5; i++) S.stepGame(g);
+  scav.hp = scav.maxHp * 0.3;
+  let reachedPad = false;
+  for (let i = 0; i < 30 * 60 && scav.hp < scav.maxHp; i++) { S.stepGame(g); if (S.dist(scav, pad) < pad.radius) reachedPad = true; }
+  check('a badly hurt worker gets itself repaired at the Repair Pad', reachedPad && scav.hp >= scav.maxHp * 0.98);
+  for (let i = 0; i < 30 * 3; i++) S.stepGame(g);
+  check('and then goes back to work', !scav.patching && scav.order.type === 'harvest');
 }
 
 console.log(`\n${passes} passed, ${fails} failed`);

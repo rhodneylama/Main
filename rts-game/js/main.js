@@ -388,41 +388,53 @@ function setGroup(key, mode = 'set') {
 // Loadouts: what a kind of vehicle's hardpoints carry, as text, and the menu
 // to change them. Stock weapons are what the vehicle comes with.
 const ownText = t => t && game ? factionText(game.teams[view.team].faction, t) : t;
-const SLOT_NAMES = { main: 'Main gun', light: 'Light gun' };
-function stockName(type, slot) {
-  const w = UNIT_TYPES[type][UNIT_TYPES[type].hardpoints[slot]];
-  return { bullet: slot === 'light' && type === 'heavy' ? 'Minigun' : 'Machine gun', shell: 'Cannon', rocket: 'Rockets' }[w.projectile] || 'Stock gun';
+// A kind of vehicle's hardpoints across its versions (basic and Mk II):
+// [{ slot, def, mk2only }] with the slot's stock weapon on `def`.
+function kindSlots(kind) {
+  const defs = Object.entries(UNIT_TYPES).filter(([t, d]) => (d.base || t) === kind && d.slots).map(([, d]) => d);
+  const out = [];
+  for (const d of defs) for (const sl of d.slots) {
+    const have = out.find(o => o.slot.type === sl.type);
+    if (!have) out.push({ slot: sl, def: d, mk2only: !!d.base });
+    else if (!d.base) { have.mk2only = false; have.slot = sl; have.def = d; }
+    else if (sl.count > have.slot.count) have.slotMk2 = sl;
+  }
+  return out;
 }
-function loadoutText(tm, type) {
-  const lo = (tm.loadouts && tm.loadouts[type]) || {};
-  return Object.keys(UNIT_TYPES[type].hardpoints).map(sl => {
-    const k = lo[sl] || 'stock';
-    return k === 'stock' ? `${stockName(type, sl)} (stock)` : WEAPONS[k].name;
-  }).join(' + ');
+const weaponName = (sl, k) => !k || k === 'stock' ? (sl.type === 'special' ? 'No special' : `${sl.stock} (stock)`) : WEAPONS[k].name;
+function loadoutText(tm, kind) {
+  const lo = (tm.loadouts && tm.loadouts[kind]) || {};
+  return kindSlots(kind).map(({ slot, mk2only }) => weaponName(slot, lo[slot.type]) + (mk2only ? ' (Mk II)' : '')).join(' + ');
 }
-function openLoadoutMenu(anchor, type) {
-  const tm = game.teams[view.team], lo = (tm.loadouts && tm.loadouts[type]) || {}, items = [];
-  const name = ownText(UNIT_TYPES[type].name);
-  for (const sl of Object.keys(UNIT_TYPES[type].hardpoints)) {
-    items.push({ heading: `${name}: ${SLOT_NAMES[sl]}` });
-    const cur = lo[sl] || 'stock', stock = UNIT_TYPES[type][UNIT_TYPES[type].hardpoints[sl]];
-    items.push({ label: `${stockName(type, sl)} (stock)`, note: `Damage ${stock.damage} · Range ${stock.range}`, active: cur === 'stock',
-      onClick: () => setLoadout(type, sl, 'stock') });
+function openLoadoutMenu(anchor, kind) {
+  const tm = game.teams[view.team], lo = (tm.loadouts && tm.loadouts[kind]) || {}, items = [];
+  const name = ownText(UNIT_TYPES[kind].name);
+  for (const { slot, def, mk2only } of kindSlots(kind)) {
+    items.push({ heading: `${name}: ${HARDPOINTS[slot.type].name}${slot.count > 1 ? ` × ${slot.count}` : ''}${mk2only ? ' (Mk II only)' : ''}` });
+    const cur = lo[slot.type] || 'stock', stock = slot.type === 'special' ? null : def[slot.field];
+    items.push({ label: weaponName(slot, 'stock'), note: stock ? `Damage ${stock.damage} · Range ${stock.range}` : 'An empty slot until the Armory gives you a special',
+      active: cur === 'stock', onClick: () => setLoadout(kind, slot.type, 'stock') });
     for (const [k, w] of Object.entries(WEAPONS)) {
-      if (w.slot !== sl) continue;
-      const have = tm.research['w_' + k], ww = makeWeapon(stock, k);
+      if (w.slot !== slot.type || (slot.allow && !slot.allow.includes(k))) continue;
+      const have = tm.research['w_' + k], ww = stock && makeWeapon(stock, k);
       items.push({ label: w.name, active: cur === k, disabled: !have,
-        note: have ? `${w.note} Damage ${ww.damage}${ww.salvo ? ` × ${ww.salvo}` : ''} · Range ${ww.range}` : 'Research it at an Armory first',
-        onClick: () => setLoadout(type, sl, k) });
+        note: have ? `${w.note}${ww ? ` Damage ${ww.damage}${ww.salvo ? ` × ${ww.salvo}` : ''} · Range ${ww.range}` : ''}` : 'Research it at an Armory first',
+        onClick: () => setLoadout(kind, slot.type, k) });
     }
   }
   openPop(anchor, items);
 }
-function setLoadout(type, slot, weapon) {
-  issueCommand(game, view.team, { type: 'loadout', unit: type, slot, weapon });
-  const n = ownText(UNIT_TYPES[type].name);
-  logMessage(weapon === 'stock' ? `New ${n}s get the stock ${stockName(type, slot).toLowerCase()}` : `New ${n}s get the ${WEAPONS[weapon].name}`, 'info');
+function setLoadout(kind, slot, weapon) {
+  issueCommand(game, view.team, { type: 'loadout', unit: kind, slot, weapon });
+  const n = ownText(UNIT_TYPES[kind].name), sl = kindSlots(kind).find(o => o.slot.type === slot).slot;
+  logMessage(`New ${n}s get: ${weaponName(sl, weapon)}`, 'info');
   sound('ack'); refreshPanel();
+}
+// Everything a vehicle or tower carries, for its info line.
+function weaponsText(e) {
+  const d = e.def;
+  if (!d.slots) return '';
+  return d.slots.map(sl => sl.type === 'special' ? (d.special ? d.special.name : null) : (d[sl.field] && `${d[sl.field].name || sl.stock}${sl.count > 1 ? ` ×${sl.count}` : ''}`)).filter(Boolean).join(' + ');
 }
 // Which battle group the whole selection makes up exactly, if any.
 function selectionGroup() {
@@ -878,7 +890,7 @@ function refreshPanel() {
     sel.map(e => [e.level, e.upgrading !== null && e.upgrading !== undefined ? Math.floor(e.upgrading) : -1, e.researching ? e.researching.key + Math.floor(e.researching.t) : 0, e.hp < e.maxHp]),
     Object.keys(game.teams[view.team].research).join(), game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1),
     game.entities.filter(b => b.team === view.team && b.researching).map(b => b.researching.key + Math.floor(b.researching.t / 3)).join(),
-    sel.map(e => [e.built >= 1, e.queue && e.queue.join(), e.blocked, e.waiting]),
+    sel.map(e => [e.built >= 1, e.queue && e.queue.join(), e.blocked, e.waiting, e.weaponLocked]), JSON.stringify(game.teams[view.team].loadouts),
     Object.values(UNIT_TYPES).concat(Object.values(BUILDING_TYPES)).map(d => game.teams[view.team].scrap >= d.cost)]) : '';
   const rebuild = key !== panelKey;
   panelKey = key;
@@ -910,13 +922,13 @@ function refreshPanel() {
         : f && f.state === 'up' ? `Field ${Math.round(f.hp)} / ${d.field.hp}` : `Field rebooting: ${Math.ceil(f ? f.t : d.field.reboot)} s`;
     }
     if (e.kind === 'unit' && d.weapon) {
-      const wn = d.loadout ? Object.values(d.loadout).map(k => WEAPONS[k].name).join(' + ') + ' · ' : '';
+      const wn = weaponsText(e) ? weaponsText(e) + ' · ' : '';
       const vet = d.role === 'combat' && (e.kills || e.rank) ? ` · ${CONFIG.VET_NAMES[e.rank || 0]}, ${e.kills || 0} kill${e.kills === 1 ? '' : 's'}` : '';
       extra = `${wn}Damage ${d.weapon.damage}${d.weapon.salvo ? ` × ${d.weapon.salvo}` : ''} · Range ${d.weapon.range} · Speed ${d.speed}${vet}`;
     }
     if (e.kind === 'unit' && d.deployable) extra = e.deployed ? `Deployed: guarding this spot (range ${d.weapon.range}). Pack up to move it.` : 'Packed up: cannot fire. Move it into place, then press Deploy.';
     if (e.kind === 'building' && e.built < 1) extra = `Under construction — ${Math.floor(e.built * 100)}%`;
-    if (e.kind === 'building' && d.weapon && e.built >= 1) extra = `Damage ${d.weapon.damage} · Range ${d.weapon.range}`;
+    if (e.kind === 'building' && d.weapon && e.built >= 1) extra = `${d.slots ? `${d.weapon.name || d.slots[0].stock}${e.weaponLocked ? ' (fitted for good)' : ''} · ` : ''}Damage ${d.weapon.damage} · Range ${d.weapon.range}`;
     if (e.kind === 'building' && d.income) extra = e.built >= 1
       ? `Pumping about ${Math.round(d.income * 60)} scrap a minute straight into your total` +
         (e.stored > 0.5 ? `. Storage full: ${Math.floor(e.stored)} / ${d.store} waiting here${e.stored >= d.store - 1 ? ' (full, so pumping has stopped). Build a Base Silo or spend some scrap.' : '.'}` : '')
@@ -1028,16 +1040,44 @@ function refreshPanel() {
       if (first.upgrading === null) tip.textContent = 'Upgrade once: an Artillery Tower shells targets far away (your side must see them); a Heavy Gun Tower is tougher and fires faster.';
     }
     // Loadouts (Factory): which Armory weapons new vehicles of each kind get.
-    if (first.built >= 1 && first.def.produces && first.def.produces.some(t => UNIT_TYPES[t].hardpoints)) {
-      const kinds = [...new Set(producesOf(first).map(t => UNIT_TYPES[t].base || t))].filter(t => UNIT_TYPES[t].hardpoints);
+    if (first.built >= 1 && first.def.produces && producesOf(first).some(t => UNIT_TYPES[t].slots)) {
+      const kinds = [...new Set(producesOf(first).filter(t => UNIT_TYPES[t].slots).map(t => UNIT_TYPES[t].base || t))];
       const any = Object.keys(WEAPONS).some(k => tm.research['w_' + k]);
       const lb = addMenu('Loadouts', keys.shift(), kinds.map(t => ({
         label: own_(UNIT_TYPES[t].name), note: loadoutText(tm, t),
         onClick: () => openLoadoutMenu(lb, t),
       })), { title: any ? 'Pick the weapons new vehicles are built with' : 'Research weapons at an Armory, then fit them here' });
     }
+    // Armory: one drop-down of weapons per kind of hardpoint.
+    if (first.built >= 1 && first.type === 'armory') {
+      for (const [type, hp] of Object.entries(HARDPOINTS)) {
+        const keysOf = Object.keys(WEAPONS).filter(k => WEAPONS[k].slot === type);
+        const done = keysOf.filter(k => tm.research['w_' + k]).length;
+        const busy = first.researching && WEAPONS[RESEARCH[first.researching.key].weapon].slot === type;
+        addMenu(`${hp.plural} ${done}/${keysOf.length}`, keys.shift(), keysOf.map(k => {
+          const r = RESEARCH['w_' + k], elsewhere = game.entities.find(b => b.team === view.team && b.researching && b.researching.key === 'w_' + k);
+          return tm.research['w_' + k] ? { label: r.name, note: `Researched ✓ ${WEAPONS[k].note}`, disabled: true }
+            : elsewhere ? { label: r.name, note: `Researching ${Math.floor(elsewhere.researching.t / r.time * 100)}%`, disabled: true }
+            : { label: `${r.name} · ${r.cost} scrap`, note: `${WEAPONS[k].note} (${r.time} s)`, disabled: !!first.researching || tm.scrap < r.cost,
+                onClick: () => issueCommand(game, view.team, { type: 'research', buildingId: first.id, key: 'w_' + k }) };
+        }), { active: busy, title: `Research ${hp.plural.toLowerCase()} for ${hp.name} hardpoints` });
+      }
+      if (first.researching) tip.textContent = `Researching ${RESEARCH[first.researching.key].name}: ${Math.floor(first.researching.t / RESEARCH[first.researching.key].time * 100)}%`;
+    }
+    // A tower's weapon: chosen once (and once more after its upgrade), then locked.
+    if (first.built >= 1 && first.def.slots && first.kind === 'building' && !first.weaponLocked && first.upgrading === null) {
+      const sl = first.def.slots[0];
+      const opts = [{ heading: `${HARDPOINTS[sl.type].name} hardpoint: your choice is permanent` },
+        { label: `Keep the ${sl.stock}`, note: `Damage ${first.def.weapon.damage} · Range ${first.def.weapon.range}`, onClick: () => issueCommand(game, view.team, { type: 'fitTower', buildingId: first.id, weapon: 'stock' }) },
+        ...Object.keys(WEAPONS).filter(k => WEAPONS[k].slot === sl.type).map(k => {
+          const have = tm.research['w_' + k], ww = makeWeapon(first.def.weapon, k);
+          return { label: WEAPONS[k].name, disabled: !have, note: have ? `${WEAPONS[k].note} Damage ${ww.damage} · Range ${ww.range}` : 'Research it at an Armory first',
+            onClick: () => issueCommand(game, view.team, { type: 'fitTower', buildingId: first.id, weapon: k }) };
+        })];
+      addMenu('Fit weapon', keys.shift(), opts, { primary: Object.keys(WEAPONS).some(k => WEAPONS[k].slot === sl.type && tm.research['w_' + k]), title: "Pick this tower's weapon. Once fitted it can't be changed." });
+    }
     // Research (Research Lab)
-    if (first.built >= 1 && first.def.researches) {
+    if (first.built >= 1 && first.def.researches && first.type !== 'armory') {
       for (const key of first.def.researches) {
         const r = RESEARCH[key];
         const elsewhere = game.entities.find(b => b.team === view.team && b.researching && b.researching.key === key);

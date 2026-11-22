@@ -158,7 +158,7 @@ function finishChunk(game, g, c, x0, y0, x1, y1) {
 // fittings and tall shadows on buildings, broken concrete for rubble, tree
 // canopies in parks, stone banks on the canal and railings on bridges.
 function paintCity(game, g, ring, rngOf) {
-  const { W, H, tiles, style } = game.map, T = CONFIG.TILE, { P, VX, VW, HY, HW } = URBAN;
+  const { W, H, tiles, style } = game.map, T = CONFIG.TILE, { P, VX, VW, HY, HW, BX, BY } = game.map.grid;
   const at = (x, y) => (x < 0 || y < 0 || x >= W || y >= H) ? TILE_ROCK : tiles[y * W + x];
   const st = (x, y) => (x < 0 || y < 0 || x >= W || y >= H) ? 0 : style[y * W + x];
   const solid = (x, y) => at(x, y) === TILE_ROCK && st(x, y) === 0;   // a building, not rubble or a tree
@@ -226,8 +226,8 @@ function paintCity(game, g, ring, rngOf) {
   for (const [x, y] of ring) {
     if (!solid(x, y)) continue;
     const kx = Math.floor((x - VX - VW) / P), ky = Math.floor((y - HY - HW) / P);
-    if (kx < 0 || ky < 0 || kx > 11 || ky > 8) continue;   // the map's outer wall
-    const k = Math.min(kx * 9 + ky, (11 - kx) * 9 + (8 - ky));   // mirrored blocks match
+    if (kx < 0 || ky < 0 || kx >= BX || ky >= BY) continue;   // the map's outer wall
+    const k = Math.min(kx * BY + ky, (BX - 1 - kx) * BY + (BY - 1 - ky));   // mirrored blocks match
     g.fillStyle = ROOFS[((k * 2654435761) >>> 0) % 4]; g.fillRect(x * T, y * T, T, T);
   }
   for (const [x, y] of ring) {
@@ -405,14 +405,33 @@ function drawGame(ctx, game, view) {
     ctx.stroke();
   }
 
+  // Fires on the ground (incendiary shells) and mines (yours, or ones a Sensor Pulse found).
+  for (const f of game.fires || []) {
+    if (!onScreen(f.x, f.y, f.r) || (!view.revealAll && !visAt(f.x, f.y))) continue;
+    const fade = Math.min(1, (f.until - game.time) / 1.5);
+    for (let i = 0; i < 7; i++) {
+      const a = i * 0.9 + game.time * 0.7, rr = f.r * (0.25 + 0.6 * ((i * 37) % 10) / 10), fl = 0.6 + 0.4 * Math.sin(game.time * 9 + i * 2);
+      ctx.fillStyle = `rgba(255,${110 + i * 15},40,${0.35 * fade * fl})`;
+      ctx.beginPath(); ctx.arc(f.x + Math.cos(a) * rr, f.y + Math.sin(a) * rr, 9 + 6 * fl, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  for (const m of game.mines || []) {
+    if (!onScreen(m.x, m.y) || !(m.team === team || view.revealAll || (m.seen && m.seen[team] > game.time))) continue;
+    ctx.fillStyle = '#2b2d2a'; ctx.strokeStyle = TEAMS[m.team].color; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(m.x, m.y, 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = game.time < m.armAt || Math.sin(game.time * 6) > 0 ? '#ff5a4a' : '#5a1a14'; ctx.fillRect(m.x - 1.5, m.y - 1.5, 3, 3);
+  }
+
   for (const u of units) {
     if (!onScreen(u.x, u.y)) continue;
-    if (u.team !== team && !visAt(u.x, u.y)) continue;
-    drawUnit(ctx, u, selectedIds.has(u.id), game.time);
+    if (u.team !== team && !view.revealAll && !isVisibleTo(game, team, u)) continue;
+    // Your own cloaked vehicles show faintly; the enemy can't see them at all.
+    if (u.cloakOn) { ctx.save(); ctx.globalAlpha = 0.4; drawUnit(ctx, u, selectedIds.has(u.id), game.time); ctx.restore(); }
+    else drawUnit(ctx, u, selectedIds.has(u.id), game.time);
   }
 
   for (const p of game.projectiles) {
-    if (!onScreen(p.x, p.y) || !visAt(p.x, p.y)) continue;
+    if (p.delay > 0 || !onScreen(p.x, p.y) || !visAt(p.x, p.y)) continue;
     drawProjectile(ctx, p);
   }
 
@@ -420,6 +439,16 @@ function drawGame(ctx, game, view) {
     if (fx.kind === 'wreck' || fx.kind === 'crater' || !onScreen(fx.x, fx.y, 600)) continue;
     if (!visAt(fx.x, fx.y) && !(fx.kind === 'droppod' && fx.team === team)) continue;
     drawEffect(ctx, fx);
+  }
+  // Smoke clouds, over everything: nobody sees into them.
+  for (const c of game.smokes || []) {
+    if (!onScreen(c.x, c.y, c.r + 40)) continue;
+    const grow = Math.min(1, (game.time - c.born) / 1.2), fade = Math.min(1, (c.until - game.time) / 2);
+    for (let i = 0; i < 9; i++) {
+      const a = i * 0.7 + game.time * 0.15, rr = c.r * 0.55 * grow * ((i % 3) / 2);
+      ctx.fillStyle = `rgba(170,172,165,${0.42 * fade})`;
+      ctx.beginPath(); ctx.arc(c.x + Math.cos(a) * rr, c.y + Math.sin(a) * rr, c.r * 0.5 * grow + 6, 0, Math.PI * 2); ctx.fill();
+    }
   }
 
   // Forcefields, over the vehicles they protect.
@@ -683,6 +712,20 @@ function drawUnit(ctx, u, selected, time) {
   });
   if (u.hp < u.maxHp * 0.5) art.drawDamage(ctx, id, u.x, u.y, time);
   if (u.hitFlash > 0) flashOver(ctx, u.x, u.y, r);
+  if (u.def.special && u.def.shield && u.shield > 1 && !u.def.shieldFX) {   // a Shield special: a close bubble
+    const f = u.shield / u.def.shield;
+    ctx.strokeStyle = `rgba(${f > 0.5 ? '120,200,255' : '255,170,80'},${0.35 + (u.shieldFlash > 0 ? 0.5 : 0.25 * f)})`; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(u.x, u.y, r + 5, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = `rgba(120,200,255,${0.06 + (u.shieldFlash > 0 ? 0.12 : 0)})`; ctx.fill();
+  }
+  if (u.empUntil > time) {   // stalled by an EMP: blue sparks crawling over it
+    ctx.strokeStyle = `rgba(150,220,255,${0.6 + 0.4 * Math.sin(time * 40)})`; ctx.lineWidth = 1.2;
+    for (let i = 0; i < 3; i++) { const a = time * 7 + i * 2.1; ctx.beginPath(); ctx.moveTo(u.x + Math.cos(a) * r, u.y + Math.sin(a) * r); ctx.lineTo(u.x + Math.cos(a + 0.6) * (r * 0.4), u.y + Math.sin(a + 0.6) * (r * 0.4)); ctx.stroke(); }
+  }
+  if (u.boostUntil > time) {   // Overdrive: a streak behind it
+    ctx.strokeStyle = 'rgba(255,200,90,0.55)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(u.x - Math.cos(u.angle) * r, u.y - Math.sin(u.angle) * r); ctx.lineTo(u.x - Math.cos(u.angle) * (r + 18), u.y - Math.sin(u.angle) * (r + 18)); ctx.stroke();
+  }
   if (u.shockUntil > time) {   // slowed by a Shock Emitter
     ctx.strokeStyle = `rgba(140,228,255,${0.5 + 0.4 * Math.sin(time * 30)})`; ctx.lineWidth = 1.5;
     ctx.beginPath(); for (let i = 0; i <= 10; i++) { const a = i / 10 * Math.PI * 2, rr = r + 3 + (i % 2) * 3; ctx[i ? 'lineTo' : 'moveTo'](u.x + Math.cos(a) * rr, u.y + Math.sin(a) * rr); } ctx.stroke();
@@ -884,6 +927,21 @@ function drawProjectile(ctx, p) {
     ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - Math.cos(a) * 10, p.y - Math.sin(a) * 10); ctx.stroke();
   } else if (p.kind === 'shell') {
     ctx.fillStyle = '#ffcf6a'; ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill();
+  } else if (p.kind === 'missile') {
+    // A homing missile: a white body with a bright exhaust and a long trail.
+    const a = Math.atan2(p.ty - p.y, p.tx - p.x), c = Math.cos(a), s = Math.sin(a);
+    ctx.strokeStyle = 'rgba(220,220,220,0.35)'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - c * 26, p.y - s * 26); ctx.stroke();
+    ctx.strokeStyle = '#f2f2ea'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(p.x + c * 5, p.y + s * 5); ctx.lineTo(p.x - c * 3, p.y - s * 3); ctx.stroke();
+    ctx.fillStyle = '#ff9a3a'; ctx.beginPath(); ctx.arc(p.x - c * 4, p.y - s * 4, 2, 0, Math.PI * 2); ctx.fill();
+  } else if (p.kind === 'laser') {
+    // (the beam is drawn as an effect)
+  } else if (p.kind === 'flak') {
+    ctx.fillStyle = '#ffe9a0'; ctx.beginPath(); ctx.arc(p.x, p.y, 2.2, 0, Math.PI * 2); ctx.fill();
+  } else if (p.kind === 'plasma') {
+    // A slow, glowing ball of plasma.
+    ctx.fillStyle = 'rgba(190,120,255,0.35)'; ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#e6c8ff'; ctx.beginPath(); ctx.arc(p.x, p.y, 4.5, 0, Math.PI * 2); ctx.fill();
   } else if (p.kind === 'rail') {
     // A railgun slug: a white-hot streak (the beam itself is an effect).
     const a = Math.atan2(p.ty - p.y, p.tx - p.x);
@@ -989,13 +1047,36 @@ function drawEffect(ctx, fx) {
       break;
     }
     case 'beam': {
-      // The railgun's line of light, fading fast.
+      // A laser: a thin, bright red line. The railgun's: a white-hot line of light.
+      if (fx.laser) {
+        ctx.strokeStyle = `rgba(255,80,70,${0.95 * (1 - k)})`; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(fx.x, fx.y); ctx.lineTo(fx.x2, fx.y2); ctx.stroke();
+        ctx.strokeStyle = `rgba(255,200,190,${0.9 * (1 - k)})`; ctx.lineWidth = 0.8; ctx.stroke();
+        break;
+      }
       ctx.strokeStyle = `rgba(200,240,255,${0.9 * (1 - k)})`; ctx.lineWidth = 3 * (1 - k) + 1;
       ctx.beginPath(); ctx.moveTo(fx.x, fx.y); ctx.lineTo(fx.x2, fx.y2); ctx.stroke();
       ctx.strokeStyle = `${TEAMS[fx.team].color}${Math.round(160 * (1 - k)).toString(16).padStart(2, '0')}`; ctx.lineWidth = 7 * (1 - k);
       ctx.beginPath(); ctx.moveTo(fx.x, fx.y); ctx.lineTo(fx.x2, fx.y2); ctx.stroke();
       break;
     }
+    case 'emp': {
+      // An electromagnetic ring rolling outwards.
+      ctx.strokeStyle = `rgba(150,220,255,${0.9 * (1 - k)})`; ctx.lineWidth = 3 * (1 - k) + 1;
+      ctx.beginPath(); ctx.arc(fx.x, fx.y, fx.r * (0.3 + 0.7 * k), 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = `rgba(150,220,255,${0.15 * (1 - k)})`; ctx.fill();
+      break;
+    }
+    case 'pulse':
+      // A Sensor Pulse sweeping out (only its own side would notice, but it's pretty).
+      ctx.strokeStyle = `${TEAMS[fx.team].color}${Math.round(140 * (1 - k)).toString(16).padStart(2, '0')}`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(fx.x, fx.y, fx.r * k, 0, Math.PI * 2); ctx.stroke();
+      break;
+    case 'burst':
+      // Flak: a puff of dark smoke with sparks.
+      ctx.fillStyle = `rgba(60,58,54,${0.55 * (1 - k)})`; ctx.beginPath(); ctx.arc(fx.x, fx.y, (fx.r || 20) * (0.4 + 0.6 * k), 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = `rgba(255,220,120,${1 - k})`; for (let i = 0; i < 5; i++) { const a = i * 1.3; ctx.fillRect(fx.x + Math.cos(a) * 12 * k - 1, fx.y + Math.sin(a) * 12 * k - 1, 2, 2); }
+      break;
     case 'burn': {
       // Fire spreading round the hit.
       const r = Math.max(10, fx.r || 20) * (0.5 + k * 0.7);

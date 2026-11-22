@@ -277,8 +277,12 @@ function issueCommand(game, team, cmd) {
   switch (cmd.type) {
     case 'move': {
       const slots = arrivalSlots(game, cmd.x, cmd.y, units);
+      // A mixed group of fighting vehicles travels together at the pace of its
+      // slowest member, so the fast ones don't arrive alone and get picked off.
+      const fighters = units.filter(u => u.def.role === 'combat' && !u.def.deployable);
+      const speeds = fighters.map(u => u.def.speed), pace = fighters.length > 1 && Math.max(...speeds) > Math.min(...speeds) * 1.2 ? Math.min(...speeds) : 0;
       units.forEach((u, i) => {
-        u.order = { type: 'move', gx: slots[i].x, gy: slots[i].y, attackMove: !!cmd.attackMove };
+        u.order = { type: 'move', gx: slots[i].x, gy: slots[i].y, attackMove: !!cmd.attackMove, pace: fighters.includes(u) ? pace : 0 };
         u.target = null;
         planPath(game, u, slots[i].x, slots[i].y);
       });
@@ -336,15 +340,21 @@ function issueCommand(game, team, cmd) {
       break;
     }
     case 'loadout': {
-      // Which weapon new vehicles of one kind get on one hardpoint.
+      // Which weapon new vehicles of one kind get in one kind of hardpoint.
       const def = UNIT_TYPES[cmd.unit], tm = game.teams[team];
-      if (!def || !def.hardpoints || !def.hardpoints[cmd.slot]) return;
-      if (cmd.weapon !== 'stock') {
-        const w = WEAPONS[cmd.weapon];
-        if (!w || w.slot !== cmd.slot) return;
-        if (!tm.research['w_' + cmd.weapon]) { pushEvent(game, team, `Research the ${w.name} at an Armory first`, 'warn'); return; }
-      }
+      const sl = def && def.slots && (def.slots.find(x => x.type === cmd.slot) || Object.values(UNIT_TYPES).filter(d => (d.base || '') === cmd.unit && d.slots).flatMap(d => d.slots).find(x => x.type === cmd.slot));
+      if (!sl || !fitsSlot(sl, cmd.weapon)) return;
+      if (cmd.weapon !== 'stock' && !tm.research['w_' + cmd.weapon]) { pushEvent(game, team, `Research the ${WEAPONS[cmd.weapon].name} at an Armory first`, 'warn'); return; }
       tm.loadouts[cmd.unit] = Object.assign({}, tm.loadouts[cmd.unit], { [cmd.slot]: cmd.weapon });
+      break;
+    }
+    case 'fitTower': {
+      // Pick a tower's weapon: once, for good.
+      const b = own(cmd.buildingId);
+      if (!b || b.kind !== 'building' || !b.def.slots || b.built < 1) return;
+      if (b.weaponLocked) { pushEvent(game, team, "This tower's weapon is already fitted for good", 'warn'); return; }
+      if (cmd.weapon !== 'stock' && (!fitsSlot(b.def.slots[0], cmd.weapon) || !game.teams[team].research['w_' + cmd.weapon])) return;
+      fitTower(game, b, cmd.weapon);
       break;
     }
     case 'autorepair': {
@@ -626,6 +636,7 @@ function stepGame(game) {
   const dt = 1 / CONFIG.TICK_RATE;
   game.tick++; game.time += dt;
   if (game.map.tidalMap) updateTide(game);
+  updateBattlefield(game, dt);
   // Losing a Base Silo loses whatever no longer fits.
   if (game.tick % 15 === 0) for (const t of [1, 2]) game.teams[t].scrap = Math.min(game.teams[t].scrap, scrapCapacity(game, t));
 
@@ -684,7 +695,8 @@ function updateBuilding(game, b, dt) {
       if (b.upgradeKey) {
         // A Gun Tower becomes a different kind of tower: new name and gun.
         b.variant = up.key;
-        b.def = Object.assign({}, b.def, { name: up.name, weapon: up.weapon, desc: up.desc, upgrades: null });
+        b.def = Object.assign({}, b.def, { name: up.name, weapon: up.weapon, slots: up.slots, desc: up.desc, upgrades: null });
+        b.weaponLocked = false; b.fitted = null;   // the new hardpoint gets its own choice
         b.cooldown = 0;
       }
       pushEvent(game, b.team, `${up.name} ready`, 'good', b.x, b.y);
@@ -840,9 +852,13 @@ function updateUnit(game, u, dt) {
   if (u.repairing > 0) u.repairing -= dt;
   if (u.def.shield) {
     if (u.shieldFlash > 0) u.shieldFlash -= dt;
-    if (u.shieldWait > 0) u.shieldWait -= dt;
+    if (u.shieldDown > 0) { u.shieldDown -= dt; if (u.shieldDown <= 0) u.shield = u.def.shield * 0.3; }   // rebooting after a collapse
+    else if (u.shieldWait > 0) u.shieldWait -= dt;
     else u.shield = Math.min(u.def.shield, u.shield + u.def.shieldRegen * dt);
   }
+  if (u.def.special) updateSpecial(game, u, dt);
+  if (u.empUntil > game.time) { u.path = []; return; }   // stalled by an EMP
+  if (WORKER_SAFETY[u.def.role] && workerSurvival(game, u, dt)) return;
   if (u.def.deployable && u.deployed) { updateDugIn(game, u, dt); return; }
   if (u.def.weapon2) secondaryFire(game, u, dt);
   if (u.def.weapon && stanceOf(game, u) === 'repair') fightThenRepair(game, u);
@@ -1047,7 +1063,7 @@ function updateDrone(game, u, dt) {
     u.scan = t ? 2 : 0.8;
     let best = null, bs = Infinity;
     for (const e of game.entities) {
-      if (!needsMend(e, u)) continue;
+      if (!needsMend(e, u) || workerThreat(game, e.kind === 'unit' ? e : { x: e.x, y: e.y, team: u.team }, 200)) continue;   // not into the thick of a fight
       const s = mendScore(u, e);
       if (s < bs) { bs = s; best = e; }
     }
@@ -1342,7 +1358,9 @@ function followPath(game, u, dt, stopDist = 6) {
   u.movingTick = game.tick;
   u.angle = turnToward(u.angle, want, 5 * dt);
   const facing = Math.cos(wrapAngle(want - u.angle));
-  const step = Math.min(d, u.def.speed * dt * Math.max(0.25, facing) * (u.slowF || 1) * (u.shockUntil > game.time ? u.shockMul : 1));
+  // Keeping pace with a mixed group until close to the destination or in a fight.
+  const o = u.order, paced = o && o.pace && !u.target && Math.hypot(u.x - o.gx, u.y - o.gy) > 250;
+  const step = Math.min(d, (paced ? Math.min(u.def.speed, o.pace * 1.05) : u.def.speed) * dt * Math.max(0.25, facing) * (u.slowF || 1) * (u.shockUntil > game.time ? u.shockMul : 1) * (u.boostUntil > game.time ? 1 + SPECIALS.overdrive.boost : 1));
   const ox = u.x, oy = u.y;
   moveWithCollision(game, u, Math.cos(want) * step, Math.sin(want) * step);
   const moved = Math.hypot(u.x - ox, u.y - oy);
@@ -1405,11 +1423,15 @@ function avoidSteer(game, u, want) {
     if (Math.abs(l) >= c) return;
     ahead = a; lat = l; clear = c; blocker = o;
   });
-  u.slowF = 1;
+  u.slowF = 1; u.followId = 0;
   if (ahead === Infinity) return want;
+  // Two side by side can each see the other as "ahead": then the lower id
+  // leads at full speed, or both would crawl along at the minimum pace.
+  if (blocker.team === u.team && blocker.followId === u.id && u.id < blocker.id) return want;
   // A friend ahead driving the same way: fall in behind it at its pace
   // instead of swerving round (that's what made columns jostle and spread).
   if (blocker.team === u.team && blocker.movingTick >= game.tick - 1 && Math.cos(wrapAngle(blocker.angle - want)) > 0.7) {
+    u.followId = blocker.id;
     u.slowF = Math.max(0.35, Math.min(1, (ahead - clear * 0.6) / look + 0.25));
     return want + (lat > 3 ? -0.2 : 0.2) * (1 - Math.abs(lat) / clear);
   }
@@ -1480,6 +1502,8 @@ function isVisibleTo(game, team, e) {
       if (game.teams[team].vis[y * W + x]) return true;
     return false;
   }
+  // Cloaked, or inside a smoke cloud: unseen unless a Sensor Pulse found it.
+  if ((e.cloakOn || (game.smokes && game.smokes.length && game.smokes.some(c => Math.hypot(c.x - e.x, c.y - e.y) < c.r))) && !(e.revealed && e.revealed[team] > game.time)) return false;
   const tx = Math.floor(e.x / T), ty = Math.floor(e.y / T);
   return game.teams[team].vis[ty * W + tx] === 1;
 }
@@ -1604,20 +1628,24 @@ function aimAtNearby(game, u, dt) {
 // The chance a shot from `e` at `t` (edge distance d) hits (CONFIG.ACCURACY).
 function hitChance(game, e, t, d, w = e.def.weapon) {
   if (t.kind === 'building') return 1;
+  const jammed = (game.jammers || []).some(j => j.team !== e.team && Math.hypot(j.x - e.x, j.y - e.y) < j.def.special.radius);
+  if (w.sure) return jammed ? 0.8 : 0.98;
   const rank = e.rank || 0, fixed = isFixedGun(e);
   let k = (CONFIG.ACCURACY[w.projectile] || 0.9) * (w.acc || 1) * (1 - CONFIG.ACC_RANGE * Math.min(1, d / w.range)) * (1 + CONFIG.VET_ACC[rank]);
   if (fixed) k *= CONFIG.ACC_FIXED;
   // Veterans lose less accuracy firing on the move (a third less per rank).
   if (e.kind === 'unit' && e.movingTick >= game.tick - 1) k *= 1 - (1 - CONFIG.ACC_SHOOTER_MOVING) * (1 - rank / 3);
-  if (t.movingTick >= game.tick - 1) k *= 1 - CONFIG.ACC_TARGET_SPEED * t.def.speed * (fixed ? CONFIG.ACC_FIXED_TRACK : 1);
+  // Homing missiles follow a moving target (unless jammed).
+  if (t.movingTick >= game.tick - 1 && !(w.homing && !jammed)) k *= 1 - CONFIG.ACC_TARGET_SPEED * t.def.speed * (fixed ? CONFIG.ACC_FIXED_TRACK : 1);
+  if (jammed) k *= SPECIALS.jammer.acc;
   return Math.max(CONFIG.ACC_MIN, Math.min(0.98, k));
 }
 // Fires from a fixed spot: a building, or a Sentry or Artillery with its legs down.
 const isFixedGun = e => e.kind === 'building' || (!!e.def.deployToFire && (e.legE || 0) >= 1);
 
 function aimAndFire(game, e, t, dt) {
-  const w = e.def.weapon;
   const d = edgeDist(e, t);
+  const w = e.kind === 'unit' ? chooseWeapon(game, e, t, d) : e.def.weapon;
   const want = angleTo(e, t);
   e.turret = turnToward(e.turret, want, 4 * dt);
   if (d > w.range || (w.minRange && d < w.minRange)) return;
@@ -1638,18 +1666,23 @@ function aimAndFire(game, e, t, dt) {
 }
 
 // Speeds of each kind of shot, in pixels a second.
-const SHOT_SPEED = { bullet: 900, shell: 620, rocket: 520, rail: 3200, flame: 420, shock: 1100 };
-// Fires one trigger pull of weapon w from (mx, my) at t: one shot, or a salvo.
-// Each shot rolls to hit; a miss flies a little wide and lands beyond the target.
+const SHOT_SPEED = { bullet: 900, shell: 620, rocket: 520, missile: 440, rail: 3200, laser: 4000, flame: 420, flak: 800, plasma: 300, shock: 1100 };
+// Fires one trigger pull of weapon w from (mx, my) at t: a salvo of shots
+// (salvoGap seconds apart), each from `count` barrels side by side sharing
+// the damage. Each shot rolls to hit; a miss flies a little wide and lands
+// beyond the target.
 function launchShot(game, e, t, w, mx, my, aim, d, big) {
-  const n = w.salvo || 1;
-  for (let k = 0; k < n; k++) {
-    const off = n > 1 ? (k - (n - 1) / 2) * 7 : 0;   // a salvo leaves side by side
+  if (e.cloakOn) { e.cloakOn = false; e.cloakT = (e.def.special && e.def.special.off) || 7; }   // firing breaks a cloak
+  const n = w.salvo || 1, barrels = Math.max(1, w.count || 1), each = w.damage / barrels;
+  for (let k = 0; k < n; k++) for (let j = 0; j < barrels; j++) {
+    const off = barrels > 1 ? (j - (barrels - 1) / 2) * 6 : (n > 1 && !w.salvoGap ? (k - (n - 1) / 2) * 7 : 0);
     const sx = mx - Math.sin(aim) * off, sy = my + Math.cos(aim) * off;
-    const p = { kind: w.projectile, team: e.team, owner: e.id, x: sx, y: sy, sx, sy, damage: w.damage, splash: w.splash || 0,
-                vsBuilding: w.vsBuilding, vsHeavy: w.vsHeavy, vsLight: w.vsLight, slow: w.slow, slowTime: w.slowTime };
+    const p = { kind: w.projectile, team: e.team, owner: e.id, x: sx, y: sy, sx, sy, damage: each, splash: w.splash || 0,
+                vsBuilding: w.vsBuilding, vsHeavy: w.vsHeavy, vsLight: w.vsLight, slow: w.slow, slowTime: w.slowTime,
+                pierceShield: w.pierceShield, emp: w.emp, empTime: w.empTime, smoke: w.smoke, smokeTime: w.smokeTime,
+                fire: w.fire, fireTime: w.fireTime, fireDps: w.fireDps, delay: w.salvoGap ? k * w.salvoGap : 0 };
     if (w.projectile === 'artillery') {
-      const spread = (20 + d * 0.06) * (isFixedGun(e) ? CONFIG.ARTY_SPREAD_FIXED : 1);
+      const spread = (20 + d * 0.06) * (isFixedGun(e) ? CONFIG.ARTY_SPREAD_FIXED : 1) * (w.spread || 1);
       p.tx = t.x + (game.rng() - 0.5) * spread; p.ty = t.y + (game.rng() - 0.5) * spread;
       p.speed = 260; p.total = Math.hypot(p.tx - sx, p.ty - sy);
     } else {
@@ -1661,16 +1694,28 @@ function launchShot(game, e, t, w, mx, my, aim, d, big) {
         p.tx = sx + Math.cos(a) * len; p.ty = sy + Math.sin(a) * len; p.miss = true;
       }
     }
-    if (w.projectile === 'rail') game.effects.push({ kind: 'beam', x: sx, y: sy, x2: p.tx, y2: p.ty, t: 0, life: 0.25, team: e.team });
+    if ((w.projectile === 'rail' || w.projectile === 'laser') && !p.delay) game.effects.push({ kind: 'beam', x: sx, y: sy, x2: p.tx, y2: p.ty, t: 0, life: w.projectile === 'laser' ? 0.12 : 0.25, team: e.team, laser: w.projectile === 'laser' });
     game.projectiles.push(p);
   }
   game.effects.push({ kind: 'flash', x: mx, y: my, a: aim, t: 0, life: 0.08, big, fx: w.projectile });
-  game.events.push({ sound: w.projectile === 'rail' || w.projectile === 'flame' || w.projectile === 'shock' ? 'shell' : w.projectile, x: mx, y: my });
+  const loud = { rail: 'shell', laser: 'bullet', flame: 'shell', flak: 'bullet', plasma: 'shell', missile: 'rocket', shock: 'shell' };
+  game.events.push({ sound: loud[w.projectile] || w.projectile, x: mx, y: my });
 }
 
 function updateProjectiles(game, dt) {
   const fields = game.activeFields || [];
+  const pd = game.pointDefence || [];
   for (const p of game.projectiles) {
+    if (p.delay > 0) { p.delay -= dt; continue; }   // the next rocket of a salvo, still in the tube
+    // Point Defence shoots down rockets, missiles and shells that come near.
+    if (pd.length && (p.kind === 'rocket' || p.kind === 'missile' || p.kind === 'artillery') && !p.pdTried) {
+      const u = pd.find(u => u.team !== p.team && u.hp > 0 && (u.pdCd || 0) <= 0 && Math.hypot(u.x - p.x, u.y - p.y) < u.def.special.radius);
+      if (u) {
+        p.pdTried = true; u.pdCd = u.def.special.cooldown;
+        game.effects.push({ kind: 'beam', x: u.x, y: u.y, x2: p.x, y2: p.y, t: 0, life: 0.1, team: u.team, laser: true });
+        if (game.rng() < u.def.special.chance) { p.done = true; game.effects.push({ kind: 'spark', x: p.x, y: p.y, t: 0, life: 0.3, big: true }); continue; }
+      }
+    }
     if (p.targetId) {
       const t = game.byId.get(p.targetId);
       if (t && t.hp > 0) { p.tx = t.x; p.ty = t.y; }
@@ -1685,13 +1730,14 @@ function updateProjectiles(game, dt) {
     if (d <= step) {
       p.done = true;
       if (p.kind === 'artillery') {
-        for (const o of game.entities) {
+        if (p.damage > 0) for (const o of game.entities) {
           if (o.hp <= 0 || o.team === p.team) continue;
           const od = Math.max(0, Math.hypot(o.x - p.tx, o.y - p.ty) - o.radius * 0.5);
           if (od < p.splash) damage(game, o, p.damage * (1 - 0.6 * od / p.splash), p);
         }
-        game.effects.push({ kind: 'boom', x: p.tx, y: p.ty, t: 0, life: 0.6, size: p.splash });
+        if (p.splash) game.effects.push({ kind: 'boom', x: p.tx, y: p.ty, t: 0, life: 0.6, size: p.splash });
         game.events.push({ sound: 'boom', x: p.tx, y: p.ty });
+        impactExtras(game, p);
       } else if (p.miss) {
         game.effects.push({ kind: 'dust', x: p.tx, y: p.ty, t: 0, life: 0.4 });
       } else {
@@ -1707,7 +1753,8 @@ function updateProjectiles(game, dt) {
           const od = Math.max(0, Math.hypot(o.x - p.tx, o.y - p.ty) - o.radius * 0.5);
           if (od < p.splash) damage(game, o, p.damage * 0.5 * (1 - 0.5 * od / p.splash), p);
         }
-        game.effects.push({ kind: p.kind === 'flame' ? 'burn' : p.kind === 'shock' ? 'zap' : 'spark', x: p.tx, y: p.ty, t: 0, life: p.kind === 'flame' ? 0.45 : 0.25, big: p.kind !== 'bullet', r: p.splash });
+        game.effects.push({ kind: p.kind === 'flame' ? 'burn' : p.kind === 'shock' ? 'zap' : p.kind === 'plasma' ? 'boom' : p.kind === 'flak' ? 'burst' : 'spark', x: p.tx, y: p.ty, t: 0, life: p.kind === 'flame' ? 0.45 : 0.3, big: p.kind !== 'bullet', r: p.splash, size: p.splash || 20 });
+        impactExtras(game, p);
       }
     } else {
       p.x += (p.tx - p.x) / d * step; p.y += (p.ty - p.y) / d * step;
@@ -1716,37 +1763,287 @@ function updateProjectiles(game, dt) {
   game.projectiles = game.projectiles.filter(p => !p.done);
 }
 
-// --- Armory weapons and loadouts ---
-// The weapon an Armory weapon makes of a hardpoint's stock weapon.
+// --- Hardpoints, Armory weapons and loadouts ---
+// The weapon an Armory weapon makes of a slot's stock weapon (see WEAPONS).
 function makeWeapon(stock, key) {
-  if (!key || key === 'stock' || !WEAPONS[key]) return stock;
+  if (!key || key === 'stock' || !WEAPONS[key] || WEAPONS[key].slot === 'special') return stock;
   const m = WEAPONS[key].mod, w = Object.assign({}, stock, { key, name: WEAPONS[key].name });
-  w.damage = Math.round(stock.damage * (m.damage || 1) * 10) / 10;
+  w.damage = Math.round(stock.damage * (m.damage ?? 1) * 10) / 10;
   w.cooldown = Math.round(stock.cooldown * (m.cooldown || 1) * 100) / 100;
   w.range = Math.round(stock.range * (m.rangeMul || 1) + (m.rangeAdd || 0));
-  for (const k of ['projectile', 'minRange', 'splash', 'vsBuilding', 'vsHeavy', 'vsLight', 'salvo', 'acc', 'slow', 'slowTime']) if (m[k] !== undefined) w[k] = m[k];
+  if (stock.minRange) w.minRange = Math.round(stock.minRange * (m.minRangeMul || 1));
+  if (m.splash !== undefined) w.splash = m.splash; else if (stock.splash) w.splash = Math.round(stock.splash * (m.splashMul || 1));
+  if (m.spreadMul) w.spread = m.spreadMul;
+  for (const k of ['vsHeavy', 'vsLight']) if (m[k] !== undefined) w[k] = Math.round((stock[k] || 1) * m[k] * 100) / 100;
+  for (const k of ['projectile', 'vsBuilding', 'salvo', 'salvoGap', 'acc', 'sure', 'homing', 'unguided', 'pierceShield', 'emp', 'empTime', 'smoke', 'smokeTime', 'fire', 'fireTime', 'fireDps'])
+    if (m[k] !== undefined) w[k] = m[k];
   return w;
 }
+// A special ability fitted to a vehicle.
+function makeSpecial(key) { return key && SPECIALS[key] ? Object.assign({ key, name: WEAPONS[key].name }, SPECIALS[key]) : null; }
+// Can this weapon go in this slot (of this vehicle kind)?
+function fitsSlot(slot, key) {
+  if (key === 'stock') return true;
+  const w = WEAPONS[key];
+  return !!w && w.slot === slot.type && (!slot.allow || slot.allow.includes(key));
+}
 // A vehicle kind's stats with a loadout fitted (shared by every vehicle with
-// the same loadout). Stock everywhere gives the plain stats.
+// the same loadout). A loadout maps slot type -> weapon key ('stock' or none
+// for the stock weapon; specials have no stock and start empty). Basic (Mk I)
+// vehicles use the slots they have; a Mk II has more.
 const LOADOUT_DEFS = new Map();
 function loadoutDef(type, lo) {
   const def = UNIT_TYPES[type];
-  if (!def.hardpoints || !lo) return def;
-  const slots = Object.keys(def.hardpoints).filter(sl => lo[sl] && lo[sl] !== 'stock');
-  if (!slots.length) return def;
-  const key = type + ':' + slots.map(sl => sl + '=' + lo[sl]).join(',');
+  if (!def.slots || !lo) return def;
+  const used = def.slots.filter(sl => lo[sl.type] && lo[sl.type] !== 'stock' && fitsSlot(sl, lo[sl.type]));
+  if (!used.length) return def;
+  const key = type + ':' + used.map(sl => sl.type + '=' + lo[sl.type]).join(',');
   let d = LOADOUT_DEFS.get(key);
   if (!d) {
     d = Object.assign({}, def, { loadout: {} });
-    for (const sl of slots) { const field = def.hardpoints[sl]; d[field] = makeWeapon(def[field], lo[sl]); d.loadout[sl] = lo[sl]; }
+    for (const sl of used) {
+      const k = lo[sl.type];
+      d.loadout[sl.type] = k;
+      if (sl.type === 'special') {
+        d.special = makeSpecial(k);
+        if (k === 'shield') Object.assign(d, { shield: Math.round(def.hp * SPECIALS.shield.frac), shieldDelay: SPECIALS.shield.delay,
+          shieldRegen: Math.round(def.hp * SPECIALS.shield.frac * SPECIALS.shield.regen), shieldReboot: SPECIALS.shield.reboot });
+      } else d[sl.field] = Object.assign(makeWeapon(def[sl.field], k), { slot: sl.type, count: sl.count });
+    }
+    // The longest-reaching weapon on the main turret leads; the rest are alternatives.
+    const main = def.slots.filter(sl => sl.type !== 'special' && sl.turret !== 2).map(sl => d[sl.field]).sort((a, b) => b.range - a.range);
+    if (main.length) { d.weapon = main[0]; d.altWeapons = main.slice(1); }
     LOADOUT_DEFS.set(key, d);
   }
   return d;
 }
 function applyLoadout(game, u) {
   const lo = game.teams[u.team].loadouts && game.teams[u.team].loadouts[baseType(u)];
-  if (lo) u.def = loadoutDef(u.type, lo);
+  if (!lo) return;
+  u.def = loadoutDef(u.type, lo);
+  if (u.def.shield) u.shield = u.def.shield;
+  if (u.def.special && u.def.special.key === 'mines') u.mines = u.def.special.carry;
+}
+// A tower's weapon: chosen once per tower (and once more after its upgrade),
+// then locked for good.
+function fitTower(game, b, key) {
+  const sl = b.def.slots && b.def.slots[0];
+  if (!sl || b.weaponLocked) return false;
+  b.def = Object.assign({}, b.def, { weapon: Object.assign(makeWeapon(b.def.weapon, key), { slot: sl.type, count: sl.count, name: key === 'stock' ? sl.stock : WEAPONS[key].name }) });
+  b.weaponLocked = true; b.fitted = key;
+  return true;
+}
+// How well a weapon does against a target: damage a second, with its
+// armour multipliers (and a little extra for splash).
+function weaponScore(w, t) {
+  const mult = t.kind === 'building' ? (w.vsBuilding || 1) : (HEAVY_KINDS.includes(baseType(t)) ? (w.vsHeavy || 1) : (w.vsLight || 1));
+  return w.damage * (w.salvo || 1) * mult / w.cooldown * (w.splash ? 1.15 : 1) * (w.smoke ? 0 : 1) + (w.emp && t.shield > 0 ? 50 : 0);
+}
+// Vehicles with more than one weapon on their turret switch to the one that
+// suits the target and can reach it (half a second to switch).
+function chooseWeapon(game, e, t, d) {
+  const alts = e.def.altWeapons;
+  if (!alts || !alts.length) return e.def.weapon;
+  const all = [e.def.weapon, ...alts], inRange = w => d <= w.range && !(w.minRange && d < w.minRange);
+  const cur = all[e.wIdx || 0] || e.def.weapon;
+  let best = cur, bs = inRange(cur) ? weaponScore(cur, t) : -1;
+  for (const w of all) { const sc = inRange(w) ? weaponScore(w, t) : -1; if (sc > bs * 1.15 + 0.01) { best = w; bs = sc; } }
+  if (best !== cur && game.time >= (e.switchAt || 0)) { e.wIdx = all.indexOf(best); e.switchAt = game.time + 0.5; e.cooldown = Math.max(e.cooldown, 0.4); return best; }
+  return cur;
+}
+
+// --- Workers look after themselves ---
+// Scavengers, Constructors and Repair Drones keep out of harm's way: they back
+// off from enemy combat units and from anything shooting at them, go and get
+// patched up when badly hurt, and Scavengers leave scrap where there's been
+// fighting recently (such as the killing ground in front of your gun towers)
+// until it has been quiet for a while. Their job resumes afterwards.
+const WORKER_SAFETY = { harvester: 320, builder: 260, repairer: 230 };
+const FIGHT_MEMORY = 25, FIGHT_RADIUS = 280;
+// Where shots have landed lately (a sparse list of spots, any side).
+function noteFighting(game, x, y) {
+  const list = game.fighting || (game.fighting = []);
+  if (list.some(f => game.time - f.t < 3 && Math.abs(f.x - x) < 120 && Math.abs(f.y - y) < 120)) return;
+  list.push({ x, y, t: game.time });
+  if (list.length > 200 || (list[0] && game.time - list[0].t > FIGHT_MEMORY)) game.fighting = list.filter(f => game.time - f.t < FIGHT_MEMORY);
+}
+// Scrap is dangerous while enemy combat units are near it, or while there has
+// been fighting close by in the last FIGHT_MEMORY seconds.
+function scrapIsDangerous(game, team, s) {
+  for (const f of game.fighting || []) if (game.time - f.t < FIGHT_MEMORY && Math.abs(f.x - s.x) < FIGHT_RADIUS && Math.abs(f.y - s.y) < FIGHT_RADIUS && Math.hypot(f.x - s.x, f.y - s.y) < FIGHT_RADIUS) return true;
+  let threat = false;
+  forUnitsNear(game, s.x, s.y, 360, o => { if (!threat && o.team !== team && o.hp > 0 && o.def.role === 'combat' && isVisibleTo(game, team, o)) threat = true; });
+  return threat;
+}
+// The nearest enemy that could hurt this worker: a combat vehicle it can see
+// within reach, or an enemy tower it is about to drive into.
+function workerThreat(game, u, R) {
+  let best = null, bd = R;
+  forUnitsNear(game, u.x, u.y, R, o => {
+    if (o.team === u.team || o.hp <= 0 || o.def.role !== 'combat' || !isVisibleTo(game, u.team, o)) return;
+    const d = dist(u, o); if (d < bd) { bd = d; best = o; }
+  });
+  if (!best) for (const b of game.entities) {
+    if (b.kind !== 'building' || b.team === u.team || b.hp <= 0 || !b.def.weapon || b.built < 1) continue;
+    if (dist(u, b) < b.def.weapon.range + 40 && isVisibleTo(game, u.team, b)) { best = b; break; }
+  }
+  return best;
+}
+// Returns true while it is busy keeping itself alive (its job waits).
+function workerSurvival(game, u, dt) {
+  if (u.repairTrip || u.order.type === 'deploy') return false;   // you sent it somewhere: it goes
+  const T = CONFIG.TILE;
+  const home = game.entities.find(e => e.team === u.team && (e.type === 'recycler' || e.type === 'mobileRecycler') && e.hp > 0);
+  const goTo = (x, y) => {
+    if (!u.path.length || (u.safeRepath = (u.safeRepath || 0) - dt) <= 0) { u.safeRepath = 0.8; planPath(game, u, x, y); }
+    followPath(game, u, dt, 10);
+  };
+  // 1. Badly hurt: to a Repair Pad (or home, where Repair Drones can reach it).
+  if (!u.patching && u.hp < u.maxHp * 0.5) {
+    const pads = game.entities.filter(e => e.team === u.team && e.type === 'repairpad' && e.built >= 1);
+    const pad = pads.sort((a, b) => dist(a, u) - dist(b, u))[0];
+    const drones = u.def.role !== 'repairer' && game.entities.some(e => e.team === u.team && e.def.role === 'repairer' && e.hp > 0);
+    if (pad) u.patching = { padId: pad.id };
+    else if (drones && home) u.patching = { home: true, until: game.time + 30 };
+    if (u.patching) { u.path = []; pushEvent(game, u.team, `${u.def.name} pulling back for repairs`, 'info', u.x, u.y); }
+  }
+  if (u.patching) {
+    const pad = u.patching.padId && game.byId.get(u.patching.padId);
+    const done = u.hp >= u.maxHp * 0.98 || (u.patching.padId && (!pad || pad.hp <= 0)) || (u.patching.home && (game.time > u.patching.until || !home));
+    if (done) { u.patching = null; u.path = []; return false; }
+    if (pad) { if (dist(u, pad) > pad.radius * 0.5) goTo(pad.x, pad.y); else u.path = []; }
+    else if (home && dist(u, home) > home.radius + 90) goTo(home.x + 60, home.y + 60);
+    else u.path = [];
+    return true;
+  }
+  // 2. Danger close: back off toward home until it's quiet again.
+  if ((u.safeCheck = (u.safeCheck || 0) - dt) <= 0) {
+    u.safeCheck = 0.3;
+    const th = workerThreat(game, u, WORKER_SAFETY[u.def.role]);
+    const shotAt = u.lastHitAt > game.time - 1.5 && u.lastHitBy && u.lastHitBy.hp > 0 ? u.lastHitBy : null;
+    if (th || shotAt) { u.fleeFrom = th || shotAt; u.fleeUntil = game.time + 4; }
+  }
+  if (u.fleeUntil > game.time && u.fleeFrom) {
+    const f = u.fleeFrom;
+    let x, y;
+    if (home && dist(home, f) > dist(home, u) * 0.7) { x = home.x; y = home.y; }   // home is away from the danger
+    else { const a = angleTo(f, u); x = u.x + Math.cos(a) * 260; y = u.y + Math.sin(a) * 260; }   // just away from it
+    if (Math.hypot(u.x - x, u.y - y) > 80) goTo(x, y); else u.path = [];
+    if (u.fleeUntil - game.time < 0.05) { u.fleeFrom = null; u.path = []; }
+    return true;
+  }
+  return false;
+}
+
+// --- Specials, EMP, smoke, fire and mines ---
+// What a shot leaves behind where it lands.
+function impactExtras(game, p) {
+  if (p.emp) {
+    // EMP: shields drop and every vehicle in the blast stalls, friend or foe.
+    for (const o of game.entities) {
+      if (o.hp <= 0 || Math.hypot(o.x - p.tx, o.y - p.ty) > p.emp + (o.radius || 0)) continue;
+      if (o.kind === 'unit') { o.empUntil = game.time + p.empTime; if (o.def.shield) { o.shield = 0; if (o.def.shieldReboot) o.shieldDown = o.def.shieldReboot; } }
+    }
+    for (const f of game.activeFields || []) {
+      const b = game.byId.get(f.id);
+      if (b && b.field && segmentDist(p.tx, p.ty, f.ax, f.ay, f.bx, f.by) < p.emp) b.field.hp = Math.max(0, b.field.hp - b.def.field.hp * 0.5);
+    }
+    game.effects.push({ kind: 'emp', x: p.tx, y: p.ty, t: 0, life: 0.6, r: p.emp });
+  }
+  if (p.smoke) (game.smokes = game.smokes || []).push({ x: p.tx, y: p.ty, r: p.smoke, until: game.time + p.smokeTime, born: game.time });
+  if (p.fire) (game.fires = game.fires || []).push({ x: p.tx, y: p.ty, r: p.fire, until: game.time + p.fireTime, dps: p.fireDps, team: p.team, owner: p.owner, born: game.time });
+}
+const segmentDist = (px, py, ax, ay, bx, by) => {
+  const vx = bx - ax, vy = by - ay, L = vx * vx + vy * vy || 1, t = Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / L));
+  return Math.hypot(px - ax - vx * t, py - ay - vy * t);
+};
+// Every tick: who jams and who shoots down shells; smoke clears; fires burn; mines go off.
+function updateBattlefield(game, dt) {
+  game.jammers = []; game.pointDefence = [];
+  for (const e of game.entities) {
+    if (e.kind !== 'unit' || e.hp <= 0 || !e.def.special) continue;
+    if (e.def.special.key === 'jammer') game.jammers.push(e);
+    else if (e.def.special.key === 'pointdef') game.pointDefence.push(e);
+  }
+  if (game.smokes && game.smokes.length) game.smokes = game.smokes.filter(c => c.until > game.time);
+  if (game.fires && game.fires.length) {
+    game.fires = game.fires.filter(f => f.until > game.time);
+    for (const f of game.fires) for (const o of game.entities)
+      if (o.hp > 0 && o.team !== f.team && Math.hypot(o.x - f.x, o.y - f.y) < f.r + (o.radius || 0) * 0.5) damage(game, o, f.dps * dt, { kind: 'artillery', team: f.team, owner: f.owner, vsBuilding: 1 });
+  }
+  if (game.mines && game.mines.length) {
+    for (const m of game.mines) {
+      if (game.time < m.armAt) continue;
+      let hit = null;
+      forUnitsNear(game, m.x, m.y, 40, o => { if (!hit && o.team !== m.team && o.hp > 0 && Math.hypot(o.x - m.x, o.y - m.y) < 16 + o.radius) hit = o; });
+      if (!hit) continue;
+      m.done = true;
+      for (const o of game.entities) if (o.hp > 0 && o.team !== m.team && Math.hypot(o.x - m.x, o.y - m.y) < m.splash + (o.radius || 0) * 0.5) damage(game, o, m.damage, { kind: 'artillery', team: m.team, owner: m.owner, vsBuilding: 0.5 });
+      game.effects.push({ kind: 'boom', x: m.x, y: m.y, t: 0, life: 0.6, size: m.splash });
+      game.events.push({ sound: 'boom', x: m.x, y: m.y });
+    }
+    game.mines = game.mines.filter(m => !m.done);
+  }
+}
+// A vehicle's special ability, used on its own judgement.
+function updateSpecial(game, u, dt) {
+  const sp = u.def.special;
+  u.spCd = (u.spCd || 0) - dt;
+  switch (sp.key) {
+    case 'shock': {
+      const t = u.target;
+      if (u.spCd <= 0 && t && t.hp > 0 && t.kind === 'unit' && edgeDist(u, t) <= sp.range && isVisibleTo(game, u.team, t) && stanceOf(game, u) !== 'stealth') {
+        u.spCd = sp.cooldown;
+        launchShot(game, u, t, { projectile: 'shock', damage: sp.damage, cooldown: sp.cooldown, range: sp.range, slow: sp.slow, slowTime: sp.slowTime, vsBuilding: 0.3 }, u.x, u.y, angleTo(u, t), edgeDist(u, t), false);
+      }
+      break;
+    }
+    case 'cloak': {
+      // On for `on` seconds, then off for `off` while it recharges. Wanted on
+      // Stealth, by unarmed vehicles, and by anything on the move with no target.
+      u.cloakT = (u.cloakT || 0) - dt;
+      if (u.cloakOn) { if (u.cloakT <= 0) { u.cloakOn = false; u.cloakT = sp.off; } }
+      else if (u.cloakT <= 0) {
+        const want = !u.def.weapon || stanceOf(game, u) === 'stealth' || (!u.target && u.movingTick >= game.tick - 1);
+        if (want) { u.cloakOn = true; u.cloakT = sp.on; }
+      }
+      break;
+    }
+    case 'sensor': {
+      if (u.spCd > 0) break;
+      u.spCd = sp.every;
+      const until = game.time + sp.lasts;
+      game.teams[u.team].pings.push({ x: u.x, y: u.y, r: sp.radius, until });
+      for (const e of game.entities) if (e.team !== u.team && e.hp > 0 && Math.hypot(e.x - u.x, e.y - u.y) < sp.radius) (e.revealed = e.revealed || {})[u.team] = until;
+      for (const m of game.mines || []) if (m.team !== u.team && Math.hypot(m.x - u.x, m.y - u.y) < sp.radius) (m.seen = m.seen || {})[u.team] = until;
+      game.effects.push({ kind: 'pulse', x: u.x, y: u.y, t: 0, life: 0.8, r: sp.radius, team: u.team });
+      break;
+    }
+    case 'pointdef': u.pdCd = (u.pdCd || 0) - dt; break;
+    case 'overdrive': {
+      // Burst away when badly hurt under fire, or to close on a target out of reach.
+      if (u.spCd > 0) break;
+      const hurt = u.hp < u.maxHp * 0.5 && u.lastHitAt > game.time - 2;
+      const chasing = u.target && u.target.hp > 0 && u.def.weapon && edgeDist(u, u.target) > u.def.weapon.range + 60 && u.movingTick >= game.tick - 1;
+      if (hurt || chasing || u.retreating) { u.boostUntil = game.time + sp.time; u.spCd = sp.cooldown; game.effects.push({ kind: 'dust', x: u.x, y: u.y, t: 0, life: 0.5 }); }
+      break;
+    }
+    case 'mines': {
+      if (u.mines === undefined) u.mines = sp.carry;
+      if (u.mines < sp.carry && u.spCd <= 0) { u.mines++; u.spCd = sp.recharge; }
+      u.mineGap = (u.mineGap || 0) - dt;
+      if (u.mines > 0 && u.mineGap <= 0 && u.movingTick >= game.tick - 1) {
+        let near = false;
+        forUnitsNear(game, u.x, u.y, 380, o => { if (!near && o.team !== u.team && o.hp > 0 && o.def.weapon && isVisibleTo(game, u.team, o)) near = true; });
+        if (near) {
+          const back = u.angle + Math.PI;
+          (game.mines = game.mines || []).push({ x: u.x + Math.cos(back) * (u.radius + 10), y: u.y + Math.sin(back) * (u.radius + 10), team: u.team, owner: u.id, armAt: game.time + sp.arm, damage: sp.damage, splash: sp.splash });
+          u.mines--; u.mineGap = 4; if (u.spCd <= 0) u.spCd = sp.recharge;
+        }
+      }
+      break;
+    }
+  }
 }
 
 // --- Tidal Flats: the sea comes in over the sand and goes out again. ---
@@ -1807,15 +2104,17 @@ function damage(game, e, amount, p) {
     else if (rel > Math.PI / 3) amount *= CONFIG.ARMOR_SIDE;
   }
   const wasAlive = e.hp > 0;
-  if (e.shield > 0) {
+  if (e.shield > 0 && !p.pierceShield) {
     const soak = Math.min(e.shield, amount);
     e.shield -= soak; amount -= soak; e.shieldFlash = 0.15;
+    if (e.shield <= 0 && e.def.shieldReboot) { e.shieldDown = e.def.shieldReboot; game.effects.push({ kind: 'shieldhit', x: e.x, y: e.y, t: 0, life: 0.5 }); }   // overwhelmed: it collapses
   }
   if (e.def.shield) e.shieldWait = e.def.shieldDelay;
   e.hp -= amount;
   e.hitFlash = 0.1;
   const shooter = game.byId.get(p.owner);
   if (shooter && shooter.hp > 0) { e.lastHitBy = shooter; e.lastHitAt = game.time; }
+  noteFighting(game, e.x, e.y);
   if (wasAlive && e.hp <= 0 && shooter && shooter.kind === 'unit' && shooter.team !== e.team) creditKill(game, shooter);
   // Fight back if we were just standing around (unless told to hold fire).
   if (e.kind === 'unit' && e.def.weapon && shooter && e.order.type === 'idle' && !e.target && stanceOf(game, e) !== 'stealth') e.target = shooter;
@@ -1897,7 +2196,7 @@ function demolishInto(game, b) {
 function nearestScrap(game, u, maxDist = Infinity) {
   let best = null, bd = maxDist;
   for (const s of game.scrap) {
-    if (s.amount <= 0 || s.wet) continue;
+    if (s.amount <= 0 || s.wet || scrapIsDangerous(game, u.team, s)) continue;
     if (!game.teams[u.team].explored[Math.floor(s.y / CONFIG.TILE) * game.map.W + Math.floor(s.x / CONFIG.TILE)]) continue;
     // Stay away from scrap that enemy combat units are sitting on.
     const d = dist(u, s);
@@ -1925,7 +2224,7 @@ function autoHarvest(game, u) {
 function updateHarvester(game, u, dt) {
   const o = u.order;
   if (o.phase === 'toNode' || o.phase === 'gather') {
-    let node = game.scrap.find(s => s.id === o.nodeId && s.amount > 0 && !s.wet);
+    let node = game.scrap.find(s => s.id === o.nodeId && s.amount > 0 && !s.wet && !scrapIsDangerous(game, u.team, s));
     if (!node) {
       if (u.carry > 0 && u.carry >= u.def.carryMax * 0.5) { o.phase = 'return'; u.path = []; return; }
       node = nearestScrap(game, u, 900);
