@@ -701,9 +701,14 @@ function drawUnit(ctx, u, selected, time) {
   const r = u.radius, art = artFor(u.faction), id = artId(u.faction, baseType(u));
   if (selected) drawSelection(ctx, u);
   ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(u.x + 3, u.y + 5, r, r * 0.8, 0, 0, Math.PI * 2); ctx.fill();
+  if (u.cmdId) {   // under a commander: a green ring on the ground
+    ctx.strokeStyle = 'rgba(94,224,106,0.85)'; ctx.lineWidth = 2;
+    ctx.fillStyle = 'rgba(94,224,106,0.18)';
+    ctx.beginPath(); ctx.ellipse(u.x, u.y + 2, r + 4, (r + 4) * 0.8, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
   if (u.type === 'drone') { drawCustomUnit(ctx, u, time); }
   else art.drawSprite(ctx, id, {
-    x: u.x, y: u.y, heading: u.angle, turret: wrapAngle(u.turret - u.angle), team: teamName(u.team),
+    x: u.x, y: u.y, heading: u.angle, turret: wrapAngle(u.turret - u.angle), team: u.cmdId ? 'green' : teamName(u.team),   // under a commander: green
     mk: !!u.def.base, t: time, legE: u.legE || 0, fire: sinceShot(u, time),
     turret2: u.turret2 !== undefined ? wrapAngle(u.turret2 - u.angle) : undefined,
     fire2: u.lastShot2 !== undefined && time - u.lastShot2 < 0.5 ? time - u.lastShot2 : null,
@@ -730,10 +735,18 @@ function drawUnit(ctx, u, selected, time) {
     ctx.strokeStyle = `rgba(140,228,255,${0.5 + 0.4 * Math.sin(time * 30)})`; ctx.lineWidth = 1.5;
     ctx.beginPath(); for (let i = 0; i <= 10; i++) { const a = i / 10 * Math.PI * 2, rr = r + 3 + (i % 2) * 3; ctx[i ? 'lineTo' : 'moveTo'](u.x + Math.cos(a) * rr, u.y + Math.sin(a) * rr); } ctx.stroke();
   }
+  if (u.cmdId && game.teams[u.team].commands && game.teams[u.team].commands.some(c => c.cmdrId === u.id)) drawStar(ctx, u.x, u.y - r - 10, 8);   // the commander
   if (u.repairing > 0) {
     ctx.strokeStyle = `rgba(110,224,110,${0.5 + 0.4 * Math.sin(time * 10)})`; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(u.x, u.y, r + 4, 0, Math.PI * 2); ctx.stroke();
   }
+}
+
+// A commander's gold star.
+function drawStar(ctx, x, y, R) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? R * 0.45 : R; ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+  ctx.closePath(); ctx.fillStyle = '#ffd34d'; ctx.strokeStyle = '#3a2a00'; ctx.lineWidth = 1.2; ctx.fill(); ctx.stroke();
 }
 
 // Repair Drone: a small hovering rotor craft with a green repair light.
@@ -1180,7 +1193,7 @@ function drawMinimap(ctx, game, view) {
       if (e.kind === 'unit' && !isVisibleTo(game, view.team, e)) continue;
       if (e.kind === 'building' && !e.seen[view.team] && !isVisibleTo(game, view.team, e)) continue;
     }
-    ctx.fillStyle = TEAMS[e.team].color;
+    ctx.fillStyle = e.cmdId ? '#5ee06a' : TEAMS[e.team].color;   // green: under a commander
     if (e.kind === 'building') { const s = e.size * T * sx; ctx.fillRect(e.x * sx - s / 2, e.y * sy - s / 2, s, s); }
     else ctx.fillRect(e.x * sx - 1.5, e.y * sy - 1.5, 3, 3);
   }

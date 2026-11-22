@@ -266,6 +266,8 @@ const RESEARCH = {
   heavy2:     { name: 'Advanced Juggernauts', cost: 225, time: 65 },
   // Unlocks a building rather than a vehicle (BUILDING_TYPES.shield.requires).
   shields:    { name: 'Forcefield Tech',    cost: 250, time: 60, unlocks: 'Shield Projectors' },
+  // Lets you hand a battle group to one of its vehicles to lead (see COMMAND).
+  command:    { name: 'Field Command',      cost: 250, time: 60, unlocks: 'commanders: hand up to 3 battle groups to a vehicle to lead' },
   // Weapons, researched at an Armory: added from WEAPONS below.
 };
 
@@ -349,6 +351,13 @@ const SPECIALS = {
   mines:     { carry: 3, recharge: 20, damage: 140, splash: 45, arm: 1.5 },
 };
 const HEAVY_KINDS = ['tank', 'heavy', 'sentry', 'artillery', 'mobileRecycler'];
+// Commanders: up to `max` per side (after Field Command research), each
+// leading up to `size` vehicles (the commander included). A commander's
+// rank lifts the whole group: aim ×(1 + acc × (rank + 1)), reload
+// ×(1 - reload × (rank + 1)). Your direct orders override the commander for
+// `hold` seconds. An attack that has lost `fallBack` of its strength falls
+// back to regroup, then goes again after `regroup` seconds.
+const COMMAND = { max: 3, size: 10, acc: 0.05, reload: 0.04, hold: 30, think: 3, fallBack: 0.55, regroup: 60 };
 // Research topics for every weapon (key 'w_' + weapon), done at an Armory.
 for (const [k, w] of Object.entries(WEAPONS)) RESEARCH['w_' + k] = { name: w.name, cost: w.cost, time: Math.round(w.cost * 0.27), weapon: k };
 // Stock weapons carry their slot type, name and count; extra stock weapons on
@@ -389,7 +398,10 @@ const BUILDING_TYPES = {
   extractor: {
     name: 'Extractor', cost: 0, buildTime: 8, hp: 900, size: 2, sight: 240,
     income: 0.749, store: 120, buildRadius: 9, buildable: false, salvageValue: 60,
-    desc: 'Pumps scrap from a geyser straight into your total. When your storage is full it holds up to 120 until there is room.',
+    desc: 'Pumps scrap from a geyser straight into your total. When your storage is full it holds up to 120 until there is room. Upgrade it to an Extractor II for more.',
+    // Upgraded: a beefier pump with storage tanks: 40% more scrap, more health, a bigger tank.
+    upgrade: { name: 'Extractor II', cost: 200, time: 30, hp: 1500, income: 1.05, store: 180,
+               desc: 'Pumps 40% faster (63 scrap a minute instead of 45), holds 180 when storage is full, and is much tougher (1,500 health).' },
   },
   // Built next to the Recycler: raises how much scrap you can hold.
   basesilo: {
@@ -399,7 +411,7 @@ const BUILDING_TYPES = {
   },
   lab: {
     name: 'Research Lab', cost: 200, buildTime: 20, hp: 900, size: 2, sight: 200, buildRadius: 6,
-    researches: ['scout2', 'tank2', 'artillery2', 'hornet2', 'sentry2', 'heavy2', 'shields'],
+    researches: ['scout2', 'tank2', 'artillery2', 'hornet2', 'sentry2', 'heavy2', 'shields', 'command'],
     desc: 'Researches Mk II vehicles (a Factory II can then build them) and Forcefield Tech (Shield Projectors), one at a time.',
   },
   // Researches new weapons; a Factory then fits them to new vehicles (Loadouts).
@@ -415,12 +427,13 @@ const BUILDING_TYPES = {
     // lone Radar can anchor Gun Towers far from home.
     name: 'Radar', cost: 150, buildTime: 16, hp: 600, size: 2, sight: 220, buildRadius: 6, anywhere: true,
     ping: { every: 30, radius: 750, lasts: 4 },
-    // Upgraded twice, each dearer: pings twice as often, then a constant feed.
+    // Upgraded twice, each dearer: much further and twice as often, then a
+    // constant feed over a huge circle.
     levels: [
-      { name: 'Radar II', cost: 250, time: 30, hp: 800, pingEvery: 15, desc: 'Pings every 15 seconds instead of 30.' },
-      { name: 'Radar III', cost: 500, time: 45, hp: 1000, continuous: true, desc: 'A constant radar feed: everything in its circle stays revealed.' },
+      { name: 'Radar II', cost: 250, time: 30, hp: 800, pingEvery: 15, radius: 1150, desc: 'Reaches much further (1,150 instead of 750) and pings every 15 seconds instead of 30.' },
+      { name: 'Radar III', cost: 500, time: 45, hp: 1000, continuous: true, radius: 1600, desc: 'A constant radar feed over a huge circle (1,600): everything in it stays revealed.' },
     ],
-    desc: 'Every 30 seconds, a radar ping briefly reveals everything in a wide circle (2.5 times normal sight). Can be built anywhere you have explored, and lets you build around it. Upgrades: pings every 15 s, then a constant feed.',
+    desc: 'Every 30 seconds, a radar ping briefly reveals everything in a wide circle (750, 2.5 times normal sight). Can be built anywhere you have explored, and lets you build around it. Upgrades reach much further: 1,150 pinging every 15 s, then a constant feed over 1,600.',
   },
   // A flat pad vehicles drive onto. Anything parked on it is repaired.
   repairpad: {

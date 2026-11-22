@@ -91,6 +91,7 @@ The game works on touch screens, held upright or sideways. For the whole screen,
 | Stop | `S` |
 | Command buttons | `Q` `W` `E` `R`, or click them |
 | Battle groups | `Ctrl` + `1`–`9` saves the selection as a battle group. Press the number to reselect it; press twice to jump to it. |
+| Commanders | After **Field Command** research: select one vehicle of a battle group, **Group ▾ → Make commander**. Then select the group (green ★ button) and give a general order from **Command ▾**: Attack (base or Extractors), Hunt, Guard (base or Extractors). The commander picks the tactics. Up to 3 commanders, 10 vehicles each. |
 | Scroll the map | Arrow keys, push the mouse against the screen edge, middle-drag, or click the minimap |
 | Zoom | Mouse wheel |
 | Jump to base / to selection | `H` / `Space` |
@@ -184,9 +185,9 @@ seconds while it reboots.
 A **Radar** can be built anywhere you've explored, not just inside your
 territory, and you can build around it (a small area), so a hidden Radar out
 in the field can anchor a few Gun Towers. It pings every 30 seconds,
-revealing a wide circle. Upgrade it to **Radar II** (pings every 15 seconds,
-250 scrap) and then **Radar III** (a constant feed: the circle stays
-revealed, 500 scrap).
+revealing a wide circle (750 px). Upgrade it to **Radar II** (pings every 15
+seconds and reaches 1,150 px, 250 scrap) and then **Radar III** (a constant
+feed out to 1,600 px, 500 scrap).
 
 ## Hit and miss
 
@@ -279,7 +280,7 @@ city between the two bases with only five bridges.
 | Base Silo | 250 | Adds 300 to your scrap storage. Must be next to your Recycler. |
 | Gun Tower | 110 | Defensive turret. Upgrade once to an **Artillery Tower** (180: long-range shells with splash, range 520, needs your side to see the target) or a **Heavy Gun Tower** (150: tougher, faster twin cannon, range 280). |
 | Research Lab | 200 | Researches Advanced Scouts (150), Tanks (200), Artillery (250), Hornets (175), Sentries (175) and Juggernauts (225), one at a time. |
-| Armory | 200 | Researches 31 weapons for five kinds of hardpoint: **Cannons** (Sabot, Railgun, HE, Autocannon, Plasma), **Guns** (Heavy Machine Gun, Flamethrower, Laser, Flak, AP Rounds), **Rockets & Missiles** (Rocket Battery, Swarm, Guided, Thermobaric, Cluster, EMP), **Artillery** (Mortar, Cluster, Bunker Buster, Guided, EMP, Smoke, Incendiary) and **Specials** (Shock Emitter, Cloak, Shield, Sensor Pulse, Point Defence, Overdrive, Jammer, Mine Layer). Use **Loadouts ▾** on a Factory (or the Recycler, for Scavenger IIs) to choose each vehicle's weapons; new vehicles are built with them. Mk II vehicles have extra hardpoints. A tower's weapon is picked once with **Fit weapon ▾** and locked. |
+| Armory | 200 | Researches 31 weapons for five kinds of hardpoint: **Cannons** (Sabot, Railgun, HE, Autocannon, Plasma), **Guns** (Heavy Machine Gun, Flamethrower, Laser, Flak, AP Rounds), **Rockets & Missiles** (Rocket Battery, Swarm, Guided, Thermobaric, Cluster, EMP), **Artillery** (Mortar, Cluster, Bunker Buster, Guided, EMP, Smoke, Incendiary) and **Specials** (Shock Emitter, Cloak, Shield, Sensor Pulse, Point Defence, Overdrive, Jammer, Mine Layer). Use **Loadouts ▾** on a Factory (or the Recycler, for Scavenger IIs) to choose each vehicle's weapons; each Factory has its own loadouts, and new vehicles from it are built with them. Mk II vehicles have extra hardpoints. A tower's weapon is picked once with **Fit weapon ▾** and locked. |
 | Radar | 150 | Every 30 seconds, a ping reveals a wide circle (750 px, 2.5× normal sight) for 4 seconds. |
 | Repair Pad | 150 | A flat 3×3 pad. Every vehicle parked on it is repaired at 30 health a second (shields too); workers wait there until fixed. **Go repair** sends damaged vehicles there; once fixed they drive to the pad's **waypoint** (or step off beside it). Vehicles parked on it can be **recycled** for half their cost: press Recycle, then Confirm recycle. |
 

@@ -140,9 +140,12 @@ function aiUpdate(game, team) {
     if (next && tm.scrap >= RESEARCH[next].cost) cmd({ type: 'research', buildingId: arm.id, key: next });
     else if (next) ai.savingUp = true;
   }
-  const lo = tm.loadouts || {};
-  for (const [w, unit, slot] of [['sabot', 'tank', 'cannon'], ['sabot', 'heavy', 'cannon'], ['hmg', 'scout', 'gun'], ['hmg', 'heavy', 'gun'], ['hmg', 'tank', 'gun'], ['swarm', 'hornet', 'rocket'], ['shield', 'heavy', 'special'], ['shield', 'scout', 'special']])
-    if (tm.research['w_' + w] && !(lo[unit] && lo[unit][slot])) cmd({ type: 'loadout', unit, slot, weapon: w });
+  // Every Factory gets the same loadouts.
+  for (const f of buildings.filter(b => b.type === 'factory' && b.built >= 1)) {
+    const lo = f.loadouts || {};
+    for (const [w, unit, slot] of [['sabot', 'tank', 'cannon'], ['sabot', 'heavy', 'cannon'], ['hmg', 'scout', 'gun'], ['hmg', 'heavy', 'gun'], ['hmg', 'tank', 'gun'], ['swarm', 'hornet', 'rocket'], ['shield', 'heavy', 'special'], ['shield', 'scout', 'special']])
+      if (tm.research['w_' + w] && !(lo[unit] && lo[unit][slot])) cmd({ type: 'loadout', unit, slot, weapon: w, buildingId: f.id });
+  }
   // Towers: fit the best researched weapon for their hardpoint (once, for good).
   for (const b of buildings) {
     if (!b.def.slots || b.weaponLocked || b.built < 1 || b.upgrading !== null) continue;
@@ -155,6 +158,14 @@ function aiUpdate(game, team) {
       if (tm.scrap >= BUILDING_TYPES.factory.upgrade.cost) cmd({ type: 'upgrade', buildingId: f.id });
       else ai.savingUp = true;
     }
+  }
+
+  // --- Extractor II (Normal and Hard): once the base is going, one at a time,
+  // the safest (nearest home) first.
+  if (game.difficulty !== 'easy' && game.time > 600 && !ai.saving && !ai.savingUp && hq && !buildings.some(b => b.type === 'extractor' && b.upgrading !== null)) {
+    const up = BUILDING_TYPES.extractor.upgrade;
+    const ex = buildings.filter(b => b.type === 'extractor' && b.built >= 1 && b.upgrading === null && !(b.level > 1)).sort((a, b) => dist(a, hq) - dist(b, hq))[0];
+    if (ex && tm.scrap >= up.cost + 250) cmd({ type: 'upgrade', buildingId: ex.id });
   }
 
   // --- Radar upgrades (Hard): faster pings once the army is well under way.
