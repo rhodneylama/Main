@@ -5,7 +5,7 @@
 (function (root) {
 'use strict';
 const BASE = { h:'#9aa1aa', l:'#c9ced4', m:'#6b727b', d:'#3f444b', k:'#15171a', g:'#eaf6ff', gold:'#f0b93a', gr:'#4fd16a', gl:'#bfe6ff', tr:'#1b1d21', tc:'#4a5059' };
-const TEAM = { blue:{ t:'#4aa3ff', td:'#1f6fc2' }, red:{ t:'#ff5a4a', td:'#b8352a' } };
+const TEAM = { blue:{ t:'#4aa3ff', td:'#1f6fc2' }, red:{ t:'#ff5a4a', td:'#b8352a' }, green:{ t:'#5ee06a', td:'#2f9a3a' } };
 const MASK = { h:'#4a4e55', l:'#5a5f66', m:'#3c4046', d:'#2d3035', k:'#15171a', g:'#6a6f76', gold:'#6a6f76', gr:'#6a6f76', gl:'#5a5f66', t:'#ffffff', td:'#d0d0d0', tr:'#15171a', tc:'#2d3035' };
 const WRECK = { h:'#55585c', l:'#62656a', m:'#43464a', d:'#303235', k:'#15171a', g:'#62656a', gold:'#55585c', gr:'#55585c', gl:'#55585c', t:'#4a4d51', td:'#3c3f43', tr:'#1e2023', tc:'#303235' };
 const SW = 0.6;
@@ -132,7 +132,11 @@ const BLD = [
     s:[plate(30),['s','M-22 -22L-12 -12M22 -22L12 -12M-22 22L-12 12M22 22L12 12','k',2.4],...[[-28,-28],[20,-28],[-28,20],[20,20]].flatMap(([x,y])=>[['r',x,y,8,8,'m',1],['c',x+4,y+4,2,'t']]),
        ['r',18,-3,12,6,'m'],['p','M-12 -20H12L20 -12V12L12 20H-12L-20 12V-12Z','h'],['c',0,0,11,'m'],['o',0,0,8,'d',1.2]],
     spin:{ rate:120, s:[['s','M-7 0H7M0 -7V7','l',1.8]] },
-    pulse:[['c',0,0,3.5,'g']] },
+    pulse:[['c',0,0,3.5,'g']], mkName:'Extractor II',
+    // Extractor II: storage tanks top and bottom, cross braces and a gold-ringed pump head.
+    mk:[['r',-11,-31,22,8,'l',3],['r',-11,23,22,8,'l',3],['s','M-8 -27H8M-8 27H8','t',1.6],
+        ['s','M-20 -12L-12 -20M20 -12L12 -20M-20 12L-12 20M20 12L12 20','gold',1.4],
+        ['r',-31,-9,7,18,'m',2],['s','M-27.5 -6V6','gr',1.4],['o',0,0,14,'gold',1.4],['c',-14,-14,1.6,'gold'],['c',14,-14,1.6,'gold'],['c',-14,14,1.6,'gold'],['c',14,14,1.6,'gold']] },
   { id:'silo', code:'B-05', name:'Base Silo', sub:'Storage · 2×2', S:64, R:32, layers:'Base · Team',
     role:'A single round tank with a team band. Round silhouette means storage; the chute points toward the base.',
     s:[plate(30),['r',20,-6,10,12,'m',1],['c',0,0,24,'h'],['o',0,0,20.5,'t',3],['o',0,0,16,'m',1],['s','M0 -16V-9M0 9V16M-16 0H-9M9 0H16','m',1],['c',0,0,8,'l'],['c',0,0,3,'m']] },

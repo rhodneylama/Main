@@ -19,7 +19,7 @@ function load() {
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
     'createGame, generateMap, generateUrbanMap, generateTidalMap, WEAPONS, makeWeapon, loadoutDef, isVisibleTo, scrapIsDangerous, TILE_DIRT, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
-    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, damageForTest: damage });', ctx);
+    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, COMMAND, damageForTest: damage });', ctx);
   return ctx;
 }
 
@@ -1101,13 +1101,13 @@ section('Fixed guns, Tidal Flats, the Armory');
     (() => { const U = S.UNIT_TYPES, sig = t => U[t].slots.map(x => x.type + (x.count > 1 ? x.count : '')).join(',');
       return sig('scout') === 'gun' && sig('scout2') === 'gun,special' && sig('sentry') === 'gun2' && sig('hornet') === 'rocket' && sig('tank') === 'cannon' &&
         sig('tank2') === 'cannon,gun2' && sig('heavy2') === 'cannon2,gun3,special' && sig('artillery') === 'artillery' && sig('artillery2') === 'artillery,special'; })());
-  S.issueCommand(g, 1, { type: 'loadout', unit: 'tank', slot: 'cannon', weapon: 'railgun' });
-  check('a weapon must be researched before it can be fitted', !g.teams[1].loadouts.tank);
+  S.issueCommand(g, 1, { type: 'loadout', unit: 'tank', slot: 'cannon', weapon: 'railgun', buildingId: factory.id });
+  check('a weapon must be researched before it can be fitted', !(factory.loadouts && factory.loadouts.tank));
   const old = S.addUnitNear(g, 'tank', 1, rec.x + 100, rec.y);
   g.teams[1].scrap = 900;
   S.issueCommand(g, 1, { type: 'research', buildingId: armory.id, key: 'w_railgun' });
   run(g, S, S.RESEARCH.w_railgun.time + 1);
-  S.issueCommand(g, 1, { type: 'loadout', unit: 'tank', slot: 'cannon', weapon: 'railgun' });
+  S.issueCommand(g, 1, { type: 'loadout', unit: 'tank', slot: 'cannon', weapon: 'railgun', buildingId: factory.id });
   g.teams[1].scrap = 900;
   S.issueCommand(g, 1, { type: 'produce', buildingId: factory.id, unit: 'tank' });
   run(g, S, 12);
@@ -1212,7 +1212,103 @@ section('Fixed guns, Tidal Flats, the Armory');
   const text = S.saveGame(g);
   const back = S.loadGame(text).game;
   const b2 = back.entities.find(e => e.id === fresh.id);
-  check('a saved game keeps each vehicle\'s weapons and the loadouts', b2 && b2.def.weapon.projectile === 'rail' && back.teams[1].loadouts.tank.cannon === 'railgun');
+  check('a saved game keeps each vehicle\'s weapons and the loadouts', b2 && b2.def.weapon.projectile === 'rail' && back.entities.find(e => e.id === factory.id).loadouts.tank.cannon === 'railgun');
+}
+
+section('Loadouts per Factory, Extractor II, radar reach');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const f1 = placeDone(S, g, 1, 'factory', rec), f2 = placeDone(S, g, 1, 'factory', rec);
+  g.teams[1].research.w_swarm = true; g.teams[1].research.w_battery = true;
+  S.issueCommand(g, 1, { type: 'loadout', unit: 'hornet', slot: 'rocket', weapon: 'swarm', buildingId: f1.id });
+  S.issueCommand(g, 1, { type: 'loadout', unit: 'hornet', slot: 'rocket', weapon: 'battery', buildingId: f2.id });
+  S.issueCommand(g, 1, { type: 'loadout', unit: 'hornet', slot: 'rocket', weapon: 'swarm' });   // no Factory named: ignored
+  check('each Factory keeps its own loadout', f1.loadouts.hornet.rocket === 'swarm' && f2.loadouts.hornet.rocket === 'battery');
+  g.teams[1].scrap = 2000;
+  const before = new Set(g.entities.map(e => e.id));
+  S.issueCommand(g, 1, { type: 'produce', buildingId: f1.id, unit: 'hornet' });
+  S.issueCommand(g, 1, { type: 'produce', buildingId: f2.id, unit: 'hornet' });
+  run(g, S, S.UNIT_TYPES.hornet.buildTime + 3);
+  const made = g.entities.filter(e => !before.has(e.id) && e.type === 'hornet');
+  check('and its vehicles come out with that loadout', made.length === 2 && made.map(u => u.def.weapon.name).sort().join() === [S.WEAPONS.swarm.name, S.WEAPONS.battery.name].sort().join(),
+    made.map(u => u.def.weapon.name).join(', '));
+  // Extractor II pumps faster and is tougher.
+  const ex = g.entities.find(e => e.team === 1 && e.type === 'extractor') || (() => { const gy = g.geysers.find(q => !q.occupied); return gy && S.addBuilding(g, 'extractor', 1, Math.floor(gy.x / 32), Math.floor(gy.y / 32)); })();
+  if (ex) {
+    ex.built = 1; const inc = ex.def.income, hp = ex.maxHp;
+    g.teams[1].scrap = 2000;
+    S.issueCommand(g, 1, { type: 'upgrade', buildingId: ex.id });
+    run(g, S, S.BUILDING_TYPES.extractor.upgrade.time + 2);
+    check('Extractor II pumps 40% faster and has far more health', ex.def.income >= inc * 1.39 && ex.maxHp >= hp * 1.4 && ex.def.store > S.BUILDING_TYPES.extractor.store, `${inc} -> ${ex.def.income}, ${hp} -> ${ex.maxHp} hp`);
+  } else check('Extractor II pumps 40% faster and has far more health', false, 'no extractor');
+  const R = S.BUILDING_TYPES.radar;
+  check('each Radar upgrade reaches much farther', R.levels[0].radius > R.ping.radius * 1.3 && R.levels[1].radius > R.levels[0].radius * 1.3, `${R.ping.radius} -> ${R.levels[0].radius} -> ${R.levels[1].radius}`);
+}
+
+section('Commanders');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  for (const e of g.entities) if (e.kind === 'unit' && e.def.role === 'combat') e.hp = 0;
+  S.stepGame(g);
+  const dir = Math.sign(g.map.W * 16 - rec.x);
+  const squad = [];
+  for (let i = 0; i < 6; i++) squad.push(S.addUnitNear(g, 'tank', 1, rec.x + (150 + (i % 3) * 30) * dir, rec.y + 120 + Math.floor(i / 3) * 30));
+  squad[3].rank = 2; squad[3].kills = 6;
+  const ids = squad.map(u => u.id);
+  S.issueCommand(g, 1, { type: 'promote', unitId: squad[0].id, ids });
+  check('commanders need Field Command research', !(g.teams[1].commands || []).length);
+  g.teams[1].research.command = true;
+  S.issueCommand(g, 1, { type: 'promote', unitId: squad[0].id, ids });
+  const c = g.teams[1].commands[0];
+  check('a vehicle of a battle group can be made its commander', c && c.cmdrId === squad[0].id && c.members.length === 6 && squad.every(u => u.cmdId === c.id));
+  const extra = [];
+  for (let i = 0; i < 6; i++) extra.push(S.addUnitNear(g, 'scout', 1, rec.x + 120 * dir, rec.y - 150));
+  S.issueCommand(g, 1, { type: 'cmdAssign', cmdId: c.id, ids: extra.map(u => u.id) });
+  check(`a commander leads ${S.COMMAND.size} vehicles at most`, c.members.length === S.COMMAND.size, `${c.members.length}`);
+  // Up to three commanders.
+  const solo = () => { const u = S.addUnitNear(g, 'tank', 1, rec.x - 100 * dir, rec.y); return u; };
+  for (let k = 0; k < 3; k++) { const u = solo(); S.issueCommand(g, 1, { type: 'promote', unitId: u.id, ids: [u.id] }); }
+  check(`${S.COMMAND.max} commanders at most`, g.teams[1].commands.length === S.COMMAND.max);
+  for (const x of g.teams[1].commands.slice(1)) S.issueCommand(g, 1, { type: 'cmdRelease', cmdId: x.id });
+  check('taking back command frees the group', g.teams[1].commands.length === 1);
+  // The commander's experience lifts the group's aim.
+  run(g, S, 1);
+  const tgt = S.addUnit(g, 'tank', 2, squad[1].x + 150, squad[1].y);
+  const plain = S.addUnitNear(g, 'tank', 1, rec.x, rec.y + 200);
+  check('the group aims better under a commander', S.hitChance(g, squad[1], tgt, 150) > S.hitChance(g, plain, tgt, 150));
+  tgt.hp = 0;
+  // Guard our Extractors: one on each, the rest patrol or wait in reserve.
+  const exs = [];
+  for (const gy of g.geysers.filter(q => !q.occupied).sort((a, b) => S.dist(a, rec) - S.dist(b, rec)).slice(0, 3)) {
+    const b = S.addBuilding(g, 'extractor', 1, Math.floor(gy.x / 32), Math.floor(gy.y / 32)); if (b) { b.built = 1; exs.push(b); }
+  }
+  S.issueCommand(g, 1, { type: 'cmdOrder', cmdId: c.id, kind: 'guard', target: 'extractors' });
+  run(g, S, 4);
+  const guarding = squad.concat(extra).filter(u => u.cmdId && u.order.type === 'guard' && exs.some(b => b.id === u.order.targetId));
+  const posts = new Set(guarding.map(u => u.order.targetId));
+  check('"Guard our Extractors": the commander posts guards on them and keeps the rest busy', exs.length && posts.size >= Math.min(2, exs.length) &&
+    squad.concat(extra).filter(u => u.cmdId).every(u => u.order.type !== 'idle'), `${c.style}: ${guarding.length} guards on ${posts.size}/${exs.length}`);
+  // Your own orders override the commander for a while.
+  S.issueCommand(g, 1, { type: 'move', ids: [squad[2].id], x: rec.x, y: rec.y + 300 });
+  run(g, S, 4);
+  check('your direct orders take over from the commander for a while', squad[2].cmdHold > g.time && squad[2].order.type !== 'guard');
+  // Attack: the group goes for the enemy base it knows of.
+  const theirs = mine(g, 2, 'recycler')[0];
+  theirs.seen[1] = true;
+  S.issueCommand(g, 1, { type: 'cmdOrder', cmdId: c.id, kind: 'attack', target: 'base' });
+  run(g, S, 4);
+  const going = squad.concat(extra).filter(u => u.cmdId && u.cmdHold <= g.time && u.order.type === 'move');
+  check('"Attack the enemy base": they move out on the commander\'s plan', going.length >= 6, `${c.style}: ${going.length} on the move`);
+  // The commander falls: the most experienced takes over.
+  squad[0].hp = 0;
+  run(g, S, 1);
+  check('if the commander falls, the most experienced vehicle takes command', c.cmdrId === squad[3].id && g.teams[1].commands.length === 1);
+  const text = S.saveGame(g), back = S.loadGame(text).game;
+  check('a saved game keeps its commanders', back.teams[1].commands[0].cmdrId === squad[3].id && back.byId.get(squad[1].id).cmdId === c.id);
 }
 
 section('Workers look after themselves');

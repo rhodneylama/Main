@@ -459,7 +459,7 @@ upgraded Prism Towers carry gold markings.
 | Base Silo | — | Adds 300 storage. Drop-off point. Must be within 7 tiles of your Recycler's edge. |
 | Gun Tower | **Upgrade once:** Artillery Tower or Heavy Gun Tower (section 8) | Defensive gun (see Weapons). |
 | Research Lab | Research: Advanced Scouts, Tanks, Artillery, Hornets, Sentries, and **Forcefield Tech** (unlocks Shield Projectors: 250 scrap, 60 s) (see section 8) | One topic at a time. The glass dome pulses while researching. |
-| Radar | **Upgrade twice:** Radar II, Radar III | Pings every 30 s (Radar II: 15 s; Radar III: constantly), revealing a 750 px circle for 4 s. Can be built anywhere explored, with a small territory of its own (see section 12). |
+| Radar | **Upgrade twice:** Radar II, Radar III | Pings every 30 s, revealing a 750 px circle for 4 s (Radar II: every 15 s, 1,150 px; Radar III: constantly, 1,600 px). Can be built anywhere explored, with a small territory of its own (see section 12). |
 | Power Generator | — | Powers up to 4 Shield Projectors; each powered projector burns 0.1 scrap a second (see Shields). |
 | Shield Projector | — | A directional forcefield wall that stops enemy fire from the front (see Shields). Placed facing one of 8 directions. |
 | Repair Pad | Recycle (vehicles parked on it); Set / Clear waypoint | Vehicles drive over it (it doesn't block movement). Every kind of vehicle of yours parked on it regains 30 HP per second, and Transport shields refill at the same rate. Nothing can be built on top of it. Vehicles parked on it can be **recycled** (below). |
@@ -541,6 +541,7 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
 | --- | --- | --- | --- | --- |
 | Recycler → Recycler II | 250 | 40 s | 5,000 | Builds Scavenger II (replaces the basic Scavenger) and Repair Drones |
 | Factory → Factory II | 200 | 30 s | 1,800 | Also builds Scout, Tank and Artillery Mk II, once each is researched |
+| Extractor → Extractor II | 200 | 30 s | 1,500 | Pumps 40% faster (63 scrap a minute instead of 45) and holds 180 while storage is full. Bigger tanks, gold bracing and a pump ring show it. On Normal and Hard the computer opponent upgrades its Extractors one at a time after 10:00. |
 
 - Only one upgrade level exists for each.
 - Production pauses while a building upgrades; queued units wait.
@@ -564,6 +565,7 @@ Radar and Repair Pad have no prerequisites beyond territory and scrap.
 | Advanced Artillery | 250 | 75 s | Artillery Mk II |
 | Advanced Hornets | 175 | 50 s | Hornet Mk II |
 | Advanced Sentries | 175 | 50 s | Sentry Mk II |
+| Field Command | 250 | 60 s | Commanders (up to 3; see below) |
 
 - A lab researches one topic at a time.
 - The same topic can't be researched twice, or in two labs at once.
@@ -599,8 +601,10 @@ researches 31 weapons, grouped in its panel by hardpoint
 vehicles can carry Armory weapons in the slots they have.
 
 **Fitting weapons:** **Loadouts ▾** on a Factory (or, for Scavenger IIs, the
-Recycler) picks the weapon for each kind of hardpoint, per kind of vehicle;
-every new vehicle is built with it (older ones keep theirs). A **tower's**
+Recycler) picks the weapon for each kind of hardpoint, per kind of vehicle,
+**for that Factory only**: two Factories can turn out Hornets with different
+rockets and send them to the same waypoint. Every new vehicle from that
+Factory is built with its loadout (older ones keep theirs). A **tower's**
 weapon is chosen per tower with **Fit weapon ▾** and is then **locked for
 good**; upgrading the tower (Heavy: cannons; Artillery: artillery) gives the
 new hardpoint one more choice, also locked once made.
@@ -693,6 +697,46 @@ Scavengers, Constructors and Repair Drones no longer throw themselves away
 - **Repair Drones on Auto repair** skip patients in the thick of a fight
   (an enemy within 200 px of them) and fix them once it's clear.
 - Anything you send somewhere yourself (Go repair, Deploy) goes regardless.
+
+### Commanders (22 November 2026)
+
+After **Field Command** research (Research Lab, 250 scrap, 60 s) you can
+hand up to **three** battle groups to a vehicle to lead:
+
+1. Put vehicles in a battle group (Group ▾).
+2. Select **one** vehicle of that group and choose **Group ▾ → Make
+   commander**. It leads the group, up to **10 vehicles** including itself.
+   More can be added later with **Group ▾ → Assign to Command N**.
+3. Select the group (its green **★N** button above the panel) and give a
+   **general order** from **Command N ▾**: **Attack** the enemy base or
+   enemy Extractors, **Hunt** enemy units, or **Guard** our base or our
+   Extractors. **Take back command** returns them to your direct orders.
+
+**The commander picks the tactics**, and they vary. Fast groups and more
+experienced commanders favour the bolder option:
+
+| Order | One way | The other way |
+| --- | --- | --- |
+| Guard our base | A ring of posts facing the enemy | Half on patrol, half at the front gate |
+| Guard our Extractors | A guard on each Extractor (most exposed first), the rest on patrol | Guards on the two most exposed, a reserve in the middle that strikes wherever one is hit |
+| Attack the enemy base | Head-on | A pincer: two halves swing out to either side, then close in together |
+| Attack enemy Extractors | Raid the known ones one after another | Two squads raid two at once |
+| Hunt enemy units | One pack | Two packs |
+
+- The commander re-checks the plan every 3 seconds. Badly hurt vehicles go
+  for repairs if there is a Repair Pad, then rejoin.
+- An attack that loses 55% of its strength **falls back to regroup** near
+  home, and goes in again after 60 seconds.
+- **Experience matters:** the group aims better (×1 + 0.05 × (rank + 1))
+  and reloads faster (−4% × (rank + 1)), where rank is the commander's
+  (Rookie 0, Veteran 1, Elite 2).
+- **Direct control:** any order you give a vehicle in the group yourself
+  overrides the commander for that vehicle for 30 seconds.
+- **If the commander dies**, the most experienced vehicle left (rank, then
+  kills, then health) takes over at once.
+- Vehicles under a commander are drawn with a **green ring and green
+  markings**, and show green on the minimap; the commander wears a gold
+  star. The info panel names the command and its current tactic.
 
 ### Mixed groups travel together (22 November 2026)
 
@@ -980,7 +1024,7 @@ show their firing range.
 - **Radar:** each Radar pings once when finished, then every **30 seconds**.
   A ping reveals everything within **750 pixels** (2.5 times a normal
   building's sight) for **4 seconds**, and marks that ground as explored.
-  A green ring sweeps outward to show it. Anything revealed can be targeted
+  (No sweeping ring is drawn any more: the revealed area simply shows.) Anything revealed can be targeted
   during those 4 seconds, which lets artillery hit targets beyond normal
   sight. The Radar's own constant sight is a normal 220. Its info panel
   shows the time to the next ping.
@@ -991,10 +1035,10 @@ show their firing range.
   around it.
 - **Radar upgrades** (each dearer than the last; the Radar keeps working
   while it upgrades, and starts its new rhythm the moment it's done):
-  **Radar II** (250 scrap, 30 s, 800 HP) pings every **15 seconds**;
-  **Radar III** (500 scrap, 45 s, 1,000 HP) gives a **constant feed**: its
-  750 px circle stays revealed all the time (renewed twice a second; the
-  green ring sweeps every 4 s). On Hard the computer opponent buys Radar II
+  **Radar II** (250 scrap, 30 s, 800 HP) pings every **15 seconds** and
+  reaches **1,150 px**; **Radar III** (500 scrap, 45 s, 1,000 HP) gives a
+  **constant feed** out to **1,600 px**, revealed all the time (renewed
+  twice a second). On Hard the computer opponent buys Radar II
   after 15:00.
 
 ---
@@ -1692,7 +1736,7 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `js/campaign.js` | The campaign's rules: the theater, war reports, support, starting bonuses, battle results (section 16, "Campaign") |
 | `js/war.js` | The war map screen and starting campaign battles (drop-in, Take command, Reinforce) |
 | `js/saves.js` | Where saved games are kept: the published page's private per-person store, or this browser (see section 16, "Saving") |
-| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (217 checks). |
+| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (232 checks). |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
 tables), `ROADMAP.md` (planned stages), `ECONOMY_TEST_REPORT.md` (the October
@@ -1744,7 +1788,7 @@ rebuilt.
 
 | Test type | Method | What it checks |
 | --- | --- | --- |
-| **Rules tests** (`tests/rules.js`, 217 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 44.9 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Orders** (Aggressive by default: an enemy beside the route is attacked, then they carry on to where they were sent; Stealth holds fire and arrives sooner; Return fire shoots in passing and keeps going; Hunt as a pack destroys a known enemy building across the map and keeps together; Hunt with nothing known goes searching; a guard goes after whoever attacks what it guards, even out of its range, then returns to its post; an idle vehicle helps a friend under fire nearby; a group attacking one target fans out in an arc; 100 units a side; 200 vehicles fighting take well under a second per battle second); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused); **Campaign** (fifteen battlefields all joined up; each side starts with its half and two battles under way; only neighbouring enemy battlefields can be attacked; more neighbours held means more starting vehicles, and they appear in the battle; each battlefield keeps its own map; war reports come in on time at the chosen pace, at most 12 while away, none on Hold; on Normal the AI commanders alone don't decide the war in 60 reports; winning takes the battlefield; leaving puts it back on paper from how it stood; Reinforce: the allied commander never moves your strike force and sends you some of what it builds); **Uplinks and call-ins** (three uplinks on open ground, the middle in the middle, the sides mirrored; one vehicle captures in about 15 s, three three times as fast; contested means no change; holding two counts only once online; hold two for 3 minutes to win; uplinks earn call-ins; everyone starts with one call-in; the computer opponent uses its call-ins; supply drop lands with 300 scrap; none left, nothing called; reinforcements land where chosen, only on explored ground); **Campaign battlefields** (the holder starts with a base; more support and time held means more built up; two landing zones clear of the defences, one to liberate from level 2; you land where you chose with a strike force, three call-ins, supply crates and knowledge of their Recycler; campaign battles run faster; some battlefields are capture-and-hold; landing zones always on the far half of the map); **Hit and miss** (less likely to hit a fast mover, at long range, or on the move; buildings always hit; in a fight some shots miss; vehicles keep moving while they fire); **Shields** (no field without a Generator; with one it boots after its reboot time; a powered projector burns 6 scrap a minute; fire from the front is stopped by the field, from behind it gets through; shot down it collapses and the projector is open, then reboots after 13.5 s partly charged; one Generator powers four; no scrap, no shields); **Radar and Forcefield Tech** (a Radar builds anywhere explored and lets you build around it; pings every 30 s, Radar II every 15 s, Radar III constantly; upgrades cost 250 then 500, and stop at III; Shield Projectors need Forcefield Tech and cost 180); **Veterans and armour** (two kills make a Veteran, five an Elite with more health; veterans hit much more often even on the move; side hits do 25% more, rear 50% more); **Repair Drones, Fight then repair, the Juggernaut** (tuning: Extractor income, shield strength and reboot, Artillery reload but not the tower's; a drone on Auto repair fixes a vehicle before a building, then both; a Constructor can't repair; Fight then repair goes to the pad at yellow and comes back; the Juggernaut's stats, slower than a Tank; its Mk II with +40% damage on both guns; it fires at two targets at once); **Drone Follow and the ruined city** (a drone on Follow stays with its vehicle and repairs it, and goes back to Auto repair when it is lost; the city is mirrored, everything can be driven to, a canal with bridges crosses it, building room is scarce, nothing can be built on a street, and there is a route between the bases); **Fixed guns, Tidal Flats, the Armory** (a tower and a dug-in Sentry hit a moving target more often; Tidal Flats is mirrored, reachable at low tide and joined by causeways at high tide, nothing builds on the sand, the tide floods and drains on time, a vehicle caught on the sand is swamped and washed ashore, fresh scrap washes up; the Armory researches eight weapons, a weapon must be researched before it's fitted, new Tanks get the Railgun while older ones keep the cannon, weapons scale with the vehicle, Sabot hits heavy armour harder, a Flamethrower burns what's around its target, a Shock Emitter slows, a Rocket Battery fires three, saved games keep weapons and loadouts). |
+| **Rules tests** (`tests/rules.js`, 232 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 44.9 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Orders** (Aggressive by default: an enemy beside the route is attacked, then they carry on to where they were sent; Stealth holds fire and arrives sooner; Return fire shoots in passing and keeps going; Hunt as a pack destroys a known enemy building across the map and keeps together; Hunt with nothing known goes searching; a guard goes after whoever attacks what it guards, even out of its range, then returns to its post; an idle vehicle helps a friend under fire nearby; a group attacking one target fans out in an arc; 100 units a side; 200 vehicles fighting take well under a second per battle second); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused); **Campaign** (fifteen battlefields all joined up; each side starts with its half and two battles under way; only neighbouring enemy battlefields can be attacked; more neighbours held means more starting vehicles, and they appear in the battle; each battlefield keeps its own map; war reports come in on time at the chosen pace, at most 12 while away, none on Hold; on Normal the AI commanders alone don't decide the war in 60 reports; winning takes the battlefield; leaving puts it back on paper from how it stood; Reinforce: the allied commander never moves your strike force and sends you some of what it builds); **Uplinks and call-ins** (three uplinks on open ground, the middle in the middle, the sides mirrored; one vehicle captures in about 15 s, three three times as fast; contested means no change; holding two counts only once online; hold two for 3 minutes to win; uplinks earn call-ins; everyone starts with one call-in; the computer opponent uses its call-ins; supply drop lands with 300 scrap; none left, nothing called; reinforcements land where chosen, only on explored ground); **Campaign battlefields** (the holder starts with a base; more support and time held means more built up; two landing zones clear of the defences, one to liberate from level 2; you land where you chose with a strike force, three call-ins, supply crates and knowledge of their Recycler; campaign battles run faster; some battlefields are capture-and-hold; landing zones always on the far half of the map); **Hit and miss** (less likely to hit a fast mover, at long range, or on the move; buildings always hit; in a fight some shots miss; vehicles keep moving while they fire); **Shields** (no field without a Generator; with one it boots after its reboot time; a powered projector burns 6 scrap a minute; fire from the front is stopped by the field, from behind it gets through; shot down it collapses and the projector is open, then reboots after 13.5 s partly charged; one Generator powers four; no scrap, no shields); **Radar and Forcefield Tech** (a Radar builds anywhere explored and lets you build around it; pings every 30 s, Radar II every 15 s, Radar III constantly; upgrades cost 250 then 500, and stop at III; Shield Projectors need Forcefield Tech and cost 180); **Veterans and armour** (two kills make a Veteran, five an Elite with more health; veterans hit much more often even on the move; side hits do 25% more, rear 50% more); **Repair Drones, Fight then repair, the Juggernaut** (tuning: Extractor income, shield strength and reboot, Artillery reload but not the tower's; a drone on Auto repair fixes a vehicle before a building, then both; a Constructor can't repair; Fight then repair goes to the pad at yellow and comes back; the Juggernaut's stats, slower than a Tank; its Mk II with +40% damage on both guns; it fires at two targets at once); **Drone Follow and the ruined city** (a drone on Follow stays with its vehicle and repairs it, and goes back to Auto repair when it is lost; the city is mirrored, everything can be driven to, a canal with bridges crosses it, building room is scarce, nothing can be built on a street, and there is a route between the bases); **Fixed guns, Tidal Flats, the Armory** (a tower and a dug-in Sentry hit a moving target more often; Tidal Flats is mirrored, reachable at low tide and joined by causeways at high tide, nothing builds on the sand, the tide floods and drains on time, a vehicle caught on the sand is swamped and washed ashore, fresh scrap washes up; the Armory researches eight weapons, a weapon must be researched before it's fitted, new Tanks get the Railgun while older ones keep the cannon, weapons scale with the vehicle, Sabot hits heavy armour harder, a Flamethrower burns what's around its target, a Shock Emitter slows, a Rocket Battery fires three, saved games keep weapons and loadouts); **Loadouts per Factory, Extractor II, radar reach** (each Factory keeps its own loadout and builds with it; Extractor II pumps 40% faster with more health; each Radar upgrade reaches much farther); **Commanders** (need Field Command; a battle group's vehicle takes command of it; 10 vehicles and 3 commanders at most; taking back command; the group aims better; Guard our Extractors posts guards and keeps the rest busy; your direct orders take over for a while; Attack moves the group out; the most experienced takes over when the commander falls; saved games keep commanders). |
 | **AI duels** (`tests/balance/duels.sh`) | The current opponent plays an earlier version of itself (`tests/balance/ai_previous.js`, the first one; `ai_v2.js` with `OPP=v2`, the 18 October one) on many seeds, 4 games at a time, up to 60 minutes each. With `BOTHOLD=1` both sides use the previous version, giving the baseline for the same seeds. | Whether a change to the opponent actually makes it stronger. Each tactic was tried alone, then in combinations; see the results below. |
 | **AI-vs-AI batches** | Run 30 to 120 full games between two computer players on different seeds. | Games end, typical length, and **fairness** by team and by corner. |
 | **AI tech progression** | Log when the AI reaches each milestone at each difficulty. | The AI actually upgrades, researches and fields Mk II units. |
@@ -2261,3 +2305,13 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     from danger, get themselves repaired and leave scrap near fighting.
     Mixed groups travel together; a side-by-side crawl fixed. Maps 15%
     bigger a side, with no extra geysers.
+41. **Commanders, loadouts per Factory, Extractor II, radar reach** (22
+    November 2026): after Field Command research, up to three battle
+    groups (10 vehicles each) can be handed to one of their vehicles to
+    lead under general orders (Attack, Hunt, Guard); the commander picks
+    and varies the tactics, falls back when an attack goes badly, lifts the
+    group's aim and reload with its experience, and is replaced by the most
+    experienced vehicle if it dies. Command groups show green. Loadouts now
+    belong to each Factory. Extractors upgrade to Extractor II (40% faster,
+    1,500 health). Radar II and III reach 1,150 and 1,600 px; the radar
+    ping's sweeping ring is gone.

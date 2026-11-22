@@ -68,7 +68,8 @@ function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams
       callins: CONFIG.CALLIN_START, callinProgress: 0,
       stats: { built: 0, lost: 0, killed: 0, scrapGathered: 0 },
       research: {},  // key -> true once researched
-      loadouts: {},  // vehicle kind -> { main, light }: Armory weapons fitted to new vehicles
+      loadouts: {},  // (unused since loadouts moved to each Factory: b.loadouts)
+      commands: [],  // commanders and the groups they lead (see COMMAND)
       pings: [],     // active radar reveals: { x, y, r, until }
     };
     // Everyone starts on wheels: the Recycler must be deployed on a geyser.
@@ -257,6 +258,8 @@ function issueCommand(game, team, cmd) {
   // Any new order ends a trip to the Repair Pad (Go repair sets it again
   // below) and a pull-back for repairs.
   for (const u of units) { u.repairTrip = 0; if (cmd.type !== 'stance') { u.retreating = false; u.autoReturn = null; } }
+  // Your own orders to vehicles under a commander take over for a while.
+  if (!cmd.byCommander && !/^cmd/.test(cmd.type) && cmd.type !== 'stance') for (const u of units) if (u.cmdId) u.cmdHold = game.time + COMMAND.hold;
   // Sentries: Dig in stays put; any order that moves it packs it up first.
   if (cmd.type === 'dig' || cmd.type === 'packup') {
     for (const u of units) if (u.def.deployable) {
@@ -340,12 +343,15 @@ function issueCommand(game, team, cmd) {
       break;
     }
     case 'loadout': {
-      // Which weapon new vehicles of one kind get in one kind of hardpoint.
-      const def = UNIT_TYPES[cmd.unit], tm = game.teams[team];
+      // Which weapon new vehicles of one kind, built at this Factory (or
+      // Recycler), get in one kind of hardpoint. Each building has its own.
+      const def = UNIT_TYPES[cmd.unit], tm = game.teams[team], fb = own(cmd.buildingId);
+      if (!fb || fb.kind !== 'building' || !fb.def.produces) return;
       const sl = def && def.slots && (def.slots.find(x => x.type === cmd.slot) || Object.values(UNIT_TYPES).filter(d => (d.base || '') === cmd.unit && d.slots).flatMap(d => d.slots).find(x => x.type === cmd.slot));
       if (!sl || !fitsSlot(sl, cmd.weapon)) return;
       if (cmd.weapon !== 'stock' && !tm.research['w_' + cmd.weapon]) { pushEvent(game, team, `Research the ${WEAPONS[cmd.weapon].name} at an Armory first`, 'warn'); return; }
-      tm.loadouts[cmd.unit] = Object.assign({}, tm.loadouts[cmd.unit], { [cmd.slot]: cmd.weapon });
+      fb.loadouts = fb.loadouts || {};
+      fb.loadouts[cmd.unit] = Object.assign({}, fb.loadouts[cmd.unit], { [cmd.slot]: cmd.weapon });
       break;
     }
     case 'fitTower': {
@@ -355,6 +361,56 @@ function issueCommand(game, team, cmd) {
       if (b.weaponLocked) { pushEvent(game, team, "This tower's weapon is already fitted for good", 'warn'); return; }
       if (cmd.weapon !== 'stock' && (!fitsSlot(b.def.slots[0], cmd.weapon) || !game.teams[team].research['w_' + cmd.weapon])) return;
       fitTower(game, b, cmd.weapon);
+      break;
+    }
+    case 'promote': {
+      // Make one vehicle of a battle group its commander: it leads the group
+      // (up to COMMAND.size vehicles, the most experienced first).
+      const tm = game.teams[team], c = own(cmd.unitId);
+      if (!tm.research.command) { pushEvent(game, team, 'Research Field Command at a Research Lab first', 'warn'); return; }
+      if (!c || c.kind !== 'unit' || c.def.role !== 'combat') return;
+      if (c.cmdId) { pushEvent(game, team, 'Already under a commander', 'warn'); return; }
+      tm.commands = tm.commands || [];
+      if (tm.commands.length >= COMMAND.max) { pushEvent(game, team, `You can have ${COMMAND.max} commanders at most`, 'warn'); return; }
+      const others = units.filter(u => u !== c && u.def.role === 'combat' && !u.cmdId).sort(byRank).slice(0, COMMAND.size - 1);
+      const id = (tm.nextCmdId = (tm.nextCmdId || 0) + 1);
+      const k = [1, 2, 3].find(n => !tm.commands.some(x => x.n === n));
+      const group = { id, n: k, cmdrId: c.id, members: [c.id, ...others.map(u => u.id)], order: null, think: 0 };
+      tm.commands.push(group);
+      for (const u of [c, ...others]) { u.cmdId = id; u.cmdHold = 0; }
+      pushEvent(game, team, `${c.def.name} takes command of Command ${k} (${group.members.length} vehicles). Give it a general order.`, 'good', c.x, c.y);
+      break;
+    }
+    case 'cmdOrder': {
+      // A general order: the commander works out how to carry it out.
+      const group = (game.teams[team].commands || []).find(x => x.id === cmd.cmdId);
+      if (!group || !['attack', 'hunt', 'guard'].includes(cmd.kind)) return;
+      group.order = { kind: cmd.kind, target: cmd.target || 'base' };
+      group.style = chooseStyle(game, group); group.plan = null; group.think = 0; group.startPower = groupPower(game, group); group.fallback = 0;
+      for (const id of group.members) { const u = game.byId.get(id); if (u) u.cmdHold = 0; }
+      pushEvent(game, team, `Command ${group.n}: ${STYLE_TEXT[group.style]}`, 'info');
+      break;
+    }
+    case 'cmdAssign': {
+      // Put more vehicles under a commander (up to COMMAND.size in all).
+      const group = (game.teams[team].commands || []).find(x => x.id === cmd.cmdId);
+      if (!group) return;
+      let added = 0;
+      for (const u of units) {
+        if (group.members.length >= COMMAND.size) { pushEvent(game, team, `A commander leads ${COMMAND.size} vehicles at most`, 'warn'); break; }
+        if (u.cmdId || u.def.role !== 'combat') continue;
+        group.members.push(u.id); u.cmdId = group.id; u.cmdHold = 0; added++;
+      }
+      if (added) { group.plan = null; group.think = 0; }
+      break;
+    }
+    case 'cmdRelease': {
+      // Take the group back under your own direct command.
+      const tm = game.teams[team], group = (tm.commands || []).find(x => x.id === cmd.cmdId);
+      if (!group) return;
+      for (const id of group.members) { const u = game.byId.get(id); if (u) { u.cmdId = 0; u.cmdHold = 0; u.cmdBonus = 0; u.cmdTask = null; } }
+      tm.commands = tm.commands.filter(x => x !== group);
+      pushEvent(game, team, `Command ${group.n} is back under your direct command`, 'info');
       break;
     }
     case 'autorepair': {
@@ -637,6 +693,7 @@ function stepGame(game) {
   game.tick++; game.time += dt;
   if (game.map.tidalMap) updateTide(game);
   updateBattlefield(game, dt);
+  if (game.tick % 15 === 0) for (const t of [1, 2]) if (game.teams[t].commands && game.teams[t].commands.length) updateCommands(game, t, 0.5);
   // Losing a Base Silo loses whatever no longer fits.
   if (game.tick % 15 === 0) for (const t of [1, 2]) game.teams[t].scrap = Math.min(game.teams[t].scrap, scrapCapacity(game, t));
 
@@ -692,6 +749,7 @@ function updateBuilding(game, b, dt) {
       b.upgrading = null; b.level++;
       if (b.def.ping) b.pingTimer = 0;   // an upgraded Radar starts its new rhythm at once
       b.hp += up.hp - b.maxHp; b.maxHp = up.hp;
+      if (up.income) b.def = Object.assign({}, b.def, { income: up.income, store: up.store, upgrade: up });   // Extractor II pumps faster
       if (b.upgradeKey) {
         // A Gun Tower becomes a different kind of tower: new name and gun.
         b.variant = up.key;
@@ -718,14 +776,12 @@ function updateBuilding(game, b, dt) {
       // Radar III: a constant feed, renewed twice a second, with a sweep now and then.
       if (b.pingTimer <= 0) {
         b.pingTimer = 0.5;
-        game.teams[b.team].pings.push({ x: b.x, y: b.y, r: b.def.ping.radius, until: game.time + 0.7 });
-        if ((b.sweep = (b.sweep || 0) + 1) % 8 === 1) game.effects.push({ kind: 'ping', team: b.team, x: b.x, y: b.y, r: b.def.ping.radius, t: 0, life: 1.6 });
+        game.teams[b.team].pings.push({ x: b.x, y: b.y, r: lv.radius || b.def.ping.radius, until: game.time + 0.7 });
       }
     } else if (b.pingTimer <= 0) {
       const p = b.def.ping;
       b.pingTimer = lv && lv.pingEvery ? lv.pingEvery : p.every;
-      game.teams[b.team].pings.push({ x: b.x, y: b.y, r: p.radius, until: game.time + p.lasts });
-      game.effects.push({ kind: 'ping', team: b.team, x: b.x, y: b.y, r: p.radius, t: 0, life: 1.6 });
+      game.teams[b.team].pings.push({ x: b.x, y: b.y, r: (lv && lv.radius) || p.radius, until: game.time + p.lasts });
       updateVisibility(game);
     }
   }
@@ -825,7 +881,7 @@ function spawnFromBuilding(game, b, type) {
   const exitX = lowerLeft ? b.tx + b.size : b.tx - 1;
   const spot = nearestOpenTile(game, exitX, exitY, 6) || { x: b.tx, y: b.ty };
   const u = addUnit(game, type, b.team, (spot.x + 0.5) * T, (spot.y + 0.5) * T);
-  applyLoadout(game, u);
+  applyLoadout(game, u, b);
   game.teams[b.team].stats.built++;
   // Campaign reinforcements: an allied commander hands every few fighting
   // vehicles it builds to the player fighting beside it.
@@ -1633,6 +1689,7 @@ function hitChance(game, e, t, d, w = e.def.weapon) {
   const rank = e.rank || 0, fixed = isFixedGun(e);
   let k = (CONFIG.ACCURACY[w.projectile] || 0.9) * (w.acc || 1) * (1 - CONFIG.ACC_RANGE * Math.min(1, d / w.range)) * (1 + CONFIG.VET_ACC[rank]);
   if (fixed) k *= CONFIG.ACC_FIXED;
+  if (e.cmdBonus) k *= 1 + COMMAND.acc * e.cmdBonus;   // a commander's experience lifts the group
   // Veterans lose less accuracy firing on the move (a third less per rank).
   if (e.kind === 'unit' && e.movingTick >= game.tick - 1) k *= 1 - (1 - CONFIG.ACC_SHOOTER_MOVING) * (1 - rank / 3);
   // Homing missiles follow a moving target (unless jammed).
@@ -1659,7 +1716,7 @@ function aimAndFire(game, e, t, dt) {
   }
   if (e.cooldown > 0) return;
   if (Math.abs(wrapAngle(want - e.turret)) > 0.25) return;
-  e.cooldown = w.cooldown * (1 - CONFIG.VET_RELOAD * (e.rank || 0));
+  e.cooldown = w.cooldown * (1 - CONFIG.VET_RELOAD * (e.rank || 0)) * (1 - COMMAND.reload * (e.cmdBonus || 0));
   e.lastShot = game.time;  // drives barrel recoil and the muzzle flash
   const mx = e.x + Math.cos(e.turret) * (e.radius + 4), my = e.y + Math.sin(e.turret) * (e.radius + 4);
   launchShot(game, e, t, w, mx, my, e.turret, d, w.projectile !== 'bullet');
@@ -1817,8 +1874,8 @@ function loadoutDef(type, lo) {
   }
   return d;
 }
-function applyLoadout(game, u) {
-  const lo = game.teams[u.team].loadouts && game.teams[u.team].loadouts[baseType(u)];
+function applyLoadout(game, u, b) {
+  const lo = b && b.loadouts && b.loadouts[baseType(u)];
   if (!lo) return;
   u.def = loadoutDef(u.type, lo);
   if (u.def.shield) u.shield = u.def.shield;
@@ -1850,6 +1907,165 @@ function chooseWeapon(game, e, t, d) {
   for (const w of all) { const sc = inRange(w) ? weaponScore(w, t) : -1; if (sc > bs * 1.15 + 0.01) { best = w; bs = sc; } }
   if (best !== cur && game.time >= (e.switchAt || 0)) { e.wIdx = all.indexOf(best); e.switchAt = game.time + 0.5; e.cooldown = Math.max(e.cooldown, 0.4); return best; }
   return cur;
+}
+
+// --- Commanders ---
+// Most experienced first: rank, then kills, then health.
+const byRank = (a, b) => (b.rank || 0) - (a.rank || 0) || (b.kills || 0) - (a.kills || 0) || b.hp / b.maxHp - a.hp / a.maxHp;
+const STYLE_TEXT = {
+  ring: 'guarding the base: a ring of posts facing the enemy',
+  patrolBase: 'guarding the base: half on patrol, half at the front gate',
+  posts: 'guarding the Extractors: a guard on each, the rest on patrol',
+  reserve: 'guarding the Extractors: guards on the most exposed, a reserve ready to strike',
+  assault: 'attacking the enemy base head-on',
+  pincer: 'attacking the enemy base from two sides at once',
+  raid: 'raiding enemy Extractors one after another',
+  splitRaid: 'raiding two enemy Extractors at once',
+  pack: 'hunting enemy units as one pack',
+  wolves: 'hunting enemy units in two packs',
+};
+// The commander picks how to carry out a general order. It varies: fast
+// groups favour pincers and split raids, and an experienced commander takes
+// the bolder option more often.
+function chooseStyle(game, group) {
+  const units = group.members.map(id => game.byId.get(id)).filter(u => u && u.hp > 0);
+  const fast = units.filter(u => u.def.speed >= 60).length / Math.max(1, units.length);
+  const cmdr = game.byId.get(group.cmdrId), bold = 0.35 + 0.15 * ((cmdr && cmdr.rank) || 0) + 0.3 * fast;
+  const pick = (a, b) => game.rng() < bold ? b : a;
+  const o = group.order;
+  if (o.kind === 'guard') return o.target === 'extractors' ? pick('posts', 'reserve') : pick('ring', 'patrolBase');
+  if (o.kind === 'attack') return o.target === 'extractors' ? pick('raid', 'splitRaid') : pick('assault', 'pincer');
+  return units.length >= 6 ? pick('pack', 'wolves') : 'pack';
+}
+const groupPower = (game, group) => group.members.reduce((a, id) => { const u = game.byId.get(id); return a + (u && u.hp > 0 ? u.hp : 0); }, 0);
+function updateCommands(game, team, dt) {
+  const tm = game.teams[team];
+  for (const group of tm.commands.slice()) {
+    // The fallen leave; if the commander fell, the most experienced takes over.
+    group.members = group.members.filter(id => { const u = game.byId.get(id); return u && u.hp > 0 && u.cmdId === group.id; });
+    if (!group.members.length) { tm.commands = tm.commands.filter(x => x !== group); pushEvent(game, team, `Command ${group.n} has been wiped out`, 'bad'); continue; }
+    let cmdr = game.byId.get(group.cmdrId);
+    if (!cmdr || cmdr.hp <= 0 || cmdr.cmdId !== group.id) {
+      cmdr = group.members.map(id => game.byId.get(id)).sort(byRank)[0];
+      group.cmdrId = cmdr.id;
+      pushEvent(game, team, `Command ${group.n}: the commander has fallen. ${cmdr.def.name} takes command.`, 'warn', cmdr.x, cmdr.y);
+    }
+    const bonus = (cmdr.rank || 0) + 1;
+    for (const id of group.members) game.byId.get(id).cmdBonus = bonus;
+    if ((group.think -= dt) > 0 || !group.order) continue;
+    group.think = COMMAND.think;
+    commandThink(game, team, group, cmdr);
+  }
+}
+// Order one vehicle on the commander's behalf, only if its task changed (or
+// it has finished it), so they aren't constantly re-ordered.
+function cmdTask(game, team, u, key, cmd) {
+  if (u.cmdHold > game.time) return;                       // you're giving it orders yourself
+  if (u.cmdTask === key && u.order.type !== 'idle') return;
+  if (u.cmdTask === key && cmd.type === 'move' && Math.hypot(u.x - cmd.x, u.y - cmd.y) < 120) return;   // there already
+  u.cmdTask = key;
+  issueCommand(game, team, Object.assign({ ids: [u.id], byCommander: true }, cmd));
+}
+function commandThink(game, team, group, cmdr) {
+  const T = CONFIG.TILE, tm = game.teams[team];
+  const units = group.members.map(id => game.byId.get(id)).filter(u => u.cmdHold <= game.time || !u.cmdHold);
+  if (!units.length) return;
+  const foe = 3 - team;
+  const home = game.entities.find(e => e.team === team && (e.type === 'recycler' || e.type === 'mobileRecycler'));
+  const known = e => e.seen && e.seen[team];
+  const theirBase = game.entities.find(e => e.team === foe && e.type === 'recycler' && e.hp > 0 && known(e));
+  const pads = game.entities.some(e => e.team === team && e.type === 'repairpad' && e.built >= 1);
+  // Badly hurt vehicles go for repairs (with a Repair Pad), then rejoin.
+  for (const u of units) if (pads && u.hp < u.maxHp * 0.4 && !u.repairTrip) { u.cmdTask = 'repair'; issueCommand(game, team, { type: 'gorepair', ids: [u.id], byCommander: true }); }
+  const fit = units.filter(u => u.cmdTask !== 'repair' || u.hp >= u.maxHp * 0.95);
+  for (const u of fit) if (u.cmdTask === 'repair' && u.hp >= u.maxHp * 0.95) u.cmdTask = null;
+  // An attack that has bled too much falls back to regroup, then goes again.
+  const o = group.order;
+  if (o.kind !== 'guard') {
+    if (!group.fallback && groupPower(game, group) < group.startPower * (1 - COMMAND.fallBack)) {
+      group.fallback = game.time + COMMAND.regroup;
+      pushEvent(game, team, `Command ${group.n} has taken heavy losses and is falling back to regroup`, 'warn', cmdr.x, cmdr.y);
+    }
+    if (group.fallback && game.time > group.fallback) { group.fallback = 0; group.startPower = groupPower(game, group); pushEvent(game, team, `Command ${group.n} is going in again`, 'info'); }
+  }
+  const style = group.fallback ? 'regroup' : group.style;
+  const half = (list, k) => list.filter((u, i) => i % 2 === k);
+  const toward = (from, to, d) => { const a = Math.atan2(to.y - from.y, to.x - from.x); return { x: from.x + Math.cos(a) * d, y: from.y + Math.sin(a) * d }; };
+  const centre = { x: game.map.W * T / 2, y: game.map.H * T / 2 };
+  switch (style) {
+    case 'regroup':
+      if (home) fit.forEach((u, i) => { const p = toward(home, centre, 220 + (i % 3) * 40); cmdTask(game, team, u, 'regroup', { type: 'move', x: p.x + ((i % 4) - 1.5) * 36, y: p.y + (Math.floor(i / 4) - 1) * 36 }); });
+      break;
+    case 'ring': {
+      if (!home) break;
+      const face = Math.atan2(centre.y - home.y, centre.x - home.x);
+      fit.forEach((u, i) => { const a = face + (i - (fit.length - 1) / 2) * 0.35, r = 240 + (i % 2) * 50; cmdTask(game, team, u, 'ring' + i, { type: 'move', x: home.x + Math.cos(a) * r, y: home.y + Math.sin(a) * r }); });
+      break;
+    }
+    case 'patrolBase': {
+      if (!home) break;
+      const gate = toward(home, centre, 260);
+      half(fit, 0).forEach(u => cmdTask(game, team, u, 'patrol', { type: 'patrol' }));
+      half(fit, 1).forEach((u, i) => cmdTask(game, team, u, 'gate' + i, { type: 'move', x: gate.x + ((i % 3) - 1) * 40, y: gate.y + Math.floor(i / 3) * 40 }));
+      break;
+    }
+    case 'posts':
+    case 'reserve': {
+      // The most exposed Extractors first: nearest the enemy (or the middle).
+      const threat = theirBase || centre;
+      const ex = game.entities.filter(e => e.team === team && e.type === 'extractor' && e.hp > 0).sort((a, b) => dist(a, threat) - dist(b, threat));
+      if (!ex.length) { fit.forEach(u => cmdTask(game, team, u, 'patrol', { type: 'patrol' })); break; }
+      const guards = style === 'posts' ? Math.min(fit.length, ex.length) : Math.min(2, fit.length, ex.length);
+      fit.slice(0, guards).forEach((u, i) => cmdTask(game, team, u, 'guard' + ex[i].id, { type: 'guard', targetId: ex[i].id }));
+      const rest = fit.slice(guards);
+      if (style === 'posts') rest.forEach(u => cmdTask(game, team, u, 'patrol', { type: 'patrol' }));
+      else {
+        // The reserve waits in the middle of the Extractors and strikes where one is attacked.
+        const hit = ex.find(e => e.lastHitAt > game.time - 8);
+        const spot = hit || { x: ex.reduce((a, e) => a + e.x, 0) / ex.length, y: ex.reduce((a, e) => a + e.y, 0) / ex.length };
+        rest.forEach((u, i) => cmdTask(game, team, u, (hit ? 'strike' + hit.id : 'reserve') + i, { type: 'move', x: spot.x + ((i % 3) - 1) * 40, y: spot.y + Math.floor(i / 3) * 40, attackMove: true }));
+      }
+      break;
+    }
+    case 'assault':
+    case 'pincer': {
+      if (!theirBase) { fit.forEach(u => cmdTask(game, team, u, 'search', { type: 'hunt', pack: false })); break; }
+      if (style === 'assault' || !group.plan) {
+        if (style === 'pincer') group.plan = { stage: 0 };
+        if (style === 'assault') { fit.forEach((u, i) => cmdTask(game, team, u, 'assault', { type: 'move', x: theirBase.x + ((i % 3) - 1) * 40, y: theirBase.y + (Math.floor(i / 3) - 1) * 40, attackMove: true })); break; }
+      }
+      // Pincer: two halves swing out to either side, then close in together.
+      const sides = [half(fit, 0), half(fit, 1)];
+      const back = Math.atan2(cmdr.y - theirBase.y, cmdr.x - theirBase.x);
+      if (group.plan.stage === 0) {
+        const ready = sides.every((side, k) => side.every(u => { const a = back + (k ? 0.7 : -0.7); return Math.hypot(u.x - (theirBase.x + Math.cos(a) * 450), u.y - (theirBase.y + Math.sin(a) * 450)) < 180; }));
+        if (ready) group.plan.stage = 1;
+        sides.forEach((side, k) => side.forEach((u, i) => { const a = back + (k ? 0.7 : -0.7); cmdTask(game, team, u, 'flank' + k, { type: 'move', x: theirBase.x + Math.cos(a) * 450 + ((i % 3) - 1) * 36, y: theirBase.y + Math.sin(a) * 450, attackMove: true }); }));
+        if (game.time - (group.plan.at || (group.plan.at = game.time)) > 90) group.plan.stage = 1;   // don't wait for ever
+      } else fit.forEach((u, i) => cmdTask(game, team, u, 'close', { type: 'move', x: theirBase.x + ((i % 3) - 1) * 40, y: theirBase.y, attackMove: true }));
+      break;
+    }
+    case 'raid':
+    case 'splitRaid': {
+      const ex = game.entities.filter(e => e.team === foe && e.type === 'extractor' && e.hp > 0 && known(e)).sort((a, b) => dist(a, cmdr) - dist(b, cmdr));
+      if (!ex.length) { fit.forEach(u => cmdTask(game, team, u, 'search', { type: 'hunt', pack: false })); break; }
+      const squads = style === 'splitRaid' && ex.length > 1 && fit.length > 2 ? [half(fit, 0), half(fit, 1)] : [fit];
+      squads.forEach((sq, k) => { const t = ex[k] || ex[0]; sq.forEach(u => cmdTask(game, team, u, 'raid' + t.id, { type: 'attack', targetId: t.id })); });
+      break;
+    }
+    case 'pack':
+    case 'wolves': {
+      const packs = style === 'wolves' && fit.length >= 4 ? [half(fit, 0), half(fit, 1)] : [fit];
+      packs.forEach((p, k) => {
+        if (p.some(u => u.cmdTask !== 'hunt' + k || u.order.type !== 'hunt')) {
+          for (const u of p) u.cmdTask = 'hunt' + k;
+          const ids = p.filter(u => !(u.cmdHold > game.time)).map(u => u.id);
+          if (ids.length) issueCommand(game, team, { type: 'hunt', ids, pack: ids.length > 1, byCommander: true });
+        }
+      });
+      break;
+    }
+  }
 }
 
 // --- Workers look after themselves ---

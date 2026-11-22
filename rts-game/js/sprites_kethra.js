@@ -4,7 +4,7 @@
 (function (root) {
 'use strict';
 const BASE = { h:'#6d6a86', l:'#cfd0e4', m:'#4a4862', d:'#2a2840', k:'#12111d', f:'#8a5cff', g:'#f4e9ff', gl:'#b9a8ff90', gold:'#e8c35a', gr:'#4fe0b0', pool:'#2f8f63' };
-const TEAM = { blue:{ t:'#35d9ff', td:'#1186ad' }, red:{ t:'#ff4f8b', td:'#b3195a' } };
+const TEAM = { blue:{ t:'#35d9ff', td:'#1186ad' }, red:{ t:'#ff4f8b', td:'#b3195a' }, green:{ t:'#5dffa0', td:'#1fae5c' } };
 const MASK = { h:'#4a4e55', l:'#5a5f66', m:'#3c4046', d:'#2d3035', k:'#15171a', f:'#6a6f76', g:'#6a6f76', gl:'#5a5f66', gold:'#6a6f76', gr:'#6a6f76', pool:'#4a4e55', t:'#ffffff', td:'#d0d0d0' };
 const WRECK = { h:'#4b4a52', l:'#66656e', m:'#3b3a42', d:'#2b2a31', k:'#121115', f:'#4b4a52', g:'#55545c', gl:'#55545ca0', gold:'#4b4a52', gr:'#4b4a52', pool:'#34363a', t:'#403f46', td:'#323137' };
 const SW = 0.6, RAD = Math.PI/180;
@@ -117,7 +117,10 @@ const BLD = [
   { id:'siphon', code:'B-04', name:'Siphon', sub:'Geyser · Extractor · 2×2', S:64, R:32, layers:'Plate · Funnel · Team · Iris (spin)',
     role:'A funnel sunk into the geyser, held by four struts. A three-blade iris spins as it draws. Its outlet pipe points toward the Siphon Cell.',
     s:[['p',poly(6,30,0),'d'],['s','M-15 -26L-8.5 -13M-15 26L-8.5 13M15 -26L8.5 -13M15 26L8.5 13','m',2],['r',15,-3,14,6,'m',1],['c',29,0,2.5,'t'],['c',0,0,15,'h'],['o',0,0,13,'t',1.2],['c',0,0,10,'k']],
-    spin:{ rate:90, s:blades(3, 9.5, 3.4) }, pulse:[['c',0,0,2.2,'g']] },
+    spin:{ rate:90, s:blades(3, 9.5, 3.4) }, pulse:[['c',0,0,2.2,'g']], mkName:'Upgraded',
+    // Upgraded: four resonance crystals, extra struts and a gold ring round the funnel.
+    mk:[['p',poly(4,5,45,-22,-17),'f'],['p',poly(4,5,45,-22,17),'f'],['p',poly(4,5,45,6,-25),'f'],['p',poly(4,5,45,6,25),'f'],
+        ['s','M-27 0L-15 0M0 -28L0 -15M0 28L0 15','m',2],['o',0,0,18,'gold',1.4],['o',0,0,13,'t',1.8]] },
   { id:'vault', code:'B-05', name:'Vault Orb', sub:'Storage · Base Silo · 2×2', S:64, R:32, layers:'Plate · Orb · Team · Charge (pulse)',
     role:'A sealed sphere with four marker diamonds. Its core brightens as it fills. The chute points toward the Nexus.',
     s:[['p',poly(6,30,0),'d'],['r',18,-4,13,8,'m',1],['c',0,0,22,'h'],['o',0,0,19,'m',1],['c',0,0,16,'d'],['c',0,0,13,'gl'],['p','M0 -26L2.5 -23L0 -20L-2.5 -23Z','l'],['p','M0 26L2.5 23L0 20L-2.5 23Z','l'],['p','M-26 0L-23 2.5L-20 0L-23 -2.5Z','l'],['o',0,0,10,'t',1.6]],
