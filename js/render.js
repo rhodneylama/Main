@@ -453,7 +453,7 @@ function drawGame(ctx, game, view) {
 
   // Forcefields, over the vehicles they protect.
   for (const b of buildings) {
-    if (b.type !== 'shield' || !onScreen(b.x, b.y, 260)) continue;
+    if (!b.def.field || !onScreen(b.fieldAt ? b.fieldAt.x : b.x, b.fieldAt ? b.fieldAt.y : b.y, 260 + b.def.field.length / 2)) continue;
     if (b.team !== team && !view.revealAll && !visAt(b.x, b.y) && !visAt(b.x + Math.cos(b.facing) * 58, b.y + Math.sin(b.facing) * 58)) continue;
     drawField(ctx, b, game.time);
   }
@@ -566,7 +566,12 @@ function drawTerritory(ctx, game, team, placing) {
 
 function drawPlacement(ctx, game, view) {
   const T = CONFIG.TILE, def = BUILDING_TYPES[view.placing];
-  const { tx, ty } = placementTile(view.placeAt || view.mouseWorld, def.size);
+  const at = view.placeAt || view.mouseWorld;
+  if (!at) return;
+  if (view.placing === 'wall') { drawWallPlacement(ctx, game, view, at); return; }
+  let { tx, ty } = placementTile(at, def.size);
+  const bs = bastionAt(game, view.team, view.placing, tx, ty);
+  if (bs) { tx = bs.tx; ty = bs.ty; }
   const ok = canPlaceBuilding(game, view.team, view.placing, tx, ty).ok;
   ctx.fillStyle = ok ? 'rgba(120,255,140,0.25)' : 'rgba(255,90,80,0.3)';
   ctx.strokeStyle = ok ? '#8cffa0' : '#ff6a5a'; ctx.lineWidth = 2;
@@ -577,6 +582,13 @@ function drawPlacement(ctx, game, view) {
     ctx.beginPath(); ctx.arc((tx + def.size / 2) * T, (ty + def.size / 2) * T, def.weapon.range, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
   }
+  if (def.wallPiece) {
+    // Which way the gate or bastion faces (its front, the outside).
+    const step = Math.PI / 2, f = Math.round((view.placeFacing || 0) / step) * step, fx = Math.cos(f), fy = Math.sin(f);
+    const cx = (tx + def.size / 2) * T + fx * (def.size * T / 2 + 10), cy = (ty + def.size / 2) * T + fy * (def.size * T / 2 + 10);
+    ctx.fillStyle = 'rgba(255,210,90,0.95)';
+    ctx.beginPath(); ctx.moveTo(cx + fx * 10, cy + fy * 10); ctx.lineTo(cx - fy * 8, cy + fx * 8); ctx.lineTo(cx + fy * 8, cy - fx * 8); ctx.closePath(); ctx.fill();
+  }
   if (def.field) {
     // Where its wall of force will stand, and which way it faces.
     const g = fieldGeometry({ def, facing: view.placeFacing || 0, x: (tx + def.size / 2) * T, y: (ty + def.size / 2) * T });
@@ -586,6 +598,32 @@ function drawPlacement(ctx, game, view) {
     const ax = g.cx + g.dx * 30, ay = g.cy + g.dy * 30;
     ctx.beginPath(); ctx.moveTo(ax + g.dx * 8, ay + g.dy * 8); ctx.lineTo(ax - g.dy * 7, ay + g.dx * 7); ctx.lineTo(ax + g.dy * 7, ay - g.dx * 7); ctx.closePath();
     ctx.fillStyle = 'rgba(90,184,255,0.9)'; ctx.fill();
+  }
+}
+
+// A wall run being drawn: each square green or red, its front marked, the cost.
+function drawWallPlacement(ctx, game, view, at) {
+  const T = CONFIG.TILE, end = { tx: Math.floor(at.x / T), ty: Math.floor(at.y / T) }, st = view.wallStart || end;
+  const tiles = wallLine(st.tx, st.ty, end.tx, end.ty);
+  const facing = wallFacing(game, st.tx, st.ty, end.tx, end.ty, view.wallFlip);
+  let ok = 0;
+  for (const [x, y] of tiles) {
+    const good = canPlaceBuilding(game, view.team, 'wall', x, y).ok; if (good) ok++;
+    ctx.fillStyle = good ? 'rgba(120,255,140,0.3)' : 'rgba(255,90,80,0.35)'; ctx.strokeStyle = good ? '#8cffa0' : '#ff6a5a'; ctx.lineWidth = 1.5;
+    ctx.fillRect(x * T, y * T, T, T); ctx.strokeRect(x * T + 0.5, y * T + 0.5, T - 1, T - 1);
+  }
+  if (view.wallStart) {
+    // Which way it faces (the outside): arrows along the run.
+    const fx = Math.cos(facing), fy = Math.sin(facing);
+    ctx.fillStyle = 'rgba(255,210,90,0.95)';
+    for (let k = 0; k < tiles.length; k += 3) {
+      const [x, y] = tiles[k], cx = (x + 0.5) * T + fx * 22, cy = (y + 0.5) * T + fy * 22;
+      ctx.beginPath(); ctx.moveTo(cx + fx * 9, cy + fy * 9); ctx.lineTo(cx - fy * 6, cy + fx * 6); ctx.lineTo(cx + fy * 6, cy - fx * 6); ctx.closePath(); ctx.fill();
+    }
+    const [lx, ly] = tiles[tiles.length - 1];
+    ctx.font = 'bold 13px system-ui, sans-serif'; ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.lineWidth = 3;
+    const label = `${ok} × ${BUILDING_TYPES.wall.cost} = ${ok * BUILDING_TYPES.wall.cost}`;
+    ctx.strokeText(label, (lx + 1.2) * T, (ly + 0.4) * T); ctx.fillText(label, (lx + 1.2) * T, (ly + 0.4) * T);
   }
 }
 
@@ -635,14 +673,14 @@ function drawScrap(ctx, s) {
 // Which design from the unit sheet (js/sprites.js) each game type uses.
 // No prototype, so a type like "constructor" isn't mistaken for a built-in.
 // Power Generators and Shield Projectors are drawn here (drawPowerBuilding); they borrow the Silo's explosion and crater.
-const SPRITE_ID = Object.assign(Object.create(null), { mobileRecycler: 'recyclerV', repairpad: 'repair', basesilo: 'silo', outsilo: 'exsilo', arttower: 'towerArt', heavytower: 'towerHeavy', generator: 'silo', shield: 'silo', armory: 'lab', drone: 'scout', heavy: 'juggernaut' });
+const SPRITE_ID = Object.assign(Object.create(null), { mobileRecycler: 'recyclerV', repairpad: 'repair', basesilo: 'silo', outsilo: 'exsilo', arttower: 'towerArt', heavytower: 'towerHeavy', generator: 'silo', shield: 'silo', armory: 'lab', drone: 'scout', heavy: 'juggernaut', heavyBuilder: 'constructor', wall: 'silo', gate: 'silo', bastion: 'silo' });
 const spriteId = type => SPRITE_ID[type] || type;
 // The Kethra Concord's designs (js/sprites_kethra.js). Its towers have one
 // design; upgraded ones are drawn with its gold markings.
 const KETHRA_ID = Object.assign(Object.create(null), {
   mobileRecycler: 'monad', recycler: 'nexus', scavenger: 'skimmer', constructor: 'loom', scout: 'shard', tank: 'bulwark',
   artillery: 'spire', hornet: 'talon', sentry: 'pylon', factory: 'assembler', repairpad: 'lattice', extractor: 'siphon',
-  basesilo: 'vault', tower: 'prism', arttower: 'prism', heavytower: 'prism', lab: 'archive', radar: 'array', generator: 'vault', shield: 'vault', armory: 'archive', drone: 'shard', heavy: 'colossus',
+  basesilo: 'vault', tower: 'prism', arttower: 'prism', heavytower: 'prism', lab: 'archive', radar: 'array', generator: 'vault', shield: 'vault', armory: 'archive', drone: 'shard', heavy: 'colossus', heavyBuilder: 'loom', wall: 'vault', gate: 'vault', bastion: 'vault',
 });
 // Which set of designs, and which design in it, draws a thing of a given faction.
 const artFor = faction => (faction === 'kethra' && window.KethraSprites ? KethraSprites : UnitSprites);
@@ -658,6 +696,7 @@ function flashOver(ctx, x, y, r) {
 }
 
 function drawBuilding(ctx, b, selected, ghost, time) {
+  if (b.def.wallPiece) { drawWallPiece(ctx, b, ghost, time); if (selected) drawSelection(ctx, b); return; }
   if (b.type === 'generator' || b.type === 'shield') { drawPowerBuilding(ctx, b, ghost, time); if (selected) drawSelection(ctx, b); return; }
   if (b.type === 'armory') { drawArmory(ctx, b, ghost, time); if (selected) drawSelection(ctx, b); return; }
   const T = CONFIG.TILE, s = b.size * T, art = artFor(b.faction), id = artId(b.faction, b.variant || b.type), team = teamName(b.team);
@@ -681,6 +720,102 @@ function drawBuilding(ctx, b, selected, ghost, time) {
   if (b.hitFlash > 0) flashOver(ctx, b.x, b.y, s * 0.45);
   ctx.restore();
   if (selected) drawSelection(ctx, b);
+}
+
+// Compound walls: concrete (Scrapline) or dark crystal-bound stone (Kethra).
+// Pieces join up with their neighbours; the front (outside) has a darker
+// face and a row of spikes. A gate's doors slide open for its own side; a
+// bastion is a thick block with battlements.
+function drawWallPiece(ctx, b, ghost, time) {
+  const T = CONFIG.TILE, s = b.size * T, x0 = b.tx * T, y0 = b.ty * T, W = game.map.W;
+  const kethra = b.faction === 'kethra';
+  const base = kethra ? '#272b38' : '#55574d', top = kethra ? '#3f4659' : '#87897b', dark = kethra ? '#171a23' : '#33352d';
+  const accent = TEAMS[b.team].color, line = kethra ? '#6ff0ff' : '#c9c3a3';
+  const fx = Math.cos(b.facing || 0), fy = Math.sin(b.facing || 0);
+  const join = (dx, dy) => { const x = b.tx + dx, y = b.ty + dy; if (x < 0 || y < 0 || x >= W || y >= game.map.H) return false; const i = y * W + x; return game.wallGrid[i] === b.team || game.gateGrid[i] === b.team; };
+  ctx.save();
+  if (ghost) ctx.globalAlpha = 0.5;
+  if (b.built < 1) ctx.globalAlpha *= 0.25 + 0.6 * b.built;
+  ctx.strokeStyle = '#0d0f0c'; ctx.lineWidth = 1;
+  if (b.type === 'wall') {
+    const L = join(-1, 0), R = join(1, 0), U = join(0, -1), D = join(0, 1);
+    ctx.fillStyle = base; ctx.fillRect(x0, y0, s, s);
+    // The front face: a darker band and spikes on each outward side.
+    const sides = [[1, 0, R], [-1, 0, L], [0, 1, D], [0, -1, U]];
+    for (const [nx, ny, joined] of sides) {
+      if (joined || nx * fx + ny * fy < 0.3) continue;
+      ctx.fillStyle = dark;
+      if (nx) ctx.fillRect(nx > 0 ? x0 + s - 7 : x0, y0, 7, s); else ctx.fillRect(x0, ny > 0 ? y0 + s - 7 : y0, s, 7);
+      ctx.fillStyle = kethra ? '#8a6fd0' : '#6d6a5c';
+      for (const k of [0.25, 0.75]) {
+        const cx = nx ? (nx > 0 ? x0 + s : x0) : x0 + s * k, cy = ny ? (ny > 0 ? y0 + s : y0) : y0 + s * k;
+        ctx.beginPath(); ctx.moveTo(cx + nx * 6, cy + ny * 6); ctx.lineTo(cx - ny * 4, cy + nx * 4); ctx.lineTo(cx + ny * 4, cy - nx * 4); ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+    }
+    // The top, running on into the next piece.
+    const i0 = 4, xa = x0 + (L ? 0 : i0), xb = x0 + s - (R ? 0 : i0), ya = y0 + (U ? 0 : i0), yb = y0 + s - (D ? 0 : i0);
+    ctx.fillStyle = top; ctx.fillRect(xa, ya, xb - xa, yb - ya);
+    ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath();
+    if (!L) { ctx.moveTo(xa, ya); ctx.lineTo(xa, yb); } if (!R) { ctx.moveTo(xb, ya); ctx.lineTo(xb, yb); }
+    if (!U) { ctx.moveTo(xa, ya); ctx.lineTo(xb, ya); } if (!D) { ctx.moveTo(xa, yb); ctx.lineTo(xb, yb); }
+    ctx.stroke();
+    // A seam and the side's colour on top.
+    ctx.fillStyle = accent; ctx.globalAlpha *= 0.85; ctx.fillRect(x0 + s / 2 - 2.5, y0 + s / 2 - 2.5, 5, 5); ctx.globalAlpha /= 0.85;
+    if (b.shieldWall) {   // Shield Wall: an emitter on the front
+      const on = 0.6 + 0.4 * Math.sin(time * 5 + b.id);
+      ctx.fillStyle = `rgba(110,200,255,${on})`;
+      ctx.beginPath(); ctx.arc(x0 + s / 2 + fx * 9, y0 + s / 2 + fy * 9, 3.2, 0, Math.PI * 2); ctx.fill();
+    }
+  } else if (b.def.gate) {
+    // Two posts across the line of the wall, doors between them.
+    const ax = -fy, ay = fx, cx = x0 + s / 2, cy = y0 + s / 2;
+    let open = 0;
+    forUnitsNear(game, cx, cy, 80, u => { if (u.team === b.team && u.hp > 0 && Math.hypot(u.x - cx, u.y - cy) < 75) open = 1; });
+    b.openK = (b.openK || 0) + ((open ? 1 : 0) - (b.openK || 0)) * 0.15;
+    ctx.translate(cx, cy); ctx.rotate(Math.atan2(ay, ax));
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(-s / 2, -s * 0.22, s, s * 0.44);   // the gap
+    const d = s * 0.42 * (1 - b.openK * 0.85);
+    for (const k of [-1, 1]) {
+      ctx.save(); ctx.translate(k * (s / 2 - 4 - d / 2), 0);
+      ctx.fillStyle = top; ctx.fillRect(-d / 2, -s * 0.16, d, s * 0.32); ctx.strokeRect(-d / 2, -s * 0.16, d, s * 0.32);
+      ctx.fillStyle = '#e0b030';
+      for (let q = -d / 2 + 3; q < d / 2 - 3; q += 8) { ctx.beginPath(); ctx.moveTo(q, -s * 0.16); ctx.lineTo(q + 4, -s * 0.16); ctx.lineTo(q + 8, s * 0.16); ctx.lineTo(q + 4, s * 0.16); ctx.closePath(); ctx.fill(); }
+      ctx.restore();
+    }
+    for (const k of [-1, 1]) { ctx.fillStyle = base; ctx.fillRect(k * s / 2 - (k > 0 ? 9 : 0), -s / 2, 9, s); ctx.strokeRect(k * s / 2 - (k > 0 ? 9 : 0), -s / 2, 9, s);
+      ctx.fillStyle = accent; ctx.fillRect(k * s / 2 - (k > 0 ? 6.5 : -2.5), -4, 4, 8); }
+    // Front marker on the gate.
+    ctx.rotate(-Math.atan2(ay, ax)); ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(fx * s * 0.42, fy * s * 0.42, 3, 0, Math.PI * 2); ctx.fill();
+  } else {
+    // Bastion: a thick block with battlements and corner stubs.
+    ctx.fillStyle = base; ctx.fillRect(x0, y0, s, s); ctx.strokeRect(x0 + 0.5, y0 + 0.5, s - 1, s - 1);
+    ctx.fillStyle = top; ctx.fillRect(x0 + 6, y0 + 6, s - 12, s - 12);
+    ctx.fillStyle = dark;
+    for (let k = 0; k < 4; k++) for (let q = 0; q < 4; q++) {
+      const t = 8 + q * ((s - 16) / 3) - 3;
+      if (k === 0) ctx.fillRect(x0 + t, y0 + 1, 6, 4); if (k === 1) ctx.fillRect(x0 + t, y0 + s - 5, 6, 4);
+      if (k === 2) ctx.fillRect(x0 + 1, y0 + t, 4, 6); if (k === 3) ctx.fillRect(x0 + s - 5, y0 + t, 4, 6);
+    }
+    for (const [cx, cy] of [[x0 + 6, y0 + 6], [x0 + s - 6, y0 + 6], [x0 + 6, y0 + s - 6], [x0 + s - 6, y0 + s - 6]]) {
+      ctx.fillStyle = base; ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+    if (!b.mountId) { ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x0 + s / 2, y0 + s / 2, s * 0.18, 0, Math.PI * 2); ctx.stroke(); }
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(x0 + s / 2 + fx * s * 0.4, y0 + s / 2 + fy * s * 0.4, 3.5, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+  if (b.built < 1) {
+    ctx.strokeStyle = TEAMS[b.team].color; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
+    ctx.strokeRect(x0 + 1.5, y0 + 1.5, s - 3, s - 3); ctx.setLineDash([]);
+  } else {
+    if (b.hp < b.maxHp * 0.5) {   // cracks
+      ctx.strokeStyle = 'rgba(10,10,8,0.7)'; ctx.lineWidth = 1.2; ctx.beginPath();
+      const r = (b.id * 9301 + 49297) % 233280 / 233280;
+      ctx.moveTo(x0 + s * (0.2 + r * 0.3), y0 + 3); ctx.lineTo(x0 + s * 0.5, y0 + s * 0.45); ctx.lineTo(x0 + s * (0.7 - r * 0.2), y0 + s - 3);
+      if (b.hp < b.maxHp * 0.25) { ctx.moveTo(x0 + 3, y0 + s * 0.6); ctx.lineTo(x0 + s * 0.5, y0 + s * 0.45); }
+      ctx.stroke();
+    }
+    if (b.hitFlash > 0) flashOver(ctx, b.x, b.y, s * 0.45);
+  }
 }
 
 function drawSelection(ctx, e) {
@@ -709,7 +844,7 @@ function drawUnit(ctx, u, selected, time) {
   if (u.type === 'drone') { drawCustomUnit(ctx, u, time); }
   else art.drawSprite(ctx, id, {
     x: u.x, y: u.y, heading: u.angle, turret: wrapAngle(u.turret - u.angle), team: u.cmdId ? 'green' : teamName(u.team),   // under a commander: green
-    mk: !!u.def.base, t: time, legE: u.legE || 0, fire: sinceShot(u, time),
+    mk: !!u.def.base || !!u.def.wallBuilder, t: time, legE: u.legE || 0, fire: sinceShot(u, time),
     turret2: u.turret2 !== undefined ? wrapAngle(u.turret2 - u.angle) : undefined,
     fire2: u.lastShot2 !== undefined && time - u.lastShot2 < 0.5 ? time - u.lastShot2 : null,
     thrust: u.movingTick >= game.tick - 1,   // Kethra exhaust glow while moving

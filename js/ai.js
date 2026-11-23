@@ -60,6 +60,8 @@ function aiUpdate(game, team) {
   const wantsGeyser = upgraded && has('extractor') < diff.maxExtractors && expansionTarget(game, team, hq);
   if (!hq.queue.length && hq.upgrading === null) {
     if (count('constructor') < 1 && tm.scrap >= UNIT_TYPES[conType].cost) cmd({ type: 'produce', buildingId: hq.id, unit: conType });
+    // A Heavy Constructor, once its personality wants walls.
+    else if (upgraded && wallPlan(game, ai) && game.time > wallPlan(game, ai).after - 60 && count('heavyBuilder') < 1 && tm.scrap >= UNIT_TYPES.heavyBuilder.cost + 100) cmd({ type: 'produce', buildingId: hq.id, unit: 'heavyBuilder' });
     // Repair Drones (on Auto repair) keep the base and army patched up.
     else if (upgraded && count('drone') < (game.difficulty === 'hard' ? 2 : 1) && tm.scrap >= UNIT_TYPES.drone.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'drone' });
     // A Scavenger II to claim the next geyser.
@@ -81,10 +83,16 @@ function aiUpdate(game, team) {
 
   // --- Construction --------------------------------------------------------
   // Prefer a Constructor II, since only it can repair.
-  const idleBuilders = units.filter(u => u.def.role === 'builder' && u.order.type === 'idle');
+  const idleBuilders = units.filter(u => u.def.role === 'builder' && !u.def.wallBuilder && u.order.type === 'idle');
   const builder = idleBuilders[0];
-  if (builder && !ai.savingUp) {
-    const unfinished = buildings.find(b => b.built < 1);
+  // A Gun Tower or Radar up on one of its bastions (Fortress and Balanced).
+  const plan = wallPlan(game, ai);
+  const freeBastion = plan && plan.towers && buildings.find(b => b.def.bastion && b.built >= 1 && !b.mountId);
+  const mounted = buildings.filter(b => b.mountOn).length;
+  if (builder && !ai.savingUp && freeBastion && mounted < plan.towers && !buildings.some(b => b.mountOn && b.built < 1) && tm.scrap >= BUILDING_TYPES.tower.cost + 100) {
+    cmd({ type: 'build', ids: [builder.id], building: 'tower', tx: freeBastion.tx, ty: freeBastion.ty });
+  } else if (builder && !ai.savingUp) {
+    const unfinished = buildings.find(b => b.built < 1 && !b.def.wallPiece);
     let want = null, near = null;
     if (unfinished) cmd({ type: 'repair', ids: [builder.id], targetId: unfinished.id });
     else if (!has('factory')) want = 'factory';
@@ -115,6 +123,9 @@ function aiUpdate(game, team) {
       if (spot) cmd({ type: 'build', ids: [builder.id], building: want, tx: spot.x, ty: spot.y, facing: snapFacing(toCenter) });
     }
   }
+
+  // --- Walls ------------------------------------------------------------------
+  if (plan) aiWalls(game, team, ai, plan, hq, units, buildings, cmd);
 
   // --- Research and Factory upgrades ------------------------------------------
   for (const lab of buildings.filter(b => b.type === 'lab' && b.built >= 1 && !b.researching)) {
@@ -307,6 +318,93 @@ function aiUplinks(game, team, ai, army, hq, cmd) {
     if (send.length) cmd({ type: 'move', ids: send.map(u => u.id), x: l.x, y: l.y, attackMove: true });
   }
   return army.filter(u => !duty[u.id]);
+}
+
+// --- Walls and personalities ---------------------------------------------------
+// Each computer opponent gets a hidden personality for the game, which decides
+// how it uses walls (difficulty decides how much and how early):
+//   fortress   walls with bastions and Gun Towers on them, artillery
+//   shieldwall walls upgraded to Shield Walls (needs Forcefield Tech + power)
+//   raider     few walls: short walls at the Extractors it has to defend
+//   balanced   some of everything
+// `after`: from when (s); `base`: length of the wall across the front of its
+// base (0: none); `towers`: Gun Towers on bastions; `extractors`: wall off its
+// Extractors (Raiders, and anyone on Hard, also wall the ones that get hit).
+const WALL_PLANS = {
+  easy:   { fortress: { after: 900, base: 8 }, shieldwall: { after: 1100, base: 6 }, raider: null, balanced: { after: 1100, base: 6 } },
+  normal: { fortress: { after: 420, base: 14, bastions: true, towers: 2 }, shieldwall: { after: 480, base: 12, bastions: true, shield: true },
+            raider: { after: 600, base: 0, extractors: true }, balanced: { after: 480, base: 10, bastions: true, towers: 1 } },
+  hard:   { fortress: { after: 360, base: 18, bastions: true, towers: 2, extractors: true }, shieldwall: { after: 420, base: 16, bastions: true, shield: true, extractors: true },
+            raider: { after: 480, base: 8, extractors: true }, balanced: { after: 420, base: 14, bastions: true, towers: 1, extractors: true } },
+};
+const PERSONAS = ['fortress', 'shieldwall', 'raider', 'balanced'];
+function wallPlan(game, ai) {
+  if (!ai.persona) ai.persona = PERSONAS[Math.floor(game.rng() * PERSONAS.length)];
+  const plans = WALL_PLANS[game.difficulty] || WALL_PLANS.normal;
+  return plans[ai.persona] || null;
+}
+// A straight wall `len` long, `R` squares out from (cx, cy) toward angle a
+// (snapped to the four main directions), with a gate in the middle and
+// bastions at the ends if wanted. Returns a list of jobs for the Heavy Constructor.
+function wallJobs(cx, cy, a, R, len, gate, bastions) {
+  const ax = Math.abs(Math.cos(a)) >= Math.abs(Math.sin(a));
+  const d = ax ? Math.sign(Math.cos(a)) || 1 : Math.sign(Math.sin(a)) || 1;
+  const facing = ax ? (d > 0 ? 0 : Math.PI) : (d > 0 ? Math.PI / 2 : -Math.PI / 2);
+  const line = Math.round((ax ? cx : cy) + d * R), start = Math.round((ax ? cy : cx) - len / 2);
+  const at = k => ax ? [line, start + k] : [start + k, line];
+  const back = (x, y) => ax ? [d > 0 ? x - 1 : x, y] : [x, d > 0 ? y - 1 : y];   // 2x2 pieces stick out behind, not in front
+  const jobs = [], mid = Math.floor(len / 2);
+  const skip = new Set();
+  if (gate) { skip.add(mid - 1); skip.add(mid); }
+  if (bastions && len >= 8) { skip.add(0); skip.add(1); skip.add(len - 2); skip.add(len - 1); }
+  let run = [];
+  for (let k = 0; k < len; k++) {
+    if (skip.has(k)) { if (run.length) jobs.push({ kind: 'run', tiles: run, facing }); run = []; continue; }
+    run.push(at(k));
+  }
+  if (run.length) jobs.push({ kind: 'run', tiles: run, facing });
+  if (gate) { const [x, y] = back(...at(mid - 1)); jobs.push({ kind: 'gate', tx: x, ty: y, facing }); }
+  if (bastions && len >= 8) for (const k of [0, len - 2]) { const [x, y] = back(...at(k)); jobs.push({ kind: 'bastion', tx: x, ty: y, facing }); }
+  return jobs;
+}
+function aiWalls(game, team, ai, plan, hq, units, buildings, cmd) {
+  if (game.time < plan.after) return;
+  const tm = game.teams[team], T = CONFIG.TILE;
+  const theirs = { x: game.map.W * T - hq.x, y: game.map.H * T - hq.y };   // the enemy base, mirrored from ours
+  ai.wallJobs = ai.wallJobs || [];
+  ai.walled = ai.walled || {};
+  // Plan the wall across the front of the base once.
+  if (!ai.baseWallPlanned) {
+    ai.baseWallPlanned = true;
+    if (plan.base) ai.wallJobs.push(...wallJobs(hq.tx + 1.5, hq.ty + 1.5, angleTo(hq, theirs), 13, plan.base, plan.base >= 8, !!plan.bastions));
+  }
+  // A short wall in front of each Extractor it means to hold, or that got hit.
+  for (const ex of buildings.filter(b => b.type === 'extractor' && b.built >= 1)) {
+    if (ai.walled[ex.id]) continue;
+    const hit = ex.lastHitAt > game.time - 20 && game.difficulty !== 'easy';
+    if (!plan.extractors && !hit) continue;
+    ai.walled[ex.id] = true;
+    ai.wallJobs.push(...wallJobs(ex.tx + 1, ex.ty + 1, angleTo(ex, theirs), 3, 6, false, false));
+  }
+  // The Heavy Constructor works through the jobs, one at a time.
+  const hb = units.find(u => u.def.wallBuilder && u.order.type === 'idle');
+  const job = ai.wallJobs[0];
+  if (hb && job && !ai.saving && !ai.savingUp) {
+    const def = BUILDING_TYPES[job.kind === 'run' ? 'wall' : job.kind];
+    const cost = job.kind === 'run' ? def.cost * job.tiles.length : def.cost;
+    // Its defence budget: army production pauses until it can afford the next piece.
+    if (tm.scrap < cost + 40) ai.savingUp = true;
+    else {
+      ai.wallJobs.shift();
+      if (job.kind === 'run') cmd({ type: 'buildWall', ids: [hb.id], tiles: job.tiles, facing: job.facing });
+      else if (canPlaceBuilding(game, team, job.kind, job.tx, job.ty).ok) cmd({ type: 'build', ids: [hb.id], building: job.kind, tx: job.tx, ty: job.ty, facing: job.facing });
+    }
+  }
+  // Shield Walls: once it has Forcefield Tech and a Generator.
+  if (plan.shield && tm.research.shields && buildings.some(b => b.type === 'generator' && b.built >= 1)) {
+    const piece = buildings.find(b => b.type === 'wall' && b.built >= 1 && !b.runShield && b.runId && !buildings.some(o => o.runId === b.runId && o.built < 1));
+    if (piece && tm.scrap >= wallRun(game, piece).length * WALL.shield.cost + 150) cmd({ type: 'wallShield', buildingId: piece.id });
+  }
 }
 
 function pickObjective(game, team, hq) {

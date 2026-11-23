@@ -311,7 +311,7 @@ function attackMoveAt(w, pad = 0) {
 }
 
 function cancelModes() {
-  view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
+  view.placing = null; view.placeReady = false; view.wallStart = null; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
   refreshPanel();
 }
 
@@ -668,6 +668,8 @@ canvas.addEventListener('touchcancel', touchEnd, { passive: false });
 function handleTap(p) {
   const w = toWorld(p.x, p.y);
   if (view.placing) {
+    // A wall: the first tap is where it starts, the second where it ends.
+    if (view.placing === 'wall' && !view.wallStart) { view.wallStart = { tx: Math.floor(w.x / CONFIG.TILE), ty: Math.floor(w.y / CONFIG.TILE) }; view.placeAt = w; view.placeReady = false; refreshPanel(); return; }
     // First tap positions the building; the "Build here" button confirms it.
     view.placeAt = w; view.placeReady = true; refreshPanel();
     return;
@@ -774,13 +776,31 @@ function startPlacing(type) {
     view.placeFacing = snapFacing(Math.atan2(game.map.H * CONFIG.TILE / 2 - at.y, game.map.W * CONFIG.TILE / 2 - at.x));
   }
 }
-function rotatePlacement() { view.placeFacing = snapFacing((view.placeFacing || 0) + Math.PI / 4); }
+function rotatePlacement() {
+  if (view.placing === 'wall') { view.wallFlip = !view.wallFlip; return; }   // a wall: swap which side is the front
+  const def = BUILDING_TYPES[view.placing], step = def && (def.gate || def.bastion) ? Math.PI / 2 : Math.PI / 4;
+  view.placeFacing = snapFacing(Math.round((view.placeFacing || 0) / step) * step + step);
+}
 
 function placeBuilding(w, keepPlacing) {
-  const builder = mine(view.selected).find(u => u.kind === 'unit' && u.def.role === 'builder');
   const def = BUILDING_TYPES[view.placing];
+  const builder = def && mine(view.selected).find(u => u.kind === 'unit' && u.def.role === 'builder' && !!u.def.wallBuilder === !!def.wallPiece);
   if (!builder || !def) { view.placing = null; return; }
-  const { tx, ty } = placementTile(w, def.size);
+  if (view.placing === 'wall') {
+    // Click where the wall starts, then where it ends.
+    const T = CONFIG.TILE, end = { tx: Math.floor(w.x / T), ty: Math.floor(w.y / T) };
+    if (!view.wallStart) { view.wallStart = end; refreshPanel(); return; }
+    const st = view.wallStart;
+    issueCommand(game, view.team, { type: 'buildWall', ids: [builder.id], tiles: wallLine(st.tx, st.ty, end.tx, end.ty), facing: wallFacing(game, st.tx, st.ty, end.tx, end.ty, view.wallFlip) });
+    sound('build');
+    view.wallStart = null; view.placeReady = false; view.placeAt = null;
+    if (!keepPlacing) view.placing = null;
+    refreshPanel();
+    return;
+  }
+  let { tx, ty } = placementTile(w, def.size);
+  const bs = bastionAt(game, view.team, view.placing, tx, ty);
+  if (bs) { tx = bs.tx; ty = bs.ty; }
   const check = canPlaceBuilding(game, view.team, view.placing, tx, ty);
   if (!check.ok) { logMessage(check.why, 'warn'); sound('error'); return; }
   if (game.teams[view.team].scrap < def.cost) { logMessage('Not enough scrap', 'warn'); sound('error'); return; }
@@ -887,7 +907,7 @@ function select(list) {
   // Buildings can only be selected one at a time.
   const units = list.filter(e => e.kind === 'unit');
   view.selected = units.length ? units : list.slice(0, 1);
-  view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
+  view.placing = null; view.placeReady = false; view.wallStart = null; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
   closePop();
   if (view.selected.length && isMine(view.selected[0])) sound('select');
   refreshPanel();
@@ -943,7 +963,7 @@ function refreshPanel() {
   const info = $('selinfo'), cmds = $('commands');
   const sel = view.selected.filter(e => e.hp > 0);
   // Only rebuild the buttons when something about them actually changed.
-  const key = game ? JSON.stringify([sel.map(e => e.id), view.placing, view.placeReady, view.attackMode, view.aim, view.confirmDemolish, spectating,
+  const key = game ? JSON.stringify([sel.map(e => e.id), view.placing, view.placeReady, !!view.wallStart, !!view.wallFlip, sel.map(e => [e.runShield || 0, !!e.shieldWall, e.mountId || 0]), view.attackMode, view.aim, view.confirmDemolish, spectating,
     view.confirmRecycle, recycleCandidates(sel).map(u => u.id),
     sel.map(e => !!e.rally), sel.map(e => !!e.deployed), sel.map(e => e.stance), sel.map(e => e.order && e.order.type),
     sel.map(e => [e.level, e.upgrading !== null && e.upgrading !== undefined ? Math.floor(e.upgrading) : -1, e.researching ? e.researching.key + Math.floor(e.researching.t) : 0, e.hp < e.maxHp]),
@@ -965,7 +985,7 @@ function refreshPanel() {
     let extra = '';
     if (e.kind === 'unit' && e.def.role === 'harvester') extra = `Carrying ${Math.floor(e.carry)} / ${d.carryMax} scrap` +
       (d.canDeploy ? ' · can deploy on geysers' : ' · cannot deploy (needs Scavenger II)');
-    if (e.kind === 'unit' && e.def.role === 'builder') extra = 'Builds and finishes construction. Repairs are a Repair Drone\'s job.';
+    if (e.kind === 'unit' && e.def.role === 'builder') extra = e.def.wallBuilder ? 'Builds walls, gates and bastions.' : 'Builds and finishes construction. Repairs are a Repair Drone\'s job.';
     if (e.kind === 'unit' && e.def.role === 'repairer') {
       const tgt = e.order.targetId && game.byId.get(e.order.targetId);
       extra = e.order.type === 'follow' ? `Following${tgt ? ` ${nameOf(tgt)}` : ''} and keeping it repaired`
@@ -1084,6 +1104,20 @@ function refreshPanel() {
       else addBtn(`Upgrade to ${up.name}`, up.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'upgrade', buildingId: first.id }),
         { title: `${up.cost} scrap, ${up.time}s. Production pauses while upgrading.` });
     }
+    // A wall run: upgrade the whole run to a Shield Wall.
+    if (first.type === 'wall' && first.built >= 1) {
+      const run = wallRun(game, first), anchor = first.runShield && game.byId.get(first.runShield);
+      if (anchor && anchor.upgrading !== null && anchor !== first) addBtn(`Shield Wall ${Math.floor(anchor.upgrading / WALL.shield.time * 100)}%`, null, keys.shift(), () => {}, { locked: true });
+      else if (!first.runShield) {
+        const cost = run.length * WALL.shield.cost;
+        if (!tm.research.shields) addBtn('Shield Wall', null, keys.shift(), () => logMessage('Research Forcefield Tech at a Research Lab first', 'warn'), { note: 'Research first', locked: true, title: 'Needs Forcefield Tech (Research Lab)' });
+        else addBtn('Shield Wall', cost, keys.shift(), () => issueCommand(game, view.team, { type: 'wallShield', buildingId: first.id }),
+          { title: `Wall II: a forcefield along all ${run.length} pieces of this run, in front of it. ${cost} scrap, ${WALL.shield.time}s. Needs power: one Generator share per ${WALL.shield.tilesPerPower} pieces.` });
+      }
+      tip.textContent = `A run of ${run.length} wall pieces${first.shieldWall ? ' with a Shield Wall' : ''}. The spiked side is its front: nothing can be built in front of it.`;
+    }
+    if (first.def.bastion && first.built >= 1) tip.textContent = first.mountId ? `Carries a ${nameOf(game.byId.get(first.mountId) || first)}: it shoots and sees 15% further from up here, and falls with the bastion.` : 'Select a Constructor and build a Gun Tower or Radar on it: 15% more reach from up here.';
+    if (first.def.gate && first.built >= 1) tip.textContent = 'Opens for your vehicles; the enemy has to break it down.';
     // Radar: a chain of upgrades (Radar II, Radar III).
     if (first.built >= 1 && first.def.levels) {
       const up = first.def.levels[first.level - 1];
@@ -1216,7 +1250,8 @@ function refreshPanel() {
   }
   const builder = sel.find(e => e.kind === 'unit' && e.def.role === 'builder');
   if (builder && sel.length === 1) {
-    const types = Object.keys(BUILDING_TYPES).filter(t => BUILDING_TYPES[t].buildable !== false);
+    // A Heavy Constructor builds walls, gates and bastions; a Constructor everything else.
+    const types = Object.keys(BUILDING_TYPES).filter(t => BUILDING_TYPES[t].buildable !== false && !!BUILDING_TYPES[t].wallPiece === !!builder.def.wallBuilder);
     types.forEach((type, i) => {
       const d = BUILDING_TYPES[type];
       const locked = d.requires && !game.teams[view.team].research[d.requires];
@@ -1226,9 +1261,10 @@ function refreshPanel() {
         { active: view.placing === type, title: `${d.name} — ${d.cost} scrap\n${d.desc}` });
     });
     // Shield Projectors: turn the field to face the threat (F) before building.
-    if (view.placing && BUILDING_TYPES[view.placing].facing) addBtn('Rotate ↻', null, 'F', rotatePlacement, { title: 'Turn the forcefield 45° (F)' });
-    if (view.placing && isTouch && view.placeReady) addBtn('Build here', null, '↵', confirmPlacement, { primary: true });
-    if (view.placing) addBtn('Cancel', null, 'Esc', () => { view.placing = null; view.placeReady = false; refreshPanel(); });
+    if (view.placing === 'wall') addBtn('Flip front ⇅', null, 'F', () => { rotatePlacement(); refreshPanel(); }, { active: !!view.wallFlip, title: 'Swap which side of the wall is its front (the outside, with spikes) (F)' });
+    else if (view.placing && BUILDING_TYPES[view.placing].facing) addBtn('Rotate ↻', null, 'F', rotatePlacement, { title: BUILDING_TYPES[view.placing].wallPiece ? 'Turn it 45° so its front faces out (F)' : 'Turn the forcefield 45° (F)' });
+    if (view.placing && isTouch && view.placeReady) addBtn(view.placing === 'wall' ? 'Build wall' : 'Build here', null, '↵', confirmPlacement, { primary: true });
+    if (view.placing) addBtn('Cancel', null, 'Esc', () => { view.placing = null; view.placeReady = false; view.wallStart = null; refreshPanel(); });
     // A Constructor can go for repairs, and be recycled on a pad, like any vehicle.
     if (!view.placing) {
       if (builder.hp < builder.maxHp && game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1))
@@ -1237,7 +1273,9 @@ function refreshPanel() {
       if (parked.length) { const rt = document.createElement('div'); rt.className = 'dim small tip'; addRecycleButtons(addBtn, parked, rt, ['Z']); if (rt.textContent) cmds.appendChild(rt); }
     }
     const tip = document.createElement('div'); tip.className = 'dim small tip';
-    tip.textContent = !view.placing ? `Pick a building, then ${isTouch ? 'tap' : 'click'} where it should go.`
+    tip.textContent = view.placing === 'wall' ? (!view.wallStart ? `${isTouch ? 'Tap' : 'Click'} where the wall starts.`
+        : `${isTouch ? 'Tap where it ends (up to 16), then Build wall' : 'Click where it ends (up to 16)'}. The arrows show its front (the outside): nothing can be built there. Flip front swaps it.`)
+      : !view.placing ? (builder.def.wallBuilder ? `Walls go out in a line: pick Wall, then ${isTouch ? 'tap' : 'click'} the start and the end. Put a Gate in for your own vehicles; a Bastion can carry a Gun Tower or Radar.` : `Pick a building, then ${isTouch ? 'tap' : 'click'} where it should go.`)
       : isTouch ? 'Tap inside the green zone to position it, then press Build here.'
       : 'Click inside the green zone to build. Shift-click to place several. Right-click cancels.';
     tip.textContent = own_(tip.textContent);
