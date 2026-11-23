@@ -879,7 +879,7 @@ function drawWallPiece(ctx, b, ghost, time) {
     }
   } else if (b.def.gate) {
     // Two pillars on the wall's line, doors sliding between them.
-    const g = b.seg || (() => { const ux = -fy, uy = fx, w = T * 1.55; return { ax: b.x - ux * w, ay: b.y - uy * w, bx: b.x + ux * w, by: b.y + uy * w }; })();
+    const g = b.seg || (() => { const ux = -fy, uy = fx, w = T * (b.size / 2 + 0.6); return { ax: b.x - ux * w, ay: b.y - uy * w, bx: b.x + ux * w, by: b.y + uy * w }; })();
     const cx = (g.ax + g.bx) / 2, cy = (g.ay + g.by) / 2, half = Math.hypot(g.bx - g.ax, g.by - g.ay) / 2, a = Math.atan2(g.by - g.ay, g.bx - g.ax);
     let open = 0;
     forUnitsNear(game, cx, cy, 80, u => { if (u.team === b.team && u.hp > 0 && Math.hypot(u.x - cx, u.y - cy) < 75) open = 1; });
