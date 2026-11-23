@@ -519,8 +519,13 @@ normal Constructor can't build them. No research is needed.
   square (green or red), arrows on the front and the total cost. **Flip
   front** (`F`) swaps which side is the front. Pieces are paid for as they
   are laid out and built one after another, approached from behind.
-  Pieces next to each other join up into one wall. Gates and bastions turn
-  in 90° steps.
+  Gates and bastions turn in 90° steps.
+- **Looks:** each run is drawn as one smooth, thick band (34 px, a little
+  more than a square) along its true line, straight or at 45°, not square
+  by square; runs that meet are joined smoothly, and the band runs flush
+  into gates and bastions, which are drawn in the same material. A breach
+  shows as a gap in the band; a run still being built is faded with a
+  dashed outline. (What blocks vehicles is still the squares underneath.)
 - **The front:** each piece faces one way: the outside, drawn with a darker
   face and a row of spikes. **Nothing can be built in front of your own
   wall** (4 squares out); anything can go right behind it. Walls can be
@@ -2412,3 +2417,7 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     Shield Wall (Forcefield Tech, power). Computer opponents get a hidden
     personality (Fortress, Shield wall, Raider, Balanced) that decides how
     they wall in, and save up for it.
+45. **Smooth walls** (23 November 2026): wall runs are drawn as one smooth,
+    thick band instead of square by square (no more zig-zag on 45° walls),
+    joined smoothly where runs meet and flush into restyled gates and
+    bastions.
