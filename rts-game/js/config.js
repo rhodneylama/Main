@@ -313,7 +313,7 @@ const WEAPONS = {
   railgun:  { slot: 'cannon', name: 'Railgun', cost: 250, note: 'Long range, huge hits against armour, slow to reload. Wasted on fast light vehicles.', mod: { projectile: 'rail', rangeAdd: 70, damage: 2.4, cooldown: 2.1, vsHeavy: 1.2, vsLight: 0.55, acc: 1.05 } },
   he:       { slot: 'cannon', name: 'HE Cannon', cost: 175, note: 'High-explosive shells with a small blast: good against groups and buildings.', mod: { damage: 1.0, splash: 40, vsLight: 1.25, vsHeavy: 0.8, vsBuilding: 1.3 } },
   autocannon: { slot: 'cannon', name: 'Autocannon', cost: 150, note: 'A smaller cannon that fires fast: between a gun and a cannon.', mod: { damage: 0.38, cooldown: 0.36, acc: 1.05, vsLight: 1.15 } },
-  plasma:   { slot: 'cannon', name: 'Plasma Cannon', cost: 250, note: 'A slow glowing shot with a big blast that passes straight through shields.', mod: { projectile: 'plasma', damage: 1.5, cooldown: 1.6, splash: 40, pierceShield: true, vsBuilding: 1.2 } },
+  plasma:   { slot: 'cannon', name: 'Plasma Cannon', cost: 375, researchTime: 150, buildMul: 1.2, note: 'High-end: a slow glowing shot with a big blast that passes straight through shields. Vehicles carrying it cost 20% more to build.', mod: { projectile: 'plasma', damage: 1.5, cooldown: 1.6, splash: 40, pierceShield: true, vsBuilding: 1.2 } },
   // Rockets and missiles (rockets fly straight; missiles home in)
   battery:  { slot: 'rocket', name: 'Rocket Battery', cost: 200, note: 'Three unguided rockets in quick succession: a big hit, a long reload.', mod: { projectile: 'rocket', unguided: true, homing: false, salvo: 3, salvoGap: 0.12, damage: 0.66, cooldown: 1.9, vsHeavy: 1.1, vsBuilding: 1.3 } },
   swarm:    { slot: 'rocket', name: 'Swarm Missiles', cost: 150, note: 'Paired homing missiles, good against armour (+30%).', mod: { projectile: 'missile', homing: true, salvo: 2, damage: 0.65, cooldown: 1.15, vsHeavy: 1.3 } },
@@ -359,7 +359,7 @@ const HEAVY_KINDS = ['tank', 'heavy', 'sentry', 'artillery', 'mobileRecycler'];
 // back to regroup, then goes again after `regroup` seconds.
 const COMMAND = { max: 2, size: 10, acc: 0.05, reload: 0.04, think: 3, fallBack: 0.55, regroup: 60 };
 // Research topics for every weapon (key 'w_' + weapon), done at an Armory.
-for (const [k, w] of Object.entries(WEAPONS)) RESEARCH['w_' + k] = { name: w.name, cost: w.cost, time: Math.round(w.cost * 0.27), weapon: k };
+for (const [k, w] of Object.entries(WEAPONS)) RESEARCH['w_' + k] = { name: w.name, cost: w.cost, time: w.researchTime || Math.round(w.cost * 0.27), weapon: k };
 // Stock weapons carry their slot type, name and count; extra stock weapons on
 // one turret (a Tank Mk II's machine guns) are listed in altWeapons.
 function annotateSlots(def) {
@@ -472,8 +472,13 @@ const BUILDING_TYPES = {
   // through, and shots from behind pass). Needs power from a Generator.
   shield: {
     name: 'Shield Projector', cost: 180, buildTime: 12, hp: 450, size: 2, sight: 200, facing: true, requires: 'shields',
-    field: { length: 200, offset: 58, hp: 1725, regen: 25, regenDelay: 4, reboot: 13.5, rebootHp: 0.35, vsArtillery: 1.5 },
-    desc: 'Needs Forcefield Tech (Research Lab). Projects a forcefield wall that stops enemy fire from the front. Turn it to face the threat while placing it. Build them side by side for a longer wall. Needs a Power Generator (one powers 4). The field can be shot down, then reboots after 13.5 s.',
+    field: { length: 200, offset: 58, hp: 1985, regen: 25, regenDelay: 4, reboot: 13.5, rebootHp: 0.35, vsArtillery: 1.5 },
+    // Shield Projector II: a wider, tougher field that comes back sooner, but
+    // draws a third more power (one Generator runs 3 of them, not 4).
+    upgrade: { name: 'Shield Projector II', cost: 200, time: 35, hp: 600, power: 4 / 3,
+      field: { length: 280, offset: 58, hp: 2780, regen: 35, regenDelay: 4, reboot: 9, rebootHp: 0.35, vsArtillery: 1.5 },
+      desc: 'A field 40% wider (280) and 40% tougher (2,780), back up 9 s after it falls. Draws more power: one Generator runs 3.' },
+    desc: 'Needs Forcefield Tech (Research Lab). Projects a forcefield wall that stops enemy fire from the front. Turn it to face the threat while placing it. Build them side by side for a longer wall. Needs a Power Generator (one powers 4). The field can be shot down, then reboots after 13.5 s. Upgrade to Shield Projector II for a wider, tougher field.',
   },
 };
 

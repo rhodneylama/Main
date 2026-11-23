@@ -19,7 +19,7 @@ function load() {
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
     'createGame, generateMap, generateUrbanMap, generateTidalMap, WEAPONS, makeWeapon, loadoutDef, isVisibleTo, scrapIsDangerous, TILE_DIRT, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
-    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, COMMAND, damageForTest: damage });', ctx);
+    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, COMMAND, buildCost, damageForTest: damage });', ctx);
   return ctx;
 }
 
@@ -937,7 +937,7 @@ section('Repair Drones, Fight then repair, the Juggernaut, tuning');
 {
   const S = load();
   check('Extractors produce 7% more (0.749 a second)', S.BUILDING_TYPES.extractor.income === 0.749);
-  check('shields 15% stronger, reboot 10% sooner', S.BUILDING_TYPES.shield.field.hp === 1725 && S.BUILDING_TYPES.shield.field.reboot === 13.5);
+  check('shields stronger (1,985 field), reboot 10% sooner', S.BUILDING_TYPES.shield.field.hp === 1985 && S.BUILDING_TYPES.shield.field.reboot === 13.5);
   check('Artillery fires 10% slower; Artillery Towers unchanged', S.UNIT_TYPES.artillery.weapon.cooldown === 3.85 && S.UNIT_TYPES.artillery2.weapon.cooldown === 3.85 &&
     S.BUILDING_TYPES.tower.upgrades.find(u => u.key === 'arttower').weapon.cooldown === 4.5);
   check('a Recycler II builds Repair Drones; Constructors no longer repair', S.BUILDING_TYPES.recycler.upgrade.produces.includes('drone') &&
@@ -1245,6 +1245,36 @@ section('Loadouts per Factory, Extractor II, radar reach');
   } else check('Extractor II pumps 40% faster and has far more health', false, 'no extractor');
   const R = S.BUILDING_TYPES.radar;
   check('each Radar upgrade reaches much farther', R.levels[0].radius > R.ping.radius * 1.3 && R.levels[1].radius > R.levels[0].radius * 1.3, `${R.ping.radius} -> ${R.levels[0].radius} -> ${R.levels[1].radius}`);
+}
+
+section('Plasma and Shield Projector II');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const R = S.RESEARCH.w_plasma;
+  check('Plasma is a high-end weapon: 375 scrap, 150 s to research', R.cost === 375 && R.time === 150);
+  const f = placeDone(S, g, 1, 'factory', rec);
+  const plain = S.buildCost(f, 'tank');
+  g.teams[1].research.w_plasma = true;
+  S.issueCommand(g, 1, { type: 'loadout', unit: 'tank', slot: 'cannon', weapon: 'plasma', buildingId: f.id });
+  check('a vehicle with a Plasma Cannon costs 20% more to build', S.buildCost(f, 'tank') === Math.round(plain * 1.2), `${plain} -> ${S.buildCost(f, 'tank')}`);
+  g.teams[1].scrap = 1000;
+  S.issueCommand(g, 1, { type: 'produce', buildingId: f.id, unit: 'tank' });
+  S.stepGame(g);
+  check('and that is what is paid', Math.round(1000 - g.teams[1].scrap) >= Math.round(plain * 1.2) - 1, `${Math.round(1000 - g.teams[1].scrap)} paid`);
+  // Shield Projector II: wider, tougher, quicker to reboot, hungrier.
+  g.teams[1].research.shields = true;
+  const gen = placeDone(S, g, 1, 'generator', rec);
+  const sh = [0, 1, 2, 3].map(() => placeDone(S, g, 1, 'shield', rec));
+  run(g, S, 1);
+  check('one Generator runs four Shield Projectors', sh.every(b => b.powered));
+  g.teams[1].scrap = 2000;
+  S.issueCommand(g, 1, { type: 'upgrade', buildingId: sh[0].id });
+  run(g, S, S.BUILDING_TYPES.shield.upgrade.time + 1);
+  const F = sh[0].def.field;
+  check('Shield Projector II: a wider, tougher field that reboots sooner', F.length === 280 && F.hp > S.BUILDING_TYPES.shield.field.hp * 1.35 && F.reboot < 13.5);
+  check('it draws more power: one Generator no longer runs all four', sh.filter(b => b.powered).length === 3);
 }
 
 section('Commanders');

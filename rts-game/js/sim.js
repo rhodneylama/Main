@@ -183,6 +183,13 @@ function bankScrap(game, team, amount, quiet = false) {
 
 // What recycling a vehicle on a Repair Pad gives back: half its cost.
 const recycleValue = u => Math.round(u.def.cost * 0.5);
+// What a vehicle costs from this Factory: some weapons (Plasma) make it dearer.
+function buildCost(b, type) {
+  const def = UNIT_TYPES[type], lo = b && b.loadouts && b.loadouts[def.base || type];
+  let mul = 1;
+  if (lo && def.slots) for (const sl of def.slots) { const w = WEAPONS[lo[sl.type]]; if (w && w.buildMul && fitsSlot(sl, lo[sl.type])) mul *= w.buildMul; }
+  return Math.round(def.cost * mul);
+}
 
 const isBank = b => b.kind === 'building' && b.built >= 1 && !!b.def.capacity;
 
@@ -446,7 +453,7 @@ function issueCommand(game, team, cmd) {
       if (index < 0 || index >= b.queue.length) return;
       const [type] = b.queue.splice(index, 1);
       if (index === 0) {
-        if (b.paid) bankScrap(game, team, UNIT_TYPES[type].cost);
+        if (b.paid) bankScrap(game, team, b.paidCost || UNIT_TYPES[type].cost);
         b.paid = false; b.prodTime = 0;
       }
       break;
@@ -755,6 +762,7 @@ function updateBuilding(game, b, dt) {
       if (b.def.ping) b.pingTimer = 0;   // an upgraded Radar starts its new rhythm at once
       b.hp += up.hp - b.maxHp; b.maxHp = up.hp;
       if (up.income) b.def = Object.assign({}, b.def, { income: up.income, store: up.store, upgrade: up });   // Extractor II pumps faster
+      if (up.field) { b.def = Object.assign({}, b.def, { field: up.field, power: up.power, upgrade: up }); if (b.field && b.field.state === 'up') b.field.hp = Math.min(up.field.hp, b.field.hp * up.field.hp / BUILDING_TYPES.shield.field.hp); }   // Shield Projector II
       if (b.upgradeKey) {
         // A Gun Tower becomes a different kind of tower: new name and gun.
         b.variant = up.key;
@@ -799,7 +807,8 @@ function updateBuilding(game, b, dt) {
     const tm = game.teams[b.team];
     // Pay for the next vehicle when its turn comes; wait until there's enough.
     if (!b.paid) {
-      if (tm.scrap >= def.cost) { tm.scrap -= def.cost; b.paid = true; b.waiting = false; }
+      const price = buildCost(b, b.queue[0]);
+      if (tm.scrap >= price) { tm.scrap -= price; b.paid = true; b.paidCost = price; b.waiting = false; }
       else b.waiting = true;
     }
     if (!b.paid) { /* waiting for scrap */ }
@@ -2572,7 +2581,9 @@ function updateShields(game, dt) {
     const projectors = game.entities.filter(e => e.team === t && e.type === 'shield' && e.hp > 0 && e.built >= 1).sort((a, b) => a.id - b.id);
     const gens = game.entities.filter(e => e.team === t && e.type === 'generator' && e.hp > 0 && e.built >= 1).sort((a, b) => a.id - b.id);
     // How many projectors each Generator is powering (shown on it).
-    let left = Math.min(projectors.length, gens.reduce((n, g) => n + g.def.powers, 0));
+    // (A Shield Projector II draws 4/3 of a normal share.)
+    const need = projectors.reduce((n, b) => n + (b.def.power || 1), 0);
+    let left = Math.min(need, gens.reduce((n, g) => n + g.def.powers, 0));
     for (const g of gens) { g.powering = Math.min(g.def.powers, left); left -= g.powering; }
     if (!projectors.length) continue;
     const tm = game.teams[t];
@@ -2581,13 +2592,13 @@ function updateShields(game, dt) {
     for (const b of projectors) {
       const F = b.def.field;
       if (!b.field) b.field = { hp: 0, state: 'down', t: F.reboot, lastHit: -99 };
-      const powered = capacity > 0 && tm.scrap > 0;
-      if (capacity > 0) capacity--;
+      const draw = b.def.power || 1, powered = capacity >= draw - 1e-6 && tm.scrap > 0;
+      if (powered) capacity -= draw;
       if (powered !== b.powered && b.powered !== undefined && !powered && b.field.state === 'up')
         pushEvent(game, t, tm.scrap > 0 ? 'Shield Projector has no power: build another Power Generator' : 'Out of scrap: shields are down', 'warn', b.x, b.y);
       b.powered = powered;
       if (!powered) { if (b.field.state === 'up') { b.field.state = 'down'; b.field.t = F.reboot; } b.field.hp = 0; continue; }
-      tm.scrap = Math.max(0, tm.scrap - upkeep * dt);
+      tm.scrap = Math.max(0, tm.scrap - upkeep * draw * dt);
       const f = b.field;
       if (f.state === 'down') {
         f.t -= dt;
