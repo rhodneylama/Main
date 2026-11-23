@@ -146,12 +146,12 @@ const UNIT_TYPES = {
     hp: 160, speed: 43, radius: 13, sight: 220,
     desc: 'Builds structures. Repairs are the Repair Drone\'s job.',
   },
-  // Built by a Recycler II. Slow and armoured; builds only walls, gates and
+  // Built by a Recycler II. Slow and armoured; builds only walls and
   // bastions (see WALL).
   heavyBuilder: {
     name: 'Heavy Constructor', role: 'builder', wallBuilder: true, art: 'constructor', cost: 130, buildTime: 10,
     hp: 420, speed: 34, radius: 15, sight: 220,
-    desc: 'Builds compound walls, gates and bastions (built by a Recycler II). Slow and armoured.',
+    desc: 'Builds compound walls and bastions (built by a Recycler II). Slow and armoured.',
   },
   // No longer built (repairs moved to the Repair Drone); kept so old saves load.
   constructor2: {
@@ -364,9 +364,10 @@ const HEAVY_KINDS = ['tank', 'heavy', 'sentry', 'artillery', 'mobileRecycler'];
 // and its field has `shield.hp` a tile; it draws one Generator share per
 // `shield.tilesPerPower` tiles. `mountReach`: a tower or radar on a bastion
 // sees and shoots this much further. `vsArtillery`: shells hurt walls more.
-// `grid`: wall pivots and ends snap to points this far apart (half a square);
-// `angleStep`: wall angles snap to steps of this many degrees.
-const WALL = { maxRun: 16, front: 4, grid: 16, angleStep: 15, mountReach: 1.15, vsArtillery: 1.25,
+// Walls snap to square centres and run in one of 8 directions (straight or
+// 45°), a whole section (square to square) at a time; `snapReach`: how close
+// (in squares) a wall end or bastion pulls the pivot or end onto it.
+const WALL = { maxRun: 16, front: 4, angleStep: 45, snapReach: 1.5, mountReach: 1.15, vsArtillery: 1.25,
   shield: { cost: 30, time: 25, hp: 330, tilesPerPower: 6 } };
 // Commanders: up to `max` per side (after Field Command research), each
 // leading up to `size` vehicles (the commander included). A commander's
