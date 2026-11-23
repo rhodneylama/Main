@@ -258,8 +258,13 @@ function issueCommand(game, team, cmd) {
   // Any new order ends a trip to the Repair Pad (Go repair sets it again
   // below) and a pull-back for repairs.
   for (const u of units) { u.repairTrip = 0; if (cmd.type !== 'stance') { u.retreating = false; u.autoReturn = null; } }
-  // Your own orders to vehicles under a commander take over for a while.
-  if (!cmd.byCommander && !/^cmd/.test(cmd.type) && cmd.type !== 'stance') for (const u of units) if (u.cmdId) u.cmdHold = game.time + COMMAND.hold;
+  // Vehicles under a commander take only its orders: yours go through the
+  // commander as general orders (Command ▾) until you take back command.
+  if (!cmd.byCommander && !/^cmd/.test(cmd.type) && cmd.type !== 'promote' && units.some(u => u.cmdId)) {
+    const before = units.length;
+    units = units.filter(u => !u.cmdId);
+    if (!units.length && before) { pushEvent(game, team, 'Those vehicles are under a commander: give it a general order from its Command menu', 'warn'); return; }
+  }
   // Sentries: Dig in stays put; any order that moves it packs it up first.
   if (cmd.type === 'dig' || cmd.type === 'packup') {
     for (const u of units) if (u.def.deployable) {
@@ -374,10 +379,11 @@ function issueCommand(game, team, cmd) {
       if (tm.commands.length >= COMMAND.max) { pushEvent(game, team, `You can have ${COMMAND.max} commanders at most`, 'warn'); return; }
       const others = units.filter(u => u !== c && u.def.role === 'combat' && !u.cmdId).sort(byRank).slice(0, COMMAND.size - 1);
       const id = (tm.nextCmdId = (tm.nextCmdId || 0) + 1);
-      const k = [1, 2, 3].find(n => !tm.commands.some(x => x.n === n));
+      // It keeps the battle group's number (★1 for battle group 1).
+      const k = cmd.n && !tm.commands.some(x => x.n === +cmd.n) ? +cmd.n : [1, 2, 3, 4, 5].find(n => !tm.commands.some(x => x.n === n));
       const group = { id, n: k, cmdrId: c.id, members: [c.id, ...others.map(u => u.id)], order: null, think: 0 };
       tm.commands.push(group);
-      for (const u of [c, ...others]) { u.cmdId = id; u.cmdHold = 0; }
+      for (const u of [c, ...others]) { u.cmdId = id; u.cmdTask = null; }
       pushEvent(game, team, `${c.def.name} takes command of Command ${k} (${group.members.length} vehicles). Give it a general order.`, 'good', c.x, c.y);
       break;
     }
@@ -387,7 +393,6 @@ function issueCommand(game, team, cmd) {
       if (!group || !['attack', 'hunt', 'guard'].includes(cmd.kind)) return;
       group.order = { kind: cmd.kind, target: cmd.target || 'base' };
       group.style = chooseStyle(game, group); group.plan = null; group.think = 0; group.startPower = groupPower(game, group); group.fallback = 0;
-      for (const id of group.members) { const u = game.byId.get(id); if (u) u.cmdHold = 0; }
       pushEvent(game, team, `Command ${group.n}: ${STYLE_TEXT[group.style]}`, 'info');
       break;
     }
@@ -399,7 +404,7 @@ function issueCommand(game, team, cmd) {
       for (const u of units) {
         if (group.members.length >= COMMAND.size) { pushEvent(game, team, `A commander leads ${COMMAND.size} vehicles at most`, 'warn'); break; }
         if (u.cmdId || u.def.role !== 'combat') continue;
-        group.members.push(u.id); u.cmdId = group.id; u.cmdHold = 0; added++;
+        group.members.push(u.id); u.cmdId = group.id; u.cmdTask = null; added++;
       }
       if (added) { group.plan = null; group.think = 0; }
       break;
@@ -408,7 +413,7 @@ function issueCommand(game, team, cmd) {
       // Take the group back under your own direct command.
       const tm = game.teams[team], group = (tm.commands || []).find(x => x.id === cmd.cmdId);
       if (!group) return;
-      for (const id of group.members) { const u = game.byId.get(id); if (u) { u.cmdId = 0; u.cmdHold = 0; u.cmdBonus = 0; u.cmdTask = null; } }
+      for (const id of group.members) { const u = game.byId.get(id); if (u) { u.cmdId = 0; u.cmdBonus = 0; u.cmdTask = null; } }
       tm.commands = tm.commands.filter(x => x !== group);
       pushEvent(game, team, `Command ${group.n} is back under your direct command`, 'info');
       break;
@@ -1960,7 +1965,6 @@ function updateCommands(game, team, dt) {
 // Order one vehicle on the commander's behalf, only if its task changed (or
 // it has finished it), so they aren't constantly re-ordered.
 function cmdTask(game, team, u, key, cmd) {
-  if (u.cmdHold > game.time) return;                       // you're giving it orders yourself
   if (u.cmdTask === key && u.order.type !== 'idle') return;
   if (u.cmdTask === key && cmd.type === 'move' && Math.hypot(u.x - cmd.x, u.y - cmd.y) < 120) return;   // there already
   u.cmdTask = key;
@@ -1968,7 +1972,7 @@ function cmdTask(game, team, u, key, cmd) {
 }
 function commandThink(game, team, group, cmdr) {
   const T = CONFIG.TILE, tm = game.teams[team];
-  const units = group.members.map(id => game.byId.get(id)).filter(u => u.cmdHold <= game.time || !u.cmdHold);
+  const units = group.members.map(id => game.byId.get(id));
   if (!units.length) return;
   const foe = 3 - team;
   const home = game.entities.find(e => e.team === team && (e.type === 'recycler' || e.type === 'mobileRecycler'));
@@ -2059,7 +2063,7 @@ function commandThink(game, team, group, cmdr) {
       packs.forEach((p, k) => {
         if (p.some(u => u.cmdTask !== 'hunt' + k || u.order.type !== 'hunt')) {
           for (const u of p) u.cmdTask = 'hunt' + k;
-          const ids = p.filter(u => !(u.cmdHold > game.time)).map(u => u.id);
+          const ids = p.map(u => u.id);
           if (ids.length) issueCommand(game, team, { type: 'hunt', ids, pack: ids.length > 1, byCommander: true });
         }
       });

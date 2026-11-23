@@ -1262,16 +1262,16 @@ section('Commanders');
   S.issueCommand(g, 1, { type: 'promote', unitId: squad[0].id, ids });
   check('commanders need Field Command research', !(g.teams[1].commands || []).length);
   g.teams[1].research.command = true;
-  S.issueCommand(g, 1, { type: 'promote', unitId: squad[0].id, ids });
+  S.issueCommand(g, 1, { type: 'promote', unitId: squad[0].id, ids, n: '1' });
   const c = g.teams[1].commands[0];
-  check('a vehicle of a battle group can be made its commander', c && c.cmdrId === squad[0].id && c.members.length === 6 && squad.every(u => u.cmdId === c.id));
+  check('a vehicle of a battle group can be made its commander, keeping the group\'s number', c && c.n === 1 && c.cmdrId === squad[0].id && c.members.length === 6 && squad.every(u => u.cmdId === c.id));
   const extra = [];
   for (let i = 0; i < 6; i++) extra.push(S.addUnitNear(g, 'scout', 1, rec.x + 120 * dir, rec.y - 150));
   S.issueCommand(g, 1, { type: 'cmdAssign', cmdId: c.id, ids: extra.map(u => u.id) });
   check(`a commander leads ${S.COMMAND.size} vehicles at most`, c.members.length === S.COMMAND.size, `${c.members.length}`);
   // Up to three commanders.
   const solo = () => { const u = S.addUnitNear(g, 'tank', 1, rec.x - 100 * dir, rec.y); return u; };
-  for (let k = 0; k < 3; k++) { const u = solo(); S.issueCommand(g, 1, { type: 'promote', unitId: u.id, ids: [u.id] }); }
+  for (let k = 0; k < 3; k++) { const u = solo(); S.issueCommand(g, 1, { type: 'promote', unitId: u.id, ids: [u.id], n: String(k + 2) }); }
   check(`${S.COMMAND.max} commanders at most`, g.teams[1].commands.length === S.COMMAND.max);
   for (const x of g.teams[1].commands.slice(1)) S.issueCommand(g, 1, { type: 'cmdRelease', cmdId: x.id });
   check('taking back command frees the group', g.teams[1].commands.length === 1);
@@ -1292,16 +1292,16 @@ section('Commanders');
   const posts = new Set(guarding.map(u => u.order.targetId));
   check('"Guard our Extractors": the commander posts guards on them and keeps the rest busy', exs.length && posts.size >= Math.min(2, exs.length) &&
     squad.concat(extra).filter(u => u.cmdId).every(u => u.order.type !== 'idle'), `${c.style}: ${guarding.length} guards on ${posts.size}/${exs.length}`);
-  // Your own orders override the commander for a while.
+  // Delegated: your direct orders don't reach them, only general orders do.
+  const before = squad[2].order.type;
   S.issueCommand(g, 1, { type: 'move', ids: [squad[2].id], x: rec.x, y: rec.y + 300 });
-  run(g, S, 4);
-  check('your direct orders take over from the commander for a while', squad[2].cmdHold > g.time && squad[2].order.type !== 'guard');
+  check('a delegated group takes only general orders (direct orders are ignored)', squad[2].order.type === before && !(squad[2].order.type === 'move' && squad[2].order.x === rec.x));
   // Attack: the group goes for the enemy base it knows of.
   const theirs = mine(g, 2, 'recycler')[0];
   theirs.seen[1] = true;
   S.issueCommand(g, 1, { type: 'cmdOrder', cmdId: c.id, kind: 'attack', target: 'base' });
   run(g, S, 4);
-  const going = squad.concat(extra).filter(u => u.cmdId && u.cmdHold <= g.time && u.order.type === 'move');
+  const going = squad.concat(extra).filter(u => u.cmdId && u.order.type === 'move');
   check('"Attack the enemy base": they move out on the commander\'s plan', going.length >= 6, `${c.style}: ${going.length} on the move`);
   // The commander falls: the most experienced takes over.
   squad[0].hp = 0;

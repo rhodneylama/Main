@@ -90,8 +90,8 @@ The game works on touch screens, held upright or sideways. For the whole screen,
 | Attack-move (fight anything on the way) | `A`, then left-click |
 | Stop | `S` |
 | Command buttons | `Q` `W` `E` `R`, or click them |
-| Battle groups | `Ctrl` + `1`–`9` saves the selection as a battle group. Press the number to reselect it; press twice to jump to it. |
-| Commanders | After **Field Command** research: select one vehicle of a battle group, **Group ▾ → Make commander**. Then select the group (green ★ button) and give a general order from **Command ▾**: Attack (base or Extractors), Hunt, Guard (base or Extractors). The commander picks the tactics. Up to 3 commanders, 10 vehicles each. |
+| Battle groups | `Ctrl` + `1`–`5` saves the selection as a battle group (fighting vehicles; workers go in work groups W1–W3 from Group ▾). Press the number to reselect it; press twice to jump to it. |
+| Commanders | After **Field Command** research: select one vehicle of a battle group, **Group ▾ → Make commander**. Then select the group (green ★ button) and give a general order from **Command ▾**: Attack (base or Extractors), Hunt, Guard (base or Extractors). The battle group becomes ★ Command N, which takes only general orders until you take back command. The commander picks the tactics. Up to 2 commanders, 10 vehicles each. |
 | Scroll the map | Arrow keys, push the mouse against the screen edge, middle-drag, or click the minimap |
 | Zoom | Mouse wheel |
 | Jump to base / to selection | `H` / `Space` |
