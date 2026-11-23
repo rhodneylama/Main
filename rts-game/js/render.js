@@ -621,28 +621,24 @@ function drawWallPlacement(ctx, game, view, at) {
     ctx.strokeStyle = 'rgba(255,210,90,0.6)'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
     ctx.beginPath(); ctx.arc(q.x, q.y, WALL_W / 2 + 6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
   }
-  // The snap grid around the pointer: a dot every half square.
-  const G = WALL.grid, gx = Math.round(at.x / G) * G, gy = Math.round(at.y / G) * G;
-  ctx.fillStyle = 'rgba(255,255,255,0.35)';
-  for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) {
-    const d = Math.hypot(dx, dy); if (d > 6) continue;
-    const big = ((gx / G + dx) % 2 === 0) && ((gy / G + dy) % 2 === 0);   // square corners a little bigger
-    ctx.globalAlpha = 1 - d / 7; ctx.beginPath(); ctx.arc(gx + dx * G, gy + dy * G, big ? 2 : 1.3, 0, Math.PI * 2); ctx.fill();
-  }
-  ctx.globalAlpha = 1;
   const a = view.wallStart || snapWallStart(game, team, at);
-  ctx.fillStyle = '#ffd25a'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(a.x, a.y, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();   // the pivot
+  // The square the pivot is locked to.
+  ctx.strokeStyle = 'rgba(255,210,90,0.9)'; ctx.lineWidth = 2;
+  ctx.strokeRect(Math.floor(a.x / T) * T + 1, Math.floor(a.y / T) * T + 1, T - 2, T - 2);
+  ctx.fillStyle = '#ffd25a'; ctx.strokeStyle = '#000';
+  ctx.beginPath(); ctx.arc(a.x, a.y, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();   // the pivot
   if (!view.wallStart) return;
-  const b = snapWallEnd(game, team, a, at);
+  const e = view.wallEnd, b = e && e.ax === a.x && e.ay === a.y ? e : snapWallEnd(game, team, a, at);
   if (Math.hypot(b.x - a.x, b.y - a.y) < 4) return;
   const facing = wallFacingAB(game, a, b, view.wallFlip), nx = Math.cos(facing), ny = Math.sin(facing);
   const tiles = wallTiles(a.x, a.y, b.x, b.y);
+  // The squares it will stand on: outlined, red where it can't go.
   for (const [x, y] of tiles) {
     const i = y * game.map.W + x, mine = game.wallGrid && game.wallGrid[i] === team;
     if (mine) continue;   // already wall there: joins it
     const good = canPlaceBuilding(game, team, 'wall', x, y).ok;
-    if (!good) { ctx.fillStyle = 'rgba(255,90,80,0.35)'; ctx.strokeStyle = '#ff6a5a'; ctx.lineWidth = 1.5; ctx.fillRect(x * T, y * T, T, T); ctx.strokeRect(x * T + 0.5, y * T + 0.5, T - 1, T - 1); }
+    ctx.fillStyle = good ? 'rgba(120,255,140,0.12)' : 'rgba(255,90,80,0.35)'; ctx.strokeStyle = good ? 'rgba(140,255,160,0.7)' : '#ff6a5a'; ctx.lineWidth = 1.5;
+    ctx.fillRect(x * T, y * T, T, T); ctx.strokeRect(x * T + 0.5, y * T + 0.5, T - 1, T - 1);
   }
   ctx.save(); ctx.globalAlpha = 0.7;
   drawWallBand(ctx, [a, b], nx, ny, { faction: game.teams[team].faction, team }, 1, false, game.time);
@@ -660,8 +656,8 @@ function drawWallPlacement(ctx, game, view, at) {
   const cost = BUILDING_TYPES.wall.cost, n = wallSections({ ax: a.x, ay: a.y, bx: b.x, by: b.y });
   const deg = ((Math.round(Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI) % 360) + 360) % 360;
   const label = `${n} section${n === 1 ? '' : 's'} × ${cost} = ${n * cost} scrap · ${deg}°`;
-  const lx = b.x + 22, ly = b.y - 18;
-  ctx.strokeText(label, lx, ly); ctx.fillText(label, lx, ly);
+  const lx = b.x, ly = b.y - 34;
+  ctx.textAlign = 'center'; ctx.strokeText(label, lx, ly); ctx.fillText(label, lx, ly); ctx.textAlign = 'left';
 }
 
 function placementTile(world, size) {
@@ -843,7 +839,9 @@ function drawWallBand(ctx, pts, nx, ny, piece, alpha, building, time) {
   ctx.strokeStyle = C.dark; ctx.lineWidth = 9; path(WALL_W / 2 - 7); ctx.stroke();             // the front face
   ctx.strokeStyle = C.top; ctx.lineWidth = WALL_W - 16; path(-2); ctx.stroke();              // the walkway on top
   ctx.strokeStyle = C.hi; ctx.lineWidth = 2; path(-WALL_W / 2 + 9); ctx.stroke();            // a lit edge at the back
-  if (building) { ctx.strokeStyle = TEAMS[piece.team].color; ctx.lineWidth = 1.5; ctx.setLineDash([6, 5]); path(0); ctx.stroke(); ctx.setLineDash([]); }
+  // The side's colour: a solid stripe along the top (and round it while it's being built).
+  ctx.strokeStyle = TEAMS[piece.team].color; ctx.lineWidth = 2; path(-2); ctx.stroke();
+  if (building) { ctx.lineWidth = 1.5; path(WALL_W / 2 - 1); ctx.stroke(); path(-WALL_W / 2 + 1); ctx.stroke(); }
   // Spikes along the front, the side's colour along the top, Shield Wall emitters.
   let total = 0;
   for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
@@ -854,8 +852,6 @@ function drawWallBand(ctx, pts, nx, ny, piece, alpha, building, time) {
     const p = along(d), bx = p.x + nx * (WALL_W / 2 - 1), by = p.y + ny * (WALL_W / 2 - 1);
     ctx.beginPath(); ctx.moveTo(bx + nx * 7, by + ny * 7); ctx.lineTo(bx + tx * 4.5, by + ty * 4.5); ctx.lineTo(bx - tx * 4.5, by - ty * 4.5); ctx.closePath(); ctx.fill(); ctx.stroke();
   }
-  ctx.fillStyle = TEAMS[piece.team].color;
-  for (let d = 24; d < total - 12; d += 48) { const p = along(d); ctx.fillRect(p.x - nx * 2 - 2.5, p.y - ny * 2 - 2.5, 5, 5); }
   ctx.restore();
 }
 function drawWallPillar(ctx, x, y, piece, alpha = 1) {
@@ -937,8 +933,8 @@ function drawWallPiece(ctx, b, ghost, time) {
   }
   ctx.restore();
   if (b.built < 1 && b.type !== 'wall') {
-    ctx.strokeStyle = TEAMS[b.team].color; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
-    ctx.strokeRect(x0 + 1.5, y0 + 1.5, s - 3, s - 3); ctx.setLineDash([]);
+    ctx.strokeStyle = TEAMS[b.team].color; ctx.lineWidth = 1.5;
+    ctx.strokeRect(x0 + 1.5, y0 + 1.5, s - 3, s - 3);
   } else if (b.built >= 1) {
     if (b.hp < b.maxHp * 0.5) {   // cracks
       ctx.strokeStyle = 'rgba(10,10,8,0.7)'; ctx.lineWidth = 1.2; ctx.beginPath();

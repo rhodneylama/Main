@@ -224,11 +224,12 @@ function wallTiles(ax, ay, bx, by) {
   }
   return out;
 }
-// How many sections a wall is: one per square of its length (at least one).
-const wallSections = g => Math.max(1, Math.ceil(Math.hypot(g.bx - g.ax, g.by - g.ay) / CONFIG.TILE - 0.05));
+// How many sections a wall is: one per square it steps across, square to
+// square (straight or 45°), at least one.
+const wallSections = g => Math.max(1, Math.round(Math.max(Math.abs(g.bx - g.ax), Math.abs(g.by - g.ay)) / CONFIG.TILE));
 // The end of a wall dragged out from the pivot: at most WALL.maxRun squares long.
 function clampWallEnd(a, b) {
-  const max = WALL.maxRun * CONFIG.TILE, d = Math.hypot(b.x - a.x, b.y - a.y);
+  const max = WALL.maxRun * CONFIG.TILE, d = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
   return d <= max ? { x: b.x, y: b.y } : { x: a.x + (b.x - a.x) * max / d, y: a.y + (b.y - a.y) * max / d };
 }
 // Which way a wall from A to B faces: across the line, toward the middle of
@@ -264,28 +265,24 @@ function snapWallPoint(game, team, p, r = CONFIG.TILE * 0.9) {
   return best ? { x: best.x, y: best.y, snapped: best.kind } : { x: p.x, y: p.y };
 }
 // Where a wall's pivot goes: onto a wall end or bastion close by, otherwise
-// the nearest grid point (every WALL.grid pixels), so walls stay aligned.
+// the middle of the square under the pointer, so walls stay on the grid.
 function snapWallStart(game, team, p) {
-  const q = snapWallPoint(game, team, p);
+  const T = CONFIG.TILE, q = snapWallPoint(game, team, p, T * WALL.snapReach);
   if (q.snapped) return q;
-  const G = WALL.grid;
-  return { x: Math.round(p.x / G) * G, y: Math.round(p.y / G) * G };
+  return { x: Math.floor(p.x / T) * T + T / 2, y: Math.floor(p.y / T) * T + T / 2 };
 }
-// Where its end goes: onto a wall end or bastion close by; otherwise at an
-// angle in WALL.angleStep steps and a length in grid steps (diagonal grid
-// steps at 45°, so the end lands on a grid point), at most WALL.maxRun squares.
+// Where its end goes: one of 8 directions (straight or 45°), a whole number
+// of sections (square to square) from the pivot, at most WALL.maxRun; or
+// onto a wall end or bastion close by that lies in one of those directions.
 function snapWallEnd(game, team, a, p) {
-  const q = snapWallPoint(game, team, p);
-  if (q.snapped && Math.hypot(q.x - a.x, q.y - a.y) <= WALL.maxRun * CONFIG.TILE + 1 && Math.hypot(q.x - a.x, q.y - a.y) > 4) return q;
-  const step = WALL.angleStep * Math.PI / 180;
-  const ang = Math.round(Math.atan2(p.y - a.y, p.x - a.x) / step) * step;
-  const quarter = Math.abs(Math.round(ang / (Math.PI / 4)) * (Math.PI / 4) - ang) < 1e-6;
-  const diag = quarter && Math.abs(Math.round(ang / (Math.PI / 2)) * (Math.PI / 2) - ang) > 1e-6;
-  const unit = diag ? WALL.grid * Math.SQRT2 : WALL.grid;
-  const max = Math.floor(WALL.maxRun * CONFIG.TILE / unit) * unit;
-  const len = Math.min(max, Math.max(unit, Math.round(Math.hypot(p.x - a.x, p.y - a.y) / unit) * unit));
-  const r = v => Math.round(v * 1000) / 1000;
-  return { x: r(a.x + Math.cos(ang) * len), y: r(a.y + Math.sin(ang) * len), angle: Math.round(ang * 180 / Math.PI) };
+  const T = CONFIG.TILE, q = snapWallPoint(game, team, p, T * WALL.snapReach);
+  const dirOk = (dx, dy) => Math.abs(dx) < 0.5 || Math.abs(dy) < 0.5 || Math.abs(Math.abs(dx) - Math.abs(dy)) < 0.5;
+  if (q.snapped && (q.x !== a.x || q.y !== a.y) && dirOk(q.x - a.x, q.y - a.y) && Math.max(Math.abs(q.x - a.x), Math.abs(q.y - a.y)) <= WALL.maxRun * T + 0.5) return q;
+  const step = Math.PI / 4, ang = Math.round(Math.atan2(p.y - a.y, p.x - a.x) / step) * step;
+  const dx = Math.round(Math.cos(ang)), dy = Math.round(Math.sin(ang));
+  const along = (p.x - a.x) * dx + (p.y - a.y) * dy, per = dx && dy ? 2 * T : T;   // diagonal: one section is a square across and a square down
+  const n = Math.min(WALL.maxRun, Math.max(1, Math.round(along / per)));
+  return { x: a.x + dx * n * T, y: a.y + dy * n * T, angle: Math.round(ang * 180 / Math.PI), sections: n };
 }
 
 // A gate or bastion dropped onto one of your walls: lined up with it.
