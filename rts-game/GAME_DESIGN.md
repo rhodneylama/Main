@@ -511,7 +511,7 @@ normal Constructor can't build them. No research is needed.
 | Piece | Cost | Time | HP | Size | What it does |
 | --- | --- | --- | --- | --- | --- |
 | Wall | 35 a section | 3 s a square | 1,500 a square | line | Dragged out from a pivot at **any angle**, up to 16 sections long; a **section** is one square of length, whatever the angle. Underneath, it blocks every square its line passes through (both squares where it crosses a corner), so nothing slips through. |
-| Gate | 90 | 8 s | 2,200 | 2×2 | Opens for your own vehicles; as solid as a wall to the enemy. |
+| Gate | 110 | 9 s | 2,600 | 3×3 | Opens for your own vehicles (an opening three squares wide); as solid as a wall to the enemy. |
 | Bastion | 140 | 12 s | 3,500 | 2×2 | A thick wall tower: a Constructor can build a **Gun Tower or a Radar on top**. |
 
 - **Building one (23 November 2026):** select the Heavy Constructor, pick
@@ -2438,3 +2438,5 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     pivot at any angle and priced by length (35 a section); they snap onto
     wall ends, gate posts and bastions and meet at round pillars; gates and
     bastions drop onto a wall, lined up with it.
+47. **Wider gates** (23 November 2026): gates are 3 squares wide (110
+    scrap, 2,600 health), with the posts further apart.

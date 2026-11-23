@@ -355,7 +355,7 @@ function wallJobs(cx, cy, a, R, len, gate, bastions) {
   const back = (x, y) => ax ? [d > 0 ? x - 1 : x, y] : [x, d > 0 ? y - 1 : y];   // 2x2 pieces stick out behind, not in front
   const jobs = [], mid = Math.floor(len / 2);
   const skip = new Set();
-  if (gate) { skip.add(mid - 1); skip.add(mid); }
+  if (gate) { skip.add(mid - 1); skip.add(mid); skip.add(mid + 1); }
   if (bastions && len >= 8) { skip.add(0); skip.add(1); skip.add(len - 2); skip.add(len - 1); }
   let run = [];
   for (let k = 0; k < len; k++) {
@@ -363,7 +363,7 @@ function wallJobs(cx, cy, a, R, len, gate, bastions) {
     run.push(at(k));
   }
   if (run.length) jobs.push({ kind: 'run', tiles: run, facing });
-  if (gate) { const [x, y] = back(...at(mid - 1)); jobs.push({ kind: 'gate', tx: x, ty: y, facing }); }
+  if (gate) { const [x, y] = at(mid - 1); jobs.push({ kind: 'gate', tx: ax ? x - 1 : x, ty: ax ? y : y - 1, facing }); }   // 3x3, centred on the line
   if (bastions && len >= 8) for (const k of [0, len - 2]) { const [x, y] = back(...at(k)); jobs.push({ kind: 'bastion', tx: x, ty: y, facing }); }
   return jobs;
 }

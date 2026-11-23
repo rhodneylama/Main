@@ -281,7 +281,7 @@ function snapOntoWall(game, team, type, p) {
   // The gate's posts sit on the wall's line either side of its middle.
   const cx = (tx + def.size / 2) * T, cy = (ty + def.size / 2) * T;
   const k = (cx - best.g.ax) * best.ux + (cy - best.g.ay) * best.uy, mx = best.g.ax + best.ux * k, my = best.g.ay + best.uy * k;
-  const w = T * 1.55;   // posts stand just outside the opening, on the wall either side
+  const w = T * (def.size / 2 + 0.6);   // posts stand just outside the opening, on the wall either side
   const seg = { ax: mx - best.ux * w, ay: my - best.uy * w, bx: mx + best.ux * w, by: my + best.uy * w };
   return { tx, ty, facing: best.facing, seg };
 }

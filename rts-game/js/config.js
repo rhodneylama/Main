@@ -485,7 +485,7 @@ const BUILDING_TYPES = {
     desc: 'A compound wall: drag it out in a line (a run). Blocks vehicles; enemies must break through it, best with artillery, HE or Bunker Busters (Plasma does half). Nothing can be built in front of it. Upgrade a run to a Shield Wall once you have Forcefield Tech.',
   },
   gate: {
-    name: 'Gate', cost: 90, buildTime: 8, hp: 2200, size: 2, sight: 120, wallPiece: true, gate: true, anywhere: true, facing: true,
+    name: 'Gate', cost: 110, buildTime: 9, hp: 2600, size: 3, sight: 120, wallPiece: true, gate: true, anywhere: true, facing: true,
     desc: 'Opens for your vehicles and stays shut to the enemy. Put one in your wall so your own vehicles can get out.',
   },
   bastion: {
