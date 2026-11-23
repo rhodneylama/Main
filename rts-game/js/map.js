@@ -487,13 +487,14 @@ function nearestOpenTile(game, tx, ty, maxR = 12) {
 // Can a vehicle drive in a straight line from (x0,y0) to (x1,y1)?
 // Checks the line and four points 10 px either side of it every 8 px. Written
 // out longhand because route smoothing calls it a lot on the big map.
-function hasClearLine(game, x0, y0, x1, y1) {
+function hasClearLine(game, x0, y0, x1, y1, team = 0) {
   const T = CONFIG.TILE, W = game.map.W, H = game.map.H, tiles = game.map.tiles, occ = game.occupied;
+  const gg = team && game.wallCount ? game.gateGrid : null;   // an enemy's gate is shut
   const blocked = (x, y) => {
     const tx = Math.floor(x / T), ty = Math.floor(y / T);
     if (tx < 0 || ty < 0 || tx >= W || ty >= H) return true;
     const i = ty * W + tx, t = tiles[i];
-    return t === TILE_ROCK || t === TILE_WATER || occ[i] > 0;
+    return t === TILE_ROCK || t === TILE_WATER || occ[i] > 0 || (gg && gg[i] && gg[i] !== team);
   };
   const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 8);
   for (let s = 1; s <= steps; s++) {
@@ -512,25 +513,32 @@ function inMirroredHalf(game, x, y) {
 
 // The map rotated half a turn about its centre. Doing that to a grid stored
 // row by row is the same as reading it backwards.
-function mirroredView(game) {
-  return { map: { W: game.map.W, H: game.map.H, tiles: game.map.tiles.slice().reverse() }, occupied: game.occupied.slice().reverse() };
+function mirroredView(game, walls) {
+  const v = { map: { W: game.map.W, H: game.map.H, tiles: game.map.tiles.slice().reverse() }, occupied: game.occupied.slice().reverse() };
+  if (walls) { v.wallGrid = game.wallGrid.slice().reverse(); v.gateGrid = game.gateGrid.slice().reverse(); v.wallCount = game.wallCount; }
+  return v;
 }
 
 // Routes are always worked out from the same half of the map: a request
 // starting in the other half is solved on a mirrored copy and mirrored back.
 // Otherwise the search's tie-breaking would give one side slightly different
 // (and sometimes better) routes than the other, which adds up in battle.
-function findPath(game, sx, sy, gx, gy) {
+// With walls on the map, `team` is whose route it is: an enemy's gate is
+// shut to it, and with `breach` (armed vehicles) an enemy's walls and gates
+// count as passable but costly: the route goes through the weakest spot and
+// the vehicle breaks through when it gets there.
+function findPath(game, sx, sy, gx, gy, team = 0, breach = false) {
   const T = CONFIG.TILE, W = game.map.W, H = game.map.H, WW = W * T, HH = H * T;
+  if (!game.wallCount) team = 0;
   if (inMirroredHalf(game, sx, sy)) {
-    return findPathOn(mirroredView(game), WW - sx, HH - sy, WW - gx, HH - gy).map(p => ({ x: WW - p.x, y: HH - p.y }));
+    return findPathOn(mirroredView(game, !!team), WW - sx, HH - sy, WW - gx, HH - gy, team, breach).map(p => ({ x: WW - p.x, y: HH - p.y }));
   }
-  return findPathOn(game, sx, sy, gx, gy);
+  return findPathOn(game, sx, sy, gx, gy, team, breach);
 }
 
-function findPathOn(game, sx, sy, gx, gy) {
+function findPathOn(game, sx, sy, gx, gy, team = 0, breach = false) {
   const T = CONFIG.TILE, W = game.map.W, H = game.map.H;
-  if (hasClearLine(game, sx, sy, gx, gy)) return [{ x: gx, y: gy }];
+  if (hasClearLine(game, sx, sy, gx, gy, team)) return [{ x: gx, y: gy }];
 
   let start = { x: Math.floor(sx / T), y: Math.floor(sy / T) };
   if (isBlockedTile(game, start.x, start.y)) start = nearestOpenTile(game, start.x, start.y, 3) || start;
@@ -576,11 +584,21 @@ function findPathOn(game, sx, sy, gx, gy) {
     return (dx + dy) + (Math.SQRT2 - 2) * Math.min(dx, dy);
   };
   const tiles = game.map.tiles, occ = game.occupied;
-  const open = (x, y) => {
+  const wg = team ? game.wallGrid : null, gg = team ? game.gateGrid : null;
+  const open = !wg ? (x, y) => {
     if (x < 0 || y < 0 || x >= W || y >= H) return false;
     const i = y * W + x, t = tiles[i];
     return t !== TILE_ROCK && t !== TILE_WATER && !(occ[i] > 0);
+  } : (x, y) => {
+    if (x < 0 || y < 0 || x >= W || y >= H) return false;
+    const i = y * W + x, t = tiles[i];
+    if (t === TILE_ROCK || t === TILE_WATER) return false;
+    if (gg[i] && gg[i] !== team) return breach;
+    if (occ[i] > 0) return breach && !!wg[i] && wg[i] !== team;
+    return true;
   };
+  // Breaking through costs time: a wall square counts as 14 squares of driving, a gate 6.
+  const extra = !wg ? () => 0 : j => (gg[j] && gg[j] !== team) ? 6 : (wg[j] && wg[j] !== team && occ[j] > 0) ? 14 : 0;
 
   const si = start.y * W + start.x, gi = goal.y * W + goal.x;
   g[si] = 0;
@@ -600,7 +618,7 @@ function findPathOn(game, sx, sy, gx, gy) {
       if (dx && dy && (!open(x + dx, y) || !open(x, y + dy))) continue;
       const j = ny * W + nx;
       if (closed[j]) continue;
-      const ng = g[i] + (dx && dy ? Math.SQRT2 : 1);
+      const ng = g[i] + (dx && dy ? Math.SQRT2 : 1) + extra(j);
       if (ng < g[j]) { g[j] = ng; came[j] = i; push(ng + h(nx, ny), j); }
     }
   }
@@ -620,7 +638,7 @@ function findPathOn(game, sx, sy, gx, gy) {
     // Look at most 40 squares ahead: long straight stretches just become a
     // few shorter legs in a row, and the big map stays quick to plan on.
     for (let j = Math.min(pts.length - 1, k + 40); j > k + 1; j--) {
-      if (hasClearLine(game, from.x, from.y, pts[j].x, pts[j].y)) { far = j; break; }
+      if (hasClearLine(game, from.x, from.y, pts[j].x, pts[j].y, team)) { far = j; break; }
     }
     out.push(pts[far]);
     from = pts[far]; k = far;

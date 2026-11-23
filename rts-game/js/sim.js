@@ -49,6 +49,9 @@ function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams
     entities: [], byId: new Map(), nextId: 1,
     projectiles: [], effects: [], events: [],
     occupied: new Uint8Array(map.W * map.H),
+    // Compound walls: which side's wall (or gate) stands on each square, and
+    // which piece it is. Rebuilt from the buildings when a game loads.
+    wallGrid: new Uint8Array(map.W * map.H), gateGrid: new Uint8Array(map.W * map.H), wallId: new Int32Array(map.W * map.H), wallCount: 0, nextRunId: 1,
     scrap: map.scrap, geysers: map.geysers,
     packs: {}, nextPackId: 1,
     teams: {},
@@ -134,6 +137,7 @@ function addBuilding(game, type, team, tx, ty, complete) {
   };
   if (def.facing) b.facing = snapFacing(b.turret);
   setOccupied(game, b, 1);
+  if (def.wallPiece) markWall(game, b, true);
   game.entities.push(b); game.byId.set(b.id, b);
   return b;
 }
@@ -142,9 +146,101 @@ function addBuilding(game, type, team, tx, ty, complete) {
 const snapFacing = a => Math.round(a / (Math.PI / 4)) * (Math.PI / 4);
 
 function setOccupied(game, b, delta) {
-  if (b.def.walkable) return;  // vehicles drive over repair pads
+  if (b.def.walkable || b.def.gate) return;  // vehicles drive over repair pads; gates are handled by gateGrid
   for (let y = b.ty; y < b.ty + b.size; y++)
     for (let x = b.tx; x < b.tx + b.size; x++) game.occupied[y * game.map.W + x] += delta;
+}
+
+// --- Compound walls ---
+function markWall(game, b, on) {
+  const W = game.map.W;
+  for (let y = b.ty; y < b.ty + b.size; y++) for (let x = b.tx; x < b.tx + b.size; x++) {
+    const i = y * W + x;
+    if (on) { if (b.def.gate) game.gateGrid[i] = b.team; else game.wallGrid[i] = b.team; game.wallId[i] = b.id; }
+    else if (game.wallId[i] === b.id) { game.gateGrid[i] = 0; game.wallGrid[i] = 0; game.wallId[i] = 0; }
+  }
+  game.wallCount += on ? 1 : -1;
+}
+function rebuildWallGrids(game) {
+  const N = game.map.W * game.map.H;
+  game.wallGrid = new Uint8Array(N); game.gateGrid = new Uint8Array(N); game.wallId = new Int32Array(N); game.wallCount = 0;
+  for (const e of game.entities) if (e.kind === 'building' && e.def.wallPiece && e.hp > 0) markWall(game, e, true);
+}
+// A building leaving the map: its wall squares, and anything on a bastion.
+function releaseBuilding(game, e) {
+  if (e.def.wallPiece) markWall(game, e, false);
+  if (e.mountId) { const m = game.byId.get(e.mountId); if (m && m.hp > 0) { m.hp = 0; m.mountOn = 0; } }   // the bastion falls: what's on it goes too
+  if (e.mountOn) { const bs = game.byId.get(e.mountOn); if (bs) bs.mountId = 0; }
+  if (e.runShield === e.id) for (const x of game.entities) if (x.runShield === e.id) { x.runShield = 0; x.shieldWall = false; }
+}
+// The pieces of one wall run, in order along the wall.
+function wallRun(game, p) {
+  const ax = -Math.sin(p.facing || 0), ay = Math.cos(p.facing || 0);
+  return game.entities.filter(e => e.type === 'wall' && e.team === p.team && e.runId === p.runId && e.hp > 0).sort((a, b) => (a.x * ax + a.y * ay) - (b.x * ax + b.y * ay));
+}
+// The squares of a wall drawn from one square to another: straight, or at
+// 45° (with the corners filled, so nothing slips between the pieces).
+function wallLine(x0, y0, x1, y1, max = WALL.maxRun) {
+  let dx = x1 - x0, dy = y1 - y0;
+  const a = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+  const sx = Math.round(Math.cos(a)), sy = Math.round(Math.sin(a));
+  const n = Math.min(max - 1, Math.max(Math.abs(dx), Math.abs(dy)));
+  const out = [];
+  for (let k = 0; k <= n; k++) {
+    out.push([x0 + sx * k, y0 + sy * k]);
+    if (sx && sy && k < n) out.push([x0 + sx * (k + 1), y0 + sy * k]);
+  }
+  return out;
+}
+// Which way a wall drawn from A to B faces: across the line, toward the
+// middle of the map unless flipped.
+function wallFacing(game, x0, y0, x1, y1, flip) {
+  const a = Math.round(Math.atan2(y1 - y0, x1 - x0) / (Math.PI / 4)) * (Math.PI / 4) || 0;
+  let f = a + Math.PI / 2;
+  const mx = (x0 + x1) / 2, my = (y0 + y1) / 2, cx = game.map.W / 2, cy = game.map.H / 2;
+  if (Math.cos(f) * (cx - mx) + Math.sin(f) * (cy - my) < 0) f += Math.PI;
+  if (flip) f += Math.PI;
+  return snapFacing(Math.atan2(Math.sin(f), Math.cos(f)));
+}
+// Is this footprint in front of one of your walls (where nothing may be built)?
+function inFrontOfWall(game, team, tx, ty, size) {
+  if (!game.wallCount) return false;
+  for (const e of game.entities) {
+    if (e.kind !== 'building' || !e.def.wallPiece || e.team !== team || e.hp <= 0) continue;
+    const ex = e.tx + e.size / 2, ey = e.ty + e.size / 2;
+    if (Math.abs(ex - (tx + size / 2)) > WALL.front + size + 3 || Math.abs(ey - (ty + size / 2)) > WALL.front + size + 3) continue;
+    const fx = Math.cos(e.facing || 0), fy = Math.sin(e.facing || 0);
+    for (let y = ty; y < ty + size; y++) for (let x = tx; x < tx + size; x++) {
+      const vx = x + 0.5 - ex, vy = y + 0.5 - ey, along = vx * fx + vy * fy, side = Math.abs(-vx * fy + vy * fx);
+      if (along > e.size / 2 && along <= e.size / 2 + WALL.front && side < e.size / 2 + 0.5) return true;
+    }
+  }
+  return false;
+}
+// A Constructor building a Gun Tower or Radar on top of one of your bastions.
+function bastionAt(game, team, type, tx, ty) {
+  if (type !== 'tower' && type !== 'radar') return null;
+  return game.entities.find(e => e.team === team && e.def.bastion && e.hp > 0 && Math.abs(e.tx - tx) <= 1 && Math.abs(e.ty - ty) <= 1) || null;
+}
+// The weapon a tower had before any bastion bonus: its stock gun or its upgrade's.
+function stockWeaponOf(b) {
+  const def = BUILDING_TYPES[b.type];
+  if (b.variant && def.upgrades) { const up = def.upgrades.find(o => o.key === b.variant); if (up) return up.weapon; }
+  return def.weapon;
+}
+// Up on a bastion: sees and shoots further.
+function mountBoost(b) {
+  const k = WALL.mountReach, def = BUILDING_TYPES[b.type];
+  b.def = Object.assign({}, b.def, { sight: Math.round((def.sight || b.def.sight) * k) });
+  if (b.def.weapon) b.def.weapon = Object.assign({}, b.def.weapon, { range: Math.round((b.fitted ? makeWeapon(stockWeaponOf(b), b.fitted) : stockWeaponOf(b)).range * k) });
+}
+// The wall piece (of another side) on this square, if any.
+function enemyWallAt(game, team, tx, ty) {
+  if (tx < 0 || ty < 0 || tx >= game.map.W || ty >= game.map.H) return null;
+  const i = ty * game.map.W + tx;
+  if (!((game.wallGrid[i] && game.wallGrid[i] !== team) || (game.gateGrid[i] && game.gateGrid[i] !== team))) return null;
+  const e = game.byId.get(game.wallId[i]);
+  return e && e.hp > 0 ? e : null;
 }
 
 // Messages are written with Scrapline names and put into the team's own words.
@@ -200,11 +296,18 @@ const isBank = b => b.kind === 'building' && b.built >= 1 && !!b.def.capacity;
 function canPlaceBuilding(game, team, type, tx, ty) {
   const def = BUILDING_TYPES[type], m = game.map;
   const tm = game.teams[team];
+  // A Gun Tower or Radar on top of a bastion.
+  const bs = game.wallCount ? bastionAt(game, team, type, tx, ty) : null;
+  if (bs && bs.tx === tx && bs.ty === ty) {
+    if (bs.built < 1) return { ok: false, why: 'Finish the bastion first' };
+    if (bs.mountId) return { ok: false, why: 'Something is already on this bastion' };
+    return { ok: true, mount: bs.id };
+  }
   for (let y = ty; y < ty + def.size; y++) for (let x = tx; x < tx + def.size; x++) {
     if (x < 1 || y < 1 || x >= m.W - 1 || y >= m.H - 1) return { ok: false, why: 'Off the map' };
     const i = y * m.W + x;
     if (!tm.explored[i]) return { ok: false, why: 'Unexplored ground' };
-    if (isBlockedTile(game, x, y)) return { ok: false, why: 'Something is in the way' };
+    if (isBlockedTile(game, x, y) || (game.gateGrid && game.gateGrid[i])) return { ok: false, why: 'Something is in the way' };
     if (m.noBuild && m.noBuild[i]) return { ok: false, why: m.tidalMap ? "Can't build on the sand or the causeways: build on solid ground" : "Can't build on the streets: use open lots, plazas and courtyards" };
   }
   // Repair pads don't block vehicles, but nothing can be built on top of one.
@@ -232,6 +335,7 @@ function canPlaceBuilding(game, team, type, tx, ty) {
       Math.hypot(e.x / T - cx, e.y / T - cy) <= def.placeRange + e.size / 2);
     if (!near) return { ok: false, why: `${def.name}s must be built next to ${def.placeNear === 'recycler' ? 'your Recycler' : 'one of your Extractors'}` };
   }
+  if (!def.wallPiece && inFrontOfWall(game, team, tx, ty, def.size)) return { ok: false, why: "Can't build in front of your wall (its outside). Build behind it." };
   if (!def.anywhere && !inTerritory(game, team, cx, cy)) return { ok: false, why: 'Outside your territory. Build a Radar out there to extend it.' };
   return { ok: true };
 }
@@ -319,9 +423,11 @@ function issueCommand(game, team, cmd) {
       for (const u of units) { u.order = { type: 'idle', gx: u.x, gy: u.y }; u.path = []; u.target = null; }
       break;
     case 'build': {
-      const u = units.find(x => x.def.role === 'builder');
       const def = BUILDING_TYPES[cmd.building];
-      if (!u || !def || def.buildable === false) return;
+      if (!def || def.buildable === false) return;
+      // Walls, gates and bastions need a Heavy Constructor; everything else a Constructor.
+      const u = units.find(x => x.def.role === 'builder' && !!x.def.wallBuilder === !!def.wallPiece);
+      if (!u) { if (units.some(x => x.def.role === 'builder')) pushEvent(game, team, def.wallPiece ? 'Walls, gates and bastions are built by a Heavy Constructor (Recycler II)' : 'A Heavy Constructor only builds walls, gates and bastions', 'warn'); return; }
       const tm = game.teams[team];
       if (def.requires && !tm.research[def.requires]) { pushEvent(game, team, `Research ${RESEARCH[def.requires].name} at a Research Lab first`, 'warn'); return; }
       if (tm.scrap < def.cost) { pushEvent(game, team, 'Not enough scrap', 'warn'); return; }
@@ -329,9 +435,53 @@ function issueCommand(game, team, cmd) {
       if (!check.ok) { pushEvent(game, team, check.why, 'warn'); return; }
       tm.scrap -= def.cost;
       const b = addBuilding(game, cmd.building, team, cmd.tx, cmd.ty, false);
-      if (def.facing) b.facing = typeof cmd.facing === 'number' ? cmd.facing : snapFacing(b.turret);
+      if (def.facing) b.facing = typeof cmd.facing === 'number' ? snapFacing(cmd.facing) : snapFacing(b.turret);
+      if (def.gate || def.bastion) b.facing = Math.round(b.facing / (Math.PI / 2)) * (Math.PI / 2);   // gates and bastions square to the map
+      if (check.mount) { b.mountOn = check.mount; game.byId.get(check.mount).mountId = b.id; mountBoost(b); }
       u.order = { type: 'build', targetId: b.id };
       planPathNear(game, u, b);
+      break;
+    }
+    case 'buildWall': {
+      // A run of wall: one piece per square, paid for as they are laid out,
+      // built one after another by the Heavy Constructor.
+      const u = units.find(x => x.def.wallBuilder);
+      if (!u) { if (units.some(x => x.def.role === 'builder')) pushEvent(game, team, 'Walls are built by a Heavy Constructor (Recycler II)', 'warn'); return; }
+      const tm = game.teams[team], def = BUILDING_TYPES.wall;
+      const facing = typeof cmd.facing === 'number' ? snapFacing(cmd.facing) : 0, runId = game.nextRunId++;
+      const placed = [];
+      let short = false;
+      for (const [tx, ty] of (cmd.tiles || []).slice(0, WALL.maxRun * 2)) {
+        if (tm.scrap < def.cost) { short = true; break; }
+        if (!canPlaceBuilding(game, team, 'wall', tx, ty).ok) continue;
+        tm.scrap -= def.cost;
+        const b = addBuilding(game, 'wall', team, tx, ty, false);
+        b.facing = facing; b.runId = runId; placed.push(b.id);
+      }
+      if (!placed.length) { pushEvent(game, team, short ? 'Not enough scrap' : 'No room for a wall there', 'warn'); return; }
+      if (short) pushEvent(game, team, `Not enough scrap: ${placed.length} wall pieces laid out`, 'warn');
+      u.order = { type: 'build', targetId: placed[0], queue: placed.slice(1) };
+      planPathNear(game, u, game.byId.get(placed[0]));
+      break;
+    }
+    case 'wallShield': {
+      // Wall II: a forcefield along the whole run, in front of it.
+      const tm = game.teams[team], p = own(cmd.buildingId);
+      if (!p || p.type !== 'wall' || !p.runId) return;
+      if (!tm.research.shields) { pushEvent(game, team, 'Research Forcefield Tech at a Research Lab first', 'warn'); return; }
+      const run = wallRun(game, p);
+      if (run.some(x => x.built < 1)) { pushEvent(game, team, 'Finish building the wall first', 'warn'); return; }
+      if (run.some(x => x.runShield)) return;
+      const n = run.length, cost = n * WALL.shield.cost;
+      if (tm.scrap < cost) { pushEvent(game, team, 'Not enough scrap', 'warn'); return; }
+      const a = run[0], z = run[n - 1], anchor = run[Math.floor((n - 1) / 2)], T = CONFIG.TILE;
+      anchor.fieldAt = { x: (a.x + z.x) / 2, y: (a.y + z.y) / 2 };
+      anchor.def = Object.assign({}, anchor.def, { upgrade: { name: 'Shield Wall', cost, time: WALL.shield.time, hp: anchor.maxHp,
+        field: { length: Math.hypot(z.x - a.x, z.y - a.y) + T, offset: 22, hp: n * WALL.shield.hp, regen: 25, regenDelay: 4, reboot: 13.5, rebootHp: 0.35, vsArtillery: 1.5 },
+        power: Math.max(1, n / WALL.shield.tilesPerPower) } });
+      for (const x of run) x.runShield = anchor.id;
+      tm.scrap -= cost; anchor.upgrading = 0; anchor.upgradeKey = null;
+      pushEvent(game, team, `Upgrading ${n} wall pieces to a Shield Wall`, 'info', anchor.x, anchor.y);
       break;
     }
     case 'repair': {
@@ -684,13 +834,20 @@ function planPath(game, u, x, y) {
     u.path = []; u.stuck = 0;
     return;
   }
-  u.path = findPath(game, u.x, u.y, x, y);
+  u.path = routeFor(game, u, x, y);
   u.lastPlan = { x, y, t: game.time, failed: !u.path.length };
   u.stuck = 0;
 }
 
+// A route for this vehicle: armed vehicles may plan through an enemy wall
+// (and break through it on the way); everyone uses their own side's gates.
+function routeFor(game, u, x, y) {
+  return findPath(game, u.x, u.y, x, y, u.team, !!(u.def.weapon && u.def.role === 'combat'));
+}
+
 function planPathNear(game, u, b) {
-  const a = angleTo(b, u);
+  // Wall pieces are reached from behind (inside), not along the wall itself.
+  const a = b.def && b.def.wallPiece && u.team === b.team ? (b.facing || 0) + Math.PI : angleTo(b, u);
   const r = b.radius + u.radius + 12;
   planPath(game, u, b.x + Math.cos(a) * r, b.y + Math.sin(a) * r);
 }
@@ -769,7 +926,9 @@ function updateBuilding(game, b, dt) {
         b.def = Object.assign({}, b.def, { name: up.name, weapon: up.weapon, slots: up.slots, desc: up.desc, upgrades: null });
         b.weaponLocked = false; b.fitted = null;   // the new hardpoint gets its own choice
         b.cooldown = 0;
+        if (b.mountOn) mountBoost(b);
       }
+      if (b.runShield === b.id) for (const x of game.entities) if (x.runShield === b.id) x.shieldWall = true;   // Shield Wall up
       pushEvent(game, b.team, `${up.name} ready`, 'good', b.x, b.y);
     }
   }
@@ -789,12 +948,12 @@ function updateBuilding(game, b, dt) {
       // Radar III: a constant feed, renewed twice a second, with a sweep now and then.
       if (b.pingTimer <= 0) {
         b.pingTimer = 0.5;
-        game.teams[b.team].pings.push({ x: b.x, y: b.y, r: lv.radius || b.def.ping.radius, until: game.time + 0.7 });
+        game.teams[b.team].pings.push({ x: b.x, y: b.y, r: (lv.radius || b.def.ping.radius) * (b.mountOn ? WALL.mountReach : 1), until: game.time + 0.7 });
       }
     } else if (b.pingTimer <= 0) {
       const p = b.def.ping;
       b.pingTimer = lv && lv.pingEvery ? lv.pingEvery : p.every;
-      game.teams[b.team].pings.push({ x: b.x, y: b.y, r: (lv && lv.radius) || p.radius, until: game.time + p.lasts });
+      game.teams[b.team].pings.push({ x: b.x, y: b.y, r: ((lv && lv.radius) || p.radius) * (b.mountOn ? WALL.mountReach : 1), until: game.time + p.lasts });
       updateVisibility(game);
     }
   }
@@ -1078,7 +1237,7 @@ function updateHunt(game, u, dt) {
   const gx = goal.x + Math.cos(a) * r, gy = goal.y + Math.sin(a) * r;
   if (!o.planned || Math.hypot(o.planned.x - gx, o.planned.y - gy) > 100 || !u.path.length) {
     o.planned = { x: gx, y: gy };
-    if (hasClearLine(game, u.x, u.y, gx, gy)) u.path = [{ x: gx, y: gy }]; else planPath(game, u, gx, gy);
+    if (hasClearLine(game, u.x, u.y, gx, gy, u.team)) u.path = [{ x: gx, y: gy }]; else planPath(game, u, gx, gy);
   }
   if (followPath(game, u, dt, 30) && !goal.id) { holder.target = null; o.planned = null; }
   aimAtNearby(game, u, dt);
@@ -1153,7 +1312,7 @@ function updateDrone(game, u, dt) {
       u.repath = 0.7;
       // Aim for a spot just beside it (a building's middle is solid).
       const a = angleTo(t, u), gx = t.x + Math.cos(a) * (t.radius + 22), gy = t.y + Math.sin(a) * (t.radius + 22);
-      if (hasClearLine(game, u.x, u.y, gx, gy)) u.path = [{ x: gx, y: gy }]; else planPath(game, u, gx, gy);
+      if (hasClearLine(game, u.x, u.y, gx, gy, u.team)) u.path = [{ x: gx, y: gy }]; else planPath(game, u, gx, gy);
     }
     followPath(game, u, dt, 8);
     return;
@@ -1178,7 +1337,7 @@ function followAndMend(game, u, dt) {
   if (d > (hurt ? 14 : 40)) {
     if (!u.path.length || (u.repath = (u.repath || 0) - dt) <= 0) {
       u.repath = 0.5;
-      if (hasClearLine(game, u.x, u.y, gx, gy)) u.path = [{ x: gx, y: gy }]; else planPath(game, u, gx, gy);
+      if (hasClearLine(game, u.x, u.y, gx, gy, u.team)) u.path = [{ x: gx, y: gy }]; else planPath(game, u, gx, gy);
     }
     followPath(game, u, dt, 8);
   } else u.path = [];
@@ -1424,6 +1583,19 @@ function followPath(game, u, dt, stopDist = 6) {
     if (d < u.bestD - 1) { u.bestD = d; u.noGain = 0; } else u.noGain += dt;
     if (u.noGain > 2 && d < 120) { u.path = []; return true; }
   }
+  // An enemy wall or gate in the way: armed vehicles stop and break through.
+  if (game.wallCount && u.def.weapon) {
+    const T = CONFIG.TILE, a = angleTo(u, wp), r = u.radius + 10;
+    const w = enemyWallAt(game, u.team, Math.floor((u.x + Math.cos(a) * r) / T), Math.floor((u.y + Math.sin(a) * r) / T));
+    if (w) {
+      const wpn = u.def.weapon;
+      if (!(wpn.minRange && edgeDist(u, w) < wpn.minRange)) {
+        u.breachId = w.id; u.stuck = 0;
+        aimAndFire(game, u, w, dt);
+        return false;
+      }
+    }
+  }
   const want = avoidSteer(game, u, angleTo(u, wp));
   u.movingTick = game.tick;
   u.angle = turnToward(u.angle, want, 5 * dt);
@@ -1438,7 +1610,7 @@ function followPath(game, u, dt, stopDist = 6) {
   if (u.stuck > 1.2) {
     const goal = u.path[u.path.length - 1];
     if (u.stuck > 3.5 || dist(u, goal) < 50) { u.path = []; u.stuck = 0; return true; }
-    u.path = findPath(game, u.x, u.y, goal.x, goal.y);
+    u.path = routeFor(game, u, goal.x, goal.y);
     u.stuck = 1.21 + (u.stuck - 1.2) * 0.5;
   }
   return false;
@@ -1511,11 +1683,17 @@ function avoidSteer(game, u, want) {
 }
 
 function moveWithCollision(game, u, dx, dy) {
-  const wasBlocked = isBlockedAt(game, u.x, u.y);
+  // An enemy's gate is as solid as a wall; your own opens for you.
+  const blocked = game.wallCount ? (x, y) => {
+    if (isBlockedAt(game, x, y)) return true;
+    const i = Math.floor(y / CONFIG.TILE) * game.map.W + Math.floor(x / CONFIG.TILE), g = game.gateGrid[i];
+    return !!g && g !== u.team;
+  } : (x, y) => isBlockedAt(game, x, y);
+  const wasBlocked = blocked(u.x, u.y);
   const nx = u.x + dx, ny = u.y + dy;
-  if (wasBlocked || !isBlockedAt(game, nx, ny)) { u.x = nx; u.y = ny; return; }
-  if (!isBlockedAt(game, nx, u.y)) { u.x = nx; return; }
-  if (!isBlockedAt(game, u.x, ny)) { u.y = ny; }
+  if (wasBlocked || !blocked(nx, ny)) { u.x = nx; u.y = ny; return; }
+  if (!blocked(nx, u.y)) { u.x = nx; return; }
+  if (!blocked(u.x, ny)) { u.y = ny; }
 }
 
 // Keep units from overlapping each other or driving inside buildings.
@@ -1591,6 +1769,7 @@ function findTarget(game, e, radius) {
   const w = e.def.weapon;
   const consider = o => {
     if (o.team === e.team || o.hp <= 0) return;
+    if (o.def.wallPiece) return;   // walls: only when they're in the way (see followPath) or you order it
     const d = edgeDist(e, o);
     if (d > radius || (w.minRange && d < w.minRange)) return;
     if (!isVisibleTo(game, e.team, o)) return;
@@ -1656,7 +1835,7 @@ function engageTarget(game, u, t, dt) {
       const r = Math.max(w.minRange || 0, w.range * 0.8) + (t.kind === 'building' ? t.radius * 0.8 : 0);
       let gx = t.x + Math.cos(a) * r, gy = t.y + Math.sin(a) * r;
       if (isBlockedAt(game, gx, gy)) { gx = t.x; gy = t.y; }
-      if (hasClearLine(game, u.x, u.y, gx, gy)) u.path = [{ x: gx, y: gy }];
+      if (hasClearLine(game, u.x, u.y, gx, gy, u.team)) u.path = [{ x: gx, y: gy }];
       else planPath(game, u, gx, gy);
     }
     followPath(game, u, dt, 12);
@@ -1749,7 +1928,7 @@ function launchShot(game, e, t, w, mx, my, aim, d, big) {
     const off = barrels > 1 ? (j - (barrels - 1) / 2) * 6 : (n > 1 && !w.salvoGap ? (k - (n - 1) / 2) * 7 : 0);
     const sx = mx - Math.sin(aim) * off, sy = my + Math.cos(aim) * off;
     const p = { kind: w.projectile, team: e.team, owner: e.id, x: sx, y: sy, sx, sy, damage: each, splash: w.splash || 0,
-                vsBuilding: w.vsBuilding, vsHeavy: w.vsHeavy, vsLight: w.vsLight, slow: w.slow, slowTime: w.slowTime,
+                vsBuilding: w.vsBuilding, vsWall: w.vsWall, vsHeavy: w.vsHeavy, vsLight: w.vsLight, slow: w.slow, slowTime: w.slowTime,
                 pierceShield: w.pierceShield, emp: w.emp, empTime: w.empTime, smoke: w.smoke, smokeTime: w.smokeTime,
                 fire: w.fire, fireTime: w.fireTime, fireDps: w.fireDps, delay: w.salvoGap ? k * w.salvoGap : 0 };
     if (w.projectile === 'artillery') {
@@ -1846,7 +2025,7 @@ function makeWeapon(stock, key) {
   if (m.splash !== undefined) w.splash = m.splash; else if (stock.splash) w.splash = Math.round(stock.splash * (m.splashMul || 1));
   if (m.spreadMul) w.spread = m.spreadMul;
   for (const k of ['vsHeavy', 'vsLight']) if (m[k] !== undefined) w[k] = Math.round((stock[k] || 1) * m[k] * 100) / 100;
-  for (const k of ['projectile', 'vsBuilding', 'salvo', 'salvoGap', 'acc', 'sure', 'homing', 'unguided', 'pierceShield', 'emp', 'empTime', 'smoke', 'smokeTime', 'fire', 'fireTime', 'fireDps'])
+  for (const k of ['projectile', 'vsBuilding', 'vsWall', 'salvo', 'salvoGap', 'acc', 'sure', 'homing', 'unguided', 'pierceShield', 'emp', 'empTime', 'smoke', 'smokeTime', 'fire', 'fireTime', 'fireDps'])
     if (m[k] !== undefined) w[k] = m[k];
   return w;
 }
@@ -1902,6 +2081,7 @@ function fitTower(game, b, key) {
   if (!sl || b.weaponLocked) return false;
   b.def = Object.assign({}, b.def, { weapon: Object.assign(makeWeapon(b.def.weapon, key), { slot: sl.type, count: sl.count, name: key === 'stock' ? sl.stock : WEAPONS[key].name }) });
   b.weaponLocked = true; b.fitted = key;
+  if (b.mountOn) mountBoost(b);
   return true;
 }
 // How well a weapon does against a target: damage a second, with its
@@ -2325,6 +2505,8 @@ function setTide(game, high) {
 
 function damage(game, e, amount, p) {
   if (e.kind === 'building') amount *= p.vsBuilding || 1;
+  // Walls: shells and HE / Bunker Busters hurt most, Plasma least.
+  if (e.def.wallPiece) amount *= p.vsWall || (p.kind === 'artillery' ? WALL.vsArtillery : 1);
   else if (p.vsHeavy || p.vsLight) amount *= (HEAVY_KINDS.includes(baseType(e)) ? p.vsHeavy : p.vsLight) || 1;
   // Armour facing: a vehicle hit on the side or rear takes more (not by Artillery's splash).
   if (e.kind !== 'building' && p.kind !== 'artillery' && p.sx !== undefined) {
@@ -2379,12 +2561,17 @@ function removeDead(game) {
     if (e.demolished) { demolishInto(game, e); continue; }
     if (e.recycled) { game.effects.push({ kind: 'recycle', team: e.team, x: e.x, y: e.y, t: 0, life: 0.9, r: e.radius }); continue; }
     if (e.kind === 'building') {
-      setOccupied(game, e, -1);
+      setOccupied(game, e, -1); releaseBuilding(game, e);
       // Explosion, then a crater where the building stood.
       game.effects.push({ kind: 'explode', type: e.type, team: e.team, faction: e.faction, x: e.x, y: e.y, t: 0, life: 1.2, size: e.radius * 1.6 });
       game.effects.push({ kind: 'crater', type: e.type, faction: e.faction, x: e.x, y: e.y, t: 0, life: 90 });
-      pushEvent(game, e.team, `${nameOf(e)} destroyed`, 'bad', e.x, e.y);
-      pushEvent(game, 3 - e.team, `Enemy ${nameOf(e)} destroyed`, 'good', e.x, e.y);
+      // Walls come down a piece at a time: one message every few seconds is enough.
+      const quiet = e.def.wallPiece && game.time - (game.teams[e.team].wallMsgAt || -99) < 8;
+      if (e.def.wallPiece && !quiet) game.teams[e.team].wallMsgAt = game.time;
+      if (!quiet) {
+        pushEvent(game, e.team, e.def.wallPiece ? `${nameOf(e)} breached` : `${nameOf(e)} destroyed`, 'bad', e.x, e.y);
+        pushEvent(game, 3 - e.team, e.def.wallPiece ? `Enemy ${nameOf(e).toLowerCase()} breached` : `Enemy ${nameOf(e)} destroyed`, 'good', e.x, e.y);
+      }
     } else {
       // Explosion, then a burnt-out wreck in the vehicle's own shape.
       game.effects.push({ kind: 'explode', type: baseType(e), team: e.team, faction: e.faction, x: e.x, y: e.y, t: 0, life: 1.2, size: e.radius * 2.2 });
@@ -2406,7 +2593,7 @@ function removeDead(game) {
 // Taking a building down returns half of what it cost, as loose scrap piles
 // on the ground where it stood. Scavengers can collect them.
 function demolishInto(game, b) {
-  setOccupied(game, b, -1);
+  setOccupied(game, b, -1); releaseBuilding(game, b);
   const value = Math.round((b.def.salvageValue ?? b.def.cost) * 0.5);
   const piles = Math.max(1, Math.ceil(value / 40));
   for (let i = 0; i < piles && value > 0; i++) {
@@ -2502,7 +2689,12 @@ function updateHarvester(game, u, dt) {
 
 function updateBuilder(game, u, dt) {
   const b = game.byId.get(u.order.targetId);
-  if (!b || b.hp <= 0 || b.built >= 1) { u.order = { type: 'idle', gx: u.x, gy: u.y }; u.path = []; return; }
+  if (!b || b.hp <= 0 || b.built >= 1) {
+    // A wall run: on to the next piece.
+    const q = u.order.queue || [];
+    while (q.length) { const n = game.byId.get(q.shift()); if (n && n.hp > 0 && n.built < 1) { u.order.targetId = n.id; planPathNear(game, u, n); return; } }
+    u.order = { type: 'idle', gx: u.x, gy: u.y }; u.path = []; return;
+  }
   const close = edgeDist(u, b) < b.radius * 0.2 + u.radius + 30;
   if (!close) {
     if (followPath(game, u, dt, 10)) planPathNear(game, u, b);
@@ -2514,7 +2706,8 @@ function updateBuilder(game, u, dt) {
   const step = dt * (game.tempo || 1) / b.def.buildTime;
   b.built = Math.min(1, b.built + step);
   b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.9 * step);
-  if (b.built >= 1) pushEvent(game, b.team, `${nameOf(b)} complete`, 'good', b.x, b.y);
+  // (A wall run is announced once, when its last piece is done.)
+  if (b.built >= 1 && !(b.type === 'wall' && (u.order.queue || []).length)) pushEvent(game, b.team, b.type === 'wall' ? 'Wall complete' : `${nameOf(b)} complete`, 'good', b.x, b.y);
 }
 
 // ---------------------------------------------------------------------------
@@ -2563,8 +2756,8 @@ function updateVisibility(game) {
 // ---------------------------------------------------------------------------
 
 function fieldGeometry(b) {
-  const F = b.def.field, dx = Math.cos(b.facing), dy = Math.sin(b.facing);
-  const cx = b.x + dx * F.offset, cy = b.y + dy * F.offset, h = F.length / 2;
+  const F = b.def.field, dx = Math.cos(b.facing), dy = Math.sin(b.facing), at = b.fieldAt || b;   // a Shield Wall's field spans its whole run
+  const cx = at.x + dx * F.offset, cy = at.y + dy * F.offset, h = F.length / 2;
   return { dx, dy, ax: cx - dy * h, ay: cy + dx * h, bx: cx + dy * h, by: cy - dx * h, cx, cy };
 }
 
@@ -2578,7 +2771,7 @@ function segmentsCross(x1, y1, x2, y2, x3, y3, x4, y4) {
 function updateShields(game, dt) {
   const active = [];
   for (const t of [1, 2]) {
-    const projectors = game.entities.filter(e => e.team === t && e.type === 'shield' && e.hp > 0 && e.built >= 1).sort((a, b) => a.id - b.id);
+    const projectors = game.entities.filter(e => e.team === t && e.def.field && e.hp > 0 && e.built >= 1).sort((a, b) => a.id - b.id);
     const gens = game.entities.filter(e => e.team === t && e.type === 'generator' && e.hp > 0 && e.built >= 1).sort((a, b) => a.id - b.id);
     // How many projectors each Generator is powering (shown on it).
     // (A Shield Projector II draws 4/3 of a normal share.)
@@ -2780,7 +2973,7 @@ function saveGame(game, extra = {}) {
     for (const k in v) { const x = enc(v[k]); if (x !== undefined) o[k] = x; }
     return o;
   };
-  const { rng, byId, events, ugrid, activeFields, ...rest } = game;
+  const { rng, byId, events, ugrid, activeFields, wallGrid, gateGrid, wallId, ...rest } = game;
   return JSON.stringify({ v: SAVE_VERSION, rng: rng.state(), game: enc(rest), extra });
 }
 
@@ -2809,6 +3002,7 @@ function loadGame(text) {
   const game = dec(snap.game);
   game.rng = makeRng(0); game.rng.setState(snap.rng);
   game.byId = new Map(game.entities.map(e => [e.id, e]));
+  rebuildWallGrids(game);
   // Saves from before formations were removed: those vehicles just stop.
   for (const e of game.entities) if (e.kind === 'unit' && e.order.type === 'formation') e.order = { type: 'idle', gx: e.x, gy: e.y };
   delete game.formations; delete game.nextFormationId;

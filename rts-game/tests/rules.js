@@ -19,7 +19,7 @@ function load() {
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
     'createGame, generateMap, generateUrbanMap, generateTidalMap, WEAPONS, makeWeapon, loadoutDef, isVisibleTo, scrapIsDangerous, TILE_DIRT, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
-    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, COMMAND, buildCost, damageForTest: damage });', ctx);
+    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, COMMAND, buildCost, WALL, wallLine, wallFacing, damageForTest: damage });', ctx);
   return ctx;
 }
 
@@ -1339,6 +1339,107 @@ section('Commanders');
   check('if the commander falls, the most experienced vehicle takes command', c.cmdrId === squad[3].id && g.teams[1].commands.length === 1);
   const text = S.saveGame(g), back = S.loadGame(text).game;
   check('a saved game keeps its commanders', back.teams[1].commands[0].cmdrId === squad[3].id && back.byId.get(squad[1].id).cmdId === c.id);
+}
+
+section('Compound walls');
+{
+  const S = load();
+  const g = S.createGame({ seed: 3, difficulty: 'normal', aiTeams: [] });
+  for (const e of g.entities) if (e.kind === 'unit' && e.type !== 'mobileRecycler') e.hp = 0;
+  S.stepGame(g);
+  g.teams[1].explored.fill(1); g.teams[2].explored.fill(1);
+  const T = S.CONFIG.TILE, W = g.map.W;
+  const clear = (x0, y0, n) => { for (let y = y0; y < y0 + n; y++) for (let x = x0; x < x0 + n; x++) if (S.isBlockedTile(g, x, y)) return false; return true; };
+  let ox = 0, oy = 0;
+  outer: for (let r = 0; r < 50; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (clear(Math.floor(W / 2) + dx, Math.floor(g.map.H / 2) + dy, 26)) { ox = Math.floor(W / 2) + dx; oy = Math.floor(g.map.H / 2) + dy; break outer; }
+  // Who builds walls.
+  const rec = S.BUILDING_TYPES.recycler;
+  check('a Heavy Constructor comes from a Recycler II only', !rec.produces.includes('heavyBuilder') && rec.upgrade.produces.includes('heavyBuilder'));
+  const con = S.addUnit(g, 'constructor', 1, (ox + 6) * T, (oy + 13) * T), hb = S.addUnit(g, 'heavyBuilder', 1, (ox + 8) * T, (oy + 13) * T);
+  g.teams[1].scrap = 5000;
+  S.issueCommand(g, 1, { type: 'buildWall', ids: [con.id], tiles: S.wallLine(ox + 12, oy, ox + 12, oy + 5), facing: 0 });
+  check('a plain Constructor cannot build walls', !g.entities.some(e => e.type === 'wall'));
+  S.issueCommand(g, 1, { type: 'build', ids: [hb.id], building: 'tower', tx: ox + 2, ty: oy + 2 });
+  check('a Heavy Constructor builds only walls, gates and bastions', !g.entities.some(e => e.type === 'tower'));
+  // A wall drawn as a line, built piece by piece.
+  check('a wall is drawn as a line (16 at most; a 45° line has its corners filled)', S.wallLine(0, 0, 30, 0).length === 16 && S.wallLine(0, 0, 3, 3).length === 7);
+  const scrap0 = g.teams[1].scrap;
+  S.issueCommand(g, 1, { type: 'buildWall', ids: [hb.id], tiles: [...S.wallLine(ox + 12, oy, ox + 12, oy + 10), ...S.wallLine(ox + 12, oy + 13, ox + 12, oy + 23)], facing: 0 });
+  const pieces = g.entities.filter(e => e.type === 'wall');
+  check('each piece of the wall is paid for as it is laid out', pieces.length === 22 && Math.round(scrap0 - g.teams[1].scrap) === 22 * S.BUILDING_TYPES.wall.cost);
+  S.issueCommand(g, 1, { type: 'build', ids: [con.id], building: 'radar', tx: ox + 14, ty: oy + 4 });
+  check("nothing can be built in front of your wall", !g.entities.some(e => e.type === 'radar' && e.tx === ox + 14) && !S.canPlaceBuilding(g, 1, 'radar', ox + 13, oy + 4).ok);
+  const behind = S.canPlaceBuilding(g, 1, 'radar', ox + 9, oy + 4).ok;
+  check('but right behind it is fine', behind);
+  run(g, S, 22 * S.BUILDING_TYPES.wall.buildTime + 70);
+  check('the Heavy Constructor builds the run one piece after another', pieces.every(p => p.built >= 1), `${pieces.filter(p => p.built >= 1).length}/22`);
+  // A gate: your vehicles pass, the enemy's don't.
+  S.issueCommand(g, 1, { type: 'build', ids: [hb.id], building: 'gate', tx: ox + 12, ty: oy + 11, facing: 0 });
+  const gate = g.entities.find(e => e.type === 'gate');
+  run(g, S, 20);
+  check('a gate fills the gap', gate && gate.built >= 1);
+  const fr = S.addUnit(g, 'tank', 1, (ox + 4) * T, (oy + 12) * T), en = S.addUnit(g, 'scout', 2, (ox + 20) * T, (oy + 12) * T);
+  fr.stance = 'stealth'; en.stance = 'stealth';
+  en.def = Object.assign({}, en.def, { weapon: null });   // unarmed: it can only look for a way round
+  S.issueCommand(g, 1, { type: 'move', ids: [fr.id], x: (ox + 20) * T, y: (oy + 16) * T });
+  S.issueCommand(g, 2, { type: 'move', ids: [en.id], x: (ox + 4) * T, y: (oy + 12) * T });
+  run(g, S, 25);
+  check('your own vehicles drive through your gate', fr.x > (ox + 13) * T);
+  check("the enemy can't get through it", Math.abs(en.x - (ox + 12.5) * T) > T || en.x > (ox + 13) * T || en.y < oy * T || en.y > (oy + 24) * T);
+  en.hp = 0; fr.hp = 0; S.stepGame(g);
+  // Breaking through: an armed enemy shoots its way in.
+  const raider = S.addUnit(g, 'tank', 2, (ox + 20) * T, (oy + 6) * T);
+  raider.stance = 'stealth';
+  S.issueCommand(g, 2, { type: 'move', ids: [raider.id], x: (ox + 4) * T, y: (oy + 6) * T });
+  run(g, S, 150);
+  check('an armed enemy breaks through the wall to get where it is going', raider.x < (ox + 12) * T && pieces.some(p => p.hp <= 0));
+  raider.hp = 0; S.stepGame(g);
+  // What hurts walls.
+  const w0 = pieces.find(p => p.hp > 0);
+  const hit = (p, extra) => { const hp = w0.hp; S.damageForTest(g, w0, 100, Object.assign({ team: 2 }, extra)); const d = hp - w0.hp; w0.hp = w0.maxHp; return d; };
+  const plain = hit(w0, {}), he = hit(w0, { vsWall: S.WEAPONS.he.mod.vsWall }), bunker = hit(w0, { vsWall: S.WEAPONS.bunker.mod.vsWall }), plasma = hit(w0, { vsWall: S.WEAPONS.plasma.mod.vsWall, pierceShield: true }), shell = hit(w0, { kind: 'artillery' });
+  check('HE and Bunker Busters tear into walls; artillery hits them harder; Plasma does half', he > plain * 1.5 && bunker > plain * 1.5 && shell > plain && plasma <= plain * 0.5 + 0.01, `plain ${plain}, HE ${he}, bunker ${bunker}, shell ${shell}, plasma ${plasma}`);
+  // Bastions: a Gun Tower on top shoots further and falls with it.
+  S.issueCommand(g, 1, { type: 'build', ids: [hb.id], building: 'bastion', tx: ox + 11, ty: oy + 24, facing: 0 });
+  const bas = g.entities.find(e => e.type === 'bastion');
+  for (let k = 0; k < 90 && bas && bas.built < 1; k++) run(g, S, 1);
+  g.teams[1].scrap = 5000;
+  S.issueCommand(g, 1, { type: 'build', ids: [con.id], building: 'tower', tx: ox + 11, ty: oy + 24 });
+  const top = g.entities.find(e => e.type === 'tower' && e.mountOn === (bas && bas.id));
+  check('a Gun Tower can be built on a bastion, and reaches 15% further from up there', bas && top && top.def.weapon.range === Math.round(S.BUILDING_TYPES.tower.weapon.range * 1.15),);
+  run(g, S, 25);
+  if (bas) bas.hp = 0;
+  run(g, S, 0.2);
+  check('if the bastion falls, the tower on it goes too', top && top.hp <= 0 && !g.entities.includes(top));
+  // Shield Wall: Forcefield Tech and power.
+  const live = pieces.filter(p => p.hp > 0);
+  S.issueCommand(g, 1, { type: 'wallShield', buildingId: live[0].id });
+  check('a Shield Wall needs Forcefield Tech', !live.some(p => p.runShield));
+  g.teams[1].research.shields = true; g.teams[1].scrap = 5000;
+  const gen = S.addBuilding(g, 'generator', 1, ox + 2, oy + 20, true);
+  const run2 = live.filter(p => p.runId === live[live.length - 1].runId && p.hp > 0);
+  S.issueCommand(g, 1, { type: 'wallShield', buildingId: run2[0].id });
+  run(g, S, S.WALL.shield.time + 16);
+  const anchor = g.byId.get(run2[0].runShield);
+  check('a Shield Wall puts a forcefield along the whole run, in front of it', anchor && anchor.def.field && anchor.def.field.length >= run2.length * T && anchor.field && anchor.field.state === 'up' && run2.every(p => p.shieldWall),
+    anchor && anchor.field ? `${anchor.def.field.length} px, ${anchor.field.state}` : 'none');
+  check('and draws on your Power Generators', gen.powering > 0);
+  // Saves keep the walls (and what they block).
+  const back = S.loadGame(S.saveGame(g)).game;
+  const p0 = live[2], i0 = p0.ty * W + p0.tx;
+  check('a saved game keeps its walls and what they block', back.wallGrid[i0] === 1 && back.wallCount === g.wallCount);
+}
+
+section('Computer opponents build walls');
+{
+  const S = load();
+  const g = S.createGame({ seed: 11, difficulty: 'hard', aiTeams: [1, 2] });
+  g.ai[1] = { next: 0, nextWave: 9999, persona: 'fortress' };
+  g.ai[2] = { next: 0, nextWave: 9999, persona: 'raider' };
+  for (let i = 0; i < 30 * 60 * 16 && !g.winner; i++) { S.aiUpdate(g, 1); S.aiUpdate(g, 2); S.stepGame(g); g.events.length = 0; }
+  const n = (t, type) => g.entities.filter(e => e.team === t && e.type === type && e.built >= 1).length;
+  check('a Fortress walls the front of its base, with a gate and bastions', n(1, 'wall') >= 8 && n(1, 'gate') >= 1 && n(1, 'bastion') >= 1, `${n(1, 'wall')} walls, ${n(1, 'gate')} gate, ${n(1, 'bastion')} bastions`);
+  check('a Raider walls its Extractors instead', n(2, 'wall') >= 4 && !n(2, 'bastion'), `${n(2, 'wall')} walls`);
 }
 
 section('Workers look after themselves');
