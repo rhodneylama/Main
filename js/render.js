@@ -390,6 +390,7 @@ function drawGame(ctx, game, view) {
   const selectedIds = new Set(view.selected.map(e => e.id));
   const buildings = game.entities.filter(e => e.kind === 'building');
   const units = game.entities.filter(e => e.kind === 'unit');
+  if (game.wallCount) drawWallNetwork(ctx, game, team, onScreen, game.time);   // walls first: bastions and gates sit on their ends
   for (const b of buildings) {
     if (!onScreen(b.x, b.y, 120)) continue;
     const seen = view.revealAll || b.team === team || isVisibleTo(game, team, b);
@@ -723,98 +724,162 @@ function drawBuilding(ctx, b, selected, ghost, time) {
 }
 
 // Compound walls: concrete (Scrapline) or dark crystal-bound stone (Kethra).
-// Pieces join up with their neighbours; the front (outside) has a darker
-// face and a row of spikes. A gate's doors slide open for its own side; a
-// bastion is a thick block with battlements.
+// Each wall run is drawn as one smooth, thick band along its true line (the
+// squares underneath are only where it blocks), joined smoothly to the runs,
+// gates and bastions it touches. The front (outside) has a darker face and a
+// row of spikes.
+const WALL_W = 34;   // band width: a little more than a square
+function wallColours(faction) {
+  const k = faction === 'kethra';
+  return { base: k ? '#2a2f3d' : '#5a5c51', top: k ? '#434b60' : '#8d8f80', hi: k ? '#56607a' : '#a3a593', dark: k ? '#171a23' : '#34362e',
+           edge: '#0d0f0c', spike: k ? '#8a6fd0' : '#706d5e' };
+}
+function drawWallNetwork(ctx, game, team, onScreen, time) {
+  const T = CONFIG.TILE;
+  const shown = new Map();   // piece -> drawn faded (seen before, not in sight now)
+  for (const e of game.entities) {
+    if (e.kind !== 'building' || !e.def.wallPiece || !onScreen(e.x, e.y, 200)) continue;
+    const vis = view.revealAll || e.team === team || isVisibleTo(game, team, e);
+    if (vis || e.seen[team]) shown.set(e, !vis);
+  }
+  // Runs: straight lines of squares, drawn through their middle line.
+  const runs = new Map();
+  for (const [e] of shown) if (e.type === 'wall') { const k = e.team + ':' + (e.runId || 'x' + e.id); if (!runs.has(k)) runs.set(k, []); runs.get(k).push(e); }
+  const near = (p, list, skip) => {   // a wall piece of the same side touching point p
+    let best = null, bd = T * 1.45;
+    for (const [o] of shown) {
+      if (skip.has(o) || o.team !== list[0].team) continue;
+      const half = o.size * T / 2, dx = Math.max(0, Math.abs(p.x - o.x) - half), dy = Math.max(0, Math.abs(p.y - o.y) - half), d = Math.hypot(dx, dy);
+      if (d < bd && d < T * 0.75) { bd = d; best = o; }
+    }
+    return best;
+  };
+  for (const list of runs.values()) {
+    const f = list[0].facing || 0, nx = Math.cos(f), ny = Math.sin(f), ux = -ny, uy = nx;
+    const c = list.reduce((a, e) => a + e.x * nx + e.y * ny, 0) / list.length;
+    const pts = list.map(e => ({ e, t: e.x * ux + e.y * uy })).sort((a, b) => a.t - b.t);
+    const diag = Math.abs(nx) > 0.2 && Math.abs(ny) > 0.2, step = diag ? T * 0.72 : T, ext = diag ? T * 0.36 : T / 2;
+    const at = t => ({ x: c * nx + t * ux, y: c * ny + t * uy });
+    // Split where pieces are missing (breached) or still being built.
+    let seg = [pts[0]];
+    const segs = [];
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      if (b.t - a.t > step * 1.35 || (a.e.built >= 1) !== (b.e.built >= 1)) { segs.push(seg); seg = [b]; } else seg.push(b);
+    }
+    segs.push(seg);
+    const run = new Set(list);
+    for (const sg of segs) {
+      const p0 = at(sg[0].t - ext), p1 = at(sg[sg.length - 1].t + ext);
+      // Join the ends onto whatever wall, gate or bastion they touch.
+      const j0 = near(p0, list, run), j1 = near(p1, list, run);
+      // (Gates and bastions sit flush on the ends: only other wall runs need a join.)
+      const line = [j0 && j0.type === 'wall' ? { x: j0.x, y: j0.y } : null, p0, p1, j1 && j1.type === 'wall' ? { x: j1.x, y: j1.y } : null].filter(Boolean);
+      const built = sg[0].e.built >= 1, faded = sg.some(q => shown.get(q.e));
+      drawWallBand(ctx, line, nx, ny, list[0], built ? (faded ? 0.5 : 1) : 0.2 + 0.55 * sg.reduce((a, q) => a + q.e.built, 0) / sg.length, !built, time);
+    }
+  }
+}
+function drawWallBand(ctx, pts, nx, ny, piece, alpha, building, time) {
+  const C = wallColours(piece.faction), path = (off, k = 0) => {
+    ctx.beginPath();
+    pts.forEach((p, i) => { const x = p.x + nx * off, y = p.y + ny * off; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  };
+  ctx.save(); ctx.globalAlpha *= alpha; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(0,0,0,0.28)'; ctx.lineWidth = WALL_W + 2; ctx.save(); ctx.translate(3, 4); path(0); ctx.stroke(); ctx.restore();   // shadow
+  ctx.strokeStyle = C.edge; ctx.lineWidth = WALL_W; path(0); ctx.stroke();
+  ctx.strokeStyle = C.base; ctx.lineWidth = WALL_W - 3; path(0); ctx.stroke();
+  ctx.strokeStyle = C.dark; ctx.lineWidth = 9; path(WALL_W / 2 - 7); ctx.stroke();             // the front face
+  ctx.strokeStyle = C.top; ctx.lineWidth = WALL_W - 16; path(-2); ctx.stroke();              // the walkway on top
+  ctx.strokeStyle = C.hi; ctx.lineWidth = 2; path(-WALL_W / 2 + 9); ctx.stroke();            // a lit edge at the back
+  if (building) { ctx.strokeStyle = TEAMS[piece.team].color; ctx.lineWidth = 1.5; ctx.setLineDash([6, 5]); path(0); ctx.stroke(); ctx.setLineDash([]); }
+  // Spikes along the front, the side's colour along the top, Shield Wall emitters.
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  const along = d => { for (let i = 1; i < pts.length; i++) { const L = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); if (d <= L || i === pts.length - 1) { const k = L ? Math.min(1, d / L) : 0; return { x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * k, y: pts[i - 1].y + (pts[i].y - pts[i - 1].y) * k }; } d -= L; } return pts[0]; };
+  ctx.fillStyle = C.spike; ctx.strokeStyle = C.edge; ctx.lineWidth = 1;
+  const tx = -ny, ty = nx;
+  for (let d = 9; d < total - 4; d += 16) {
+    const p = along(d), bx = p.x + nx * (WALL_W / 2 - 1), by = p.y + ny * (WALL_W / 2 - 1);
+    ctx.beginPath(); ctx.moveTo(bx + nx * 7, by + ny * 7); ctx.lineTo(bx + tx * 4.5, by + ty * 4.5); ctx.lineTo(bx - tx * 4.5, by - ty * 4.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  ctx.fillStyle = TEAMS[piece.team].color;
+  for (let d = 24; d < total - 12; d += 48) { const p = along(d); ctx.fillRect(p.x - nx * 2 - 2.5, p.y - ny * 2 - 2.5, 5, 5); }
+  ctx.restore();
+}
 function drawWallPiece(ctx, b, ghost, time) {
-  const T = CONFIG.TILE, s = b.size * T, x0 = b.tx * T, y0 = b.ty * T, W = game.map.W;
-  const kethra = b.faction === 'kethra';
-  const base = kethra ? '#272b38' : '#55574d', top = kethra ? '#3f4659' : '#87897b', dark = kethra ? '#171a23' : '#33352d';
-  const accent = TEAMS[b.team].color, line = kethra ? '#6ff0ff' : '#c9c3a3';
+  const T = CONFIG.TILE, s = b.size * T, x0 = b.tx * T, y0 = b.ty * T;
+  const C = wallColours(b.faction), accent = TEAMS[b.team].color;
   const fx = Math.cos(b.facing || 0), fy = Math.sin(b.facing || 0);
-  const join = (dx, dy) => { const x = b.tx + dx, y = b.ty + dy; if (x < 0 || y < 0 || x >= W || y >= game.map.H) return false; const i = y * W + x; return game.wallGrid[i] === b.team || game.gateGrid[i] === b.team; };
   ctx.save();
   if (ghost) ctx.globalAlpha = 0.5;
   if (b.built < 1) ctx.globalAlpha *= 0.25 + 0.6 * b.built;
-  ctx.strokeStyle = '#0d0f0c'; ctx.lineWidth = 1;
+  ctx.strokeStyle = C.edge; ctx.lineWidth = 1.2;
   if (b.type === 'wall') {
-    const L = join(-1, 0), R = join(1, 0), U = join(0, -1), D = join(0, 1);
-    ctx.fillStyle = base; ctx.fillRect(x0, y0, s, s);
-    // The front face: a darker band and spikes on each outward side.
-    const sides = [[1, 0, R], [-1, 0, L], [0, 1, D], [0, -1, U]];
-    for (const [nx, ny, joined] of sides) {
-      if (joined || nx * fx + ny * fy < 0.3) continue;
-      ctx.fillStyle = dark;
-      if (nx) ctx.fillRect(nx > 0 ? x0 + s - 7 : x0, y0, 7, s); else ctx.fillRect(x0, ny > 0 ? y0 + s - 7 : y0, s, 7);
-      ctx.fillStyle = kethra ? '#8a6fd0' : '#6d6a5c';
-      for (const k of [0.25, 0.75]) {
-        const cx = nx ? (nx > 0 ? x0 + s : x0) : x0 + s * k, cy = ny ? (ny > 0 ? y0 + s : y0) : y0 + s * k;
-        ctx.beginPath(); ctx.moveTo(cx + nx * 6, cy + ny * 6); ctx.lineTo(cx - ny * 4, cy + nx * 4); ctx.lineTo(cx + ny * 4, cy - nx * 4); ctx.closePath(); ctx.fill(); ctx.stroke();
-      }
-    }
-    // The top, running on into the next piece.
-    const i0 = 4, xa = x0 + (L ? 0 : i0), xb = x0 + s - (R ? 0 : i0), ya = y0 + (U ? 0 : i0), yb = y0 + s - (D ? 0 : i0);
-    ctx.fillStyle = top; ctx.fillRect(xa, ya, xb - xa, yb - ya);
-    ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath();
-    if (!L) { ctx.moveTo(xa, ya); ctx.lineTo(xa, yb); } if (!R) { ctx.moveTo(xb, ya); ctx.lineTo(xb, yb); }
-    if (!U) { ctx.moveTo(xa, ya); ctx.lineTo(xb, ya); } if (!D) { ctx.moveTo(xa, yb); ctx.lineTo(xb, yb); }
-    ctx.stroke();
-    // A seam and the side's colour on top.
-    ctx.fillStyle = accent; ctx.globalAlpha *= 0.85; ctx.fillRect(x0 + s / 2 - 2.5, y0 + s / 2 - 2.5, 5, 5); ctx.globalAlpha /= 0.85;
-    if (b.shieldWall) {   // Shield Wall: an emitter on the front
+    // The band itself is drawn by drawWallNetwork; here, only a Shield Wall
+    // emitter on its front.
+    if (b.shieldWall && b.built >= 1) {
       const on = 0.6 + 0.4 * Math.sin(time * 5 + b.id);
       ctx.fillStyle = `rgba(110,200,255,${on})`;
-      ctx.beginPath(); ctx.arc(x0 + s / 2 + fx * 9, y0 + s / 2 + fy * 9, 3.2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(b.x + fx * 11, b.y + fy * 11, 3, 0, Math.PI * 2); ctx.fill();
     }
   } else if (b.def.gate) {
-    // Two posts across the line of the wall, doors between them.
-    const ax = -fy, ay = fx, cx = x0 + s / 2, cy = y0 + s / 2;
+    // Two heavy posts the wall runs into, doors sliding between them.
+    const a = Math.atan2(fx, -fy), cx = b.x, cy = b.y;   // along the wall
     let open = 0;
     forUnitsNear(game, cx, cy, 80, u => { if (u.team === b.team && u.hp > 0 && Math.hypot(u.x - cx, u.y - cy) < 75) open = 1; });
     b.openK = (b.openK || 0) + ((open ? 1 : 0) - (b.openK || 0)) * 0.15;
-    ctx.translate(cx, cy); ctx.rotate(Math.atan2(ay, ax));
-    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(-s / 2, -s * 0.22, s, s * 0.44);   // the gap
-    const d = s * 0.42 * (1 - b.openK * 0.85);
+    ctx.translate(cx, cy); ctx.rotate(a);
+    const L = s / 2 + 4, H = WALL_W / 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(-L + 3, -H + 4, 2 * L, 2 * H);
+    ctx.fillStyle = 'rgba(20,18,14,0.55)'; ctx.fillRect(-L + 12, -H + 5, 2 * L - 24, 2 * H - 10);   // the opening
+    const d = (L - 12) * (1 - b.openK * 0.9);
     for (const k of [-1, 1]) {
-      ctx.save(); ctx.translate(k * (s / 2 - 4 - d / 2), 0);
-      ctx.fillStyle = top; ctx.fillRect(-d / 2, -s * 0.16, d, s * 0.32); ctx.strokeRect(-d / 2, -s * 0.16, d, s * 0.32);
+      ctx.save(); ctx.translate(k * (L - 12 - d / 2), 0);
+      ctx.fillStyle = C.top; ctx.fillRect(-d / 2, -H + 8, d, 2 * H - 16); ctx.strokeRect(-d / 2, -H + 8, d, 2 * H - 16);
       ctx.fillStyle = '#e0b030';
-      for (let q = -d / 2 + 3; q < d / 2 - 3; q += 8) { ctx.beginPath(); ctx.moveTo(q, -s * 0.16); ctx.lineTo(q + 4, -s * 0.16); ctx.lineTo(q + 8, s * 0.16); ctx.lineTo(q + 4, s * 0.16); ctx.closePath(); ctx.fill(); }
+      for (let q = -d / 2 + 2; q < d / 2 - 4; q += 7) { ctx.beginPath(); ctx.moveTo(q, -H + 8); ctx.lineTo(q + 3.5, -H + 8); ctx.lineTo(q + 7, H - 8); ctx.lineTo(q + 3.5, H - 8); ctx.closePath(); ctx.fill(); }
       ctx.restore();
     }
-    for (const k of [-1, 1]) { ctx.fillStyle = base; ctx.fillRect(k * s / 2 - (k > 0 ? 9 : 0), -s / 2, 9, s); ctx.strokeRect(k * s / 2 - (k > 0 ? 9 : 0), -s / 2, 9, s);
-      ctx.fillStyle = accent; ctx.fillRect(k * s / 2 - (k > 0 ? 6.5 : -2.5), -4, 4, 8); }
-    // Front marker on the gate.
-    ctx.rotate(-Math.atan2(ay, ax)); ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(fx * s * 0.42, fy * s * 0.42, 3, 0, Math.PI * 2); ctx.fill();
+    for (const k of [-1, 1]) {   // posts
+      const px = k * (L - 6);
+      ctx.fillStyle = C.base; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(px - 8, -H - 3, 16, 2 * H + 6, 4) : ctx.rect(px - 8, -H - 3, 16, 2 * H + 6); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = C.top; ctx.fillRect(px - 5, -H + 1, 10, 2 * H - 2);
+      ctx.fillStyle = accent; ctx.fillRect(px - 2, -3, 4, 6);
+    }
+    ctx.fillStyle = C.dark; ctx.fillRect(-L + 12, H - 4, 2 * L - 24, 3);   // front sill
   } else {
-    // Bastion: a thick block with battlements and corner stubs.
-    ctx.fillStyle = base; ctx.fillRect(x0, y0, s, s); ctx.strokeRect(x0 + 0.5, y0 + 0.5, s - 1, s - 1);
-    ctx.fillStyle = top; ctx.fillRect(x0 + 6, y0 + 6, s - 12, s - 12);
-    ctx.fillStyle = dark;
-    for (let k = 0; k < 4; k++) for (let q = 0; q < 4; q++) {
-      const t = 8 + q * ((s - 16) / 3) - 3;
-      if (k === 0) ctx.fillRect(x0 + t, y0 + 1, 6, 4); if (k === 1) ctx.fillRect(x0 + t, y0 + s - 5, 6, 4);
-      if (k === 2) ctx.fillRect(x0 + 1, y0 + t, 4, 6); if (k === 3) ctx.fillRect(x0 + s - 5, y0 + t, 4, 6);
+    // Bastion: a heavy square keep the wall runs into, round towers on its
+    // corners, battlements, a ring where a gun or radar can stand.
+    const m = 4, x = x0 - m, y = y0 - m, w = s + 2 * m;
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(x + 4, y + 5, w, w);
+    ctx.fillStyle = C.base; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, w, 6) : ctx.rect(x, y, w, w); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = C.top; ctx.fillRect(x + 8, y + 8, w - 16, w - 16);
+    ctx.fillStyle = C.dark;
+    for (let q = 0; q < 5; q++) {
+      const t = 12 + q * (w - 24) / 4 - 3;
+      ctx.fillRect(x + t, y + 2, 6, 5); ctx.fillRect(x + t, y + w - 7, 6, 5); ctx.fillRect(x + 2, y + t, 5, 6); ctx.fillRect(x + w - 7, y + t, 5, 6);
     }
-    for (const [cx, cy] of [[x0 + 6, y0 + 6], [x0 + s - 6, y0 + 6], [x0 + 6, y0 + s - 6], [x0 + s - 6, y0 + s - 6]]) {
-      ctx.fillStyle = base; ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    for (const [cx, cy] of [[x + 5, y + 5], [x + w - 5, y + 5], [x + 5, y + w - 5], [x + w - 5, y + w - 5]]) {
+      ctx.fillStyle = C.base; ctx.beginPath(); ctx.arc(cx, cy, 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = C.hi; ctx.beginPath(); ctx.arc(cx - 1.5, cy - 1.5, 5, 0, Math.PI * 2); ctx.fill();
     }
-    if (!b.mountId) { ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x0 + s / 2, y0 + s / 2, s * 0.18, 0, Math.PI * 2); ctx.stroke(); }
-    ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(x0 + s / 2 + fx * s * 0.4, y0 + s / 2 + fy * s * 0.4, 3.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = C.dark; ctx.fillRect(x + w / 2 - 10 + fx * (w / 2 - 6), y + w / 2 - 10 + fy * (w / 2 - 6), 20, 20);   // front parapet
+    if (!b.mountId) { ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(b.x, b.y, s * 0.2, 0, Math.PI * 2); ctx.stroke(); }
   }
   ctx.restore();
-  if (b.built < 1) {
+  if (b.built < 1 && b.type !== 'wall') {
     ctx.strokeStyle = TEAMS[b.team].color; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
     ctx.strokeRect(x0 + 1.5, y0 + 1.5, s - 3, s - 3); ctx.setLineDash([]);
-  } else {
+  } else if (b.built >= 1) {
     if (b.hp < b.maxHp * 0.5) {   // cracks
       ctx.strokeStyle = 'rgba(10,10,8,0.7)'; ctx.lineWidth = 1.2; ctx.beginPath();
-      const r = (b.id * 9301 + 49297) % 233280 / 233280;
-      ctx.moveTo(x0 + s * (0.2 + r * 0.3), y0 + 3); ctx.lineTo(x0 + s * 0.5, y0 + s * 0.45); ctx.lineTo(x0 + s * (0.7 - r * 0.2), y0 + s - 3);
-      if (b.hp < b.maxHp * 0.25) { ctx.moveTo(x0 + 3, y0 + s * 0.6); ctx.lineTo(x0 + s * 0.5, y0 + s * 0.45); }
+      const r = (b.id * 9301 + 49297) % 233280 / 233280, k = Math.min(s, 30) / 2;
+      ctx.moveTo(b.x - k * (0.6 - r * 0.5), b.y - k * 0.8); ctx.lineTo(b.x, b.y - k * 0.1); ctx.lineTo(b.x + k * (0.5 - r * 0.3), b.y + k * 0.8);
+      if (b.hp < b.maxHp * 0.25) { ctx.moveTo(b.x - k * 0.9, b.y + k * 0.2); ctx.lineTo(b.x, b.y - k * 0.1); }
       ctx.stroke();
     }
-    if (b.hitFlash > 0) flashOver(ctx, b.x, b.y, s * 0.45);
+    if (b.hitFlash > 0) flashOver(ctx, b.x, b.y, Math.min(s, 34) * 0.45);
   }
 }
 
