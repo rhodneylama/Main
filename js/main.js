@@ -1022,7 +1022,7 @@ function refreshPanel() {
     let extra = '';
     if (e.kind === 'unit' && e.def.role === 'harvester') extra = `Carrying ${Math.floor(e.carry)} / ${d.carryMax} scrap` +
       (d.canDeploy ? ' · can deploy on geysers' : ' · cannot deploy (needs Scavenger II)');
-    if (e.kind === 'unit' && e.def.role === 'builder') extra = e.def.wallBuilder ? 'Builds walls, gates and bastions.' : 'Builds and finishes construction. Repairs are a Repair Drone\'s job.';
+    if (e.kind === 'unit' && e.def.role === 'builder') extra = e.def.wallBuilder ? 'Builds walls and bastions.' : 'Builds and finishes construction. Repairs are a Repair Drone\'s job.';
     if (e.kind === 'unit' && e.def.role === 'repairer') {
       const tgt = e.order.targetId && game.byId.get(e.order.targetId);
       extra = e.order.type === 'follow' ? `Following${tgt ? ` ${nameOf(tgt)}` : ''} and keeping it repaired`
@@ -1311,10 +1311,10 @@ function refreshPanel() {
       if (parked.length) { const rt = document.createElement('div'); rt.className = 'dim small tip'; addRecycleButtons(addBtn, parked, rt, ['Z']); if (rt.textContent) cmds.appendChild(rt); }
     }
     const tip = document.createElement('div'); tip.className = 'dim small tip';
-    tip.textContent = view.placing === 'wall' ? (!view.wallStart ? `${isTouch ? 'Touch' : 'Press'} where the wall starts (its pivot). It snaps onto the end of a wall, a gate or a bastion nearby.`
+    tip.textContent = view.placing === 'wall' ? (!view.wallStart ? `${isTouch ? 'Touch' : 'Press'} where the wall starts (its pivot). It snaps onto the end of a wall or a bastion nearby.`
         : `${isTouch ? 'Drag from the pivot to set the length and angle, then press Build wall' : 'Drag out the length and angle, and let go (or click where it ends)'}. Up to 16 sections at ${BUILDING_TYPES.wall.cost} scrap each. The arrows show its front: nothing can be built there. Flip front swaps it.${isTouch ? '' : ' Shift keeps going from the end.'}`)
       : view.placing && BUILDING_TYPES[view.placing].wallPiece ? `${isTouch ? 'Tap' : 'Click'} on one of your walls to set it into the wall, lined up with it (it replaces the sections under it).`
-      : !view.placing ? (builder.def.wallBuilder ? `Pick Wall, then drag it out from a pivot: any angle, up to 16 sections. Drop a Gate or Bastion onto a wall to set it in; a Bastion can carry a Gun Tower or Radar.` : `Pick a building, then ${isTouch ? 'tap' : 'click'} where it should go.`)
+      : !view.placing ? (builder.def.wallBuilder ? `Pick Wall, then drag it out from a pivot: any angle, up to 16 sections. For a way out, leave a gap between two Bastions. Drop a Bastion onto a wall to set it in; it can carry a Gun Tower or Radar.` : `Pick a building, then ${isTouch ? 'tap' : 'click'} where it should go.`)
       : isTouch ? 'Tap inside the green zone to position it, then press Build here.'
       : 'Click inside the green zone to build. Shift-click to place several. Right-click cancels.';
     tip.textContent = own_(tip.textContent);
