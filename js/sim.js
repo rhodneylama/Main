@@ -299,6 +299,15 @@ function snapOntoWall(game, team, type, p) {
     if (d < bd) { bd = d; best = { g, ux: vx / L, uy: vy / L, qx, qy, facing: e.facing || 0 }; }
   }
   if (!best) return null;
+  if (def.bastion) {
+    // A bastion sits centred on the wall's line, on one of its section
+    // points (a square centre the wall passes through), ends included.
+    const g = best.g, n = wallSections(g), sx = (g.bx - g.ax) / n, sy = (g.by - g.ay) / n;
+    const k = Math.max(0, Math.min(n, Math.round(((best.qx - g.ax) * sx + (best.qy - g.ay) * sy) / (sx * sx + sy * sy || 1))));
+    let cx = g.ax + sx * k, cy = g.ay + sy * k;
+    cx = Math.floor(cx / T) * T + T / 2; cy = Math.floor(cy / T) * T + T / 2;   // (older off-grid walls: the nearest square centre)
+    return { tx: Math.round(cx / T - def.size / 2), ty: Math.round(cy / T - def.size / 2), facing: best.facing, x: cx, y: cy };
+  }
   const tx = Math.round(best.qx / T - def.size / 2), ty = Math.round(best.qy / T - def.size / 2);
   // The gate's posts sit on the wall's line either side of its middle.
   const cx = (tx + def.size / 2) * T, cy = (ty + def.size / 2) * T;
@@ -410,7 +419,7 @@ function canPlaceBuilding(game, team, type, tx, ty) {
   const tm = game.teams[team];
   // A Gun Tower or Radar on top of a bastion.
   const bs = game.wallCount ? bastionAt(game, team, type, tx, ty) : null;
-  if (bs && bs.tx === tx && bs.ty === ty) {
+  if (bs) {
     if (bs.built < 1) return { ok: false, why: 'Finish the bastion first' };
     if (bs.mountId) return { ok: false, why: 'Something is already on this bastion' };
     return { ok: true, mount: bs.id };
@@ -546,13 +555,18 @@ function issueCommand(game, team, cmd) {
       if (tm.scrap < def.cost) { pushEvent(game, team, 'Not enough scrap', 'warn'); return; }
       const check = canPlaceBuilding(game, team, cmd.building, cmd.tx, cmd.ty);
       if (!check.ok) { pushEvent(game, team, check.why, 'warn'); return; }
+      if (check.mount) { const bs = game.byId.get(check.mount); cmd = Object.assign({}, cmd, { tx: bs.tx, ty: bs.ty }); }
       tm.scrap -= def.cost;
       // A gate or bastion put on your wall takes the place of the wall under it.
       if (def.gate || def.bastion) for (const w of game.entities.filter(e => e.type === 'wall' && e.team === team && e.hp > 0 && e.tx >= cmd.tx && e.tx < cmd.tx + def.size && e.ty >= cmd.ty && e.ty < cmd.ty + def.size)) { dropWallPiece(game, w); tm.scrap += w.built >= 1 ? (w.value ?? w.def.cost) : 0; }
       const b = addBuilding(game, cmd.building, team, cmd.tx, cmd.ty, false);
       if (def.facing) b.facing = typeof cmd.facing === 'number' ? (def.wallPiece ? cmd.facing : snapFacing(cmd.facing)) : snapFacing(b.turret);
       if (def.gate && cmd.seg) b.seg = { ax: cmd.seg.ax, ay: cmd.seg.ay, bx: cmd.seg.bx, by: cmd.seg.by };   // its posts, on the wall's line
-      if (check.mount) { b.mountOn = check.mount; game.byId.get(check.mount).mountId = b.id; mountBoost(b); }
+      if (check.mount) {
+        // Up on the bastion, in its middle.
+        const bs = game.byId.get(check.mount);
+        b.mountOn = bs.id; bs.mountId = b.id; b.x = bs.x; b.y = bs.y; mountBoost(b);
+      }
       u.order = { type: 'build', targetId: b.id };
       planPathNear(game, u, b);
       break;
