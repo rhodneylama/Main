@@ -573,6 +573,16 @@ function drawPlacement(ctx, game, view) {
   let { tx, ty } = placementTile(at, def.size);
   const bs = bastionAt(game, view.team, view.placing, tx, ty);
   if (bs) { tx = bs.tx; ty = bs.ty; }
+  const onWall = snapOntoWall(game, view.team, view.placing, at);
+  if (onWall) {
+    // Dropped onto a wall: lined up with it, replacing the sections under it.
+    const ok = canPlaceBuilding(game, view.team, view.placing, onWall.tx, onWall.ty).ok;
+    const ghost = { def, type: view.placing, faction: game.teams[view.team].faction, team: view.team, tx: onWall.tx, ty: onWall.ty, size: def.size,
+      x: (onWall.tx + def.size / 2) * T, y: (onWall.ty + def.size / 2) * T, facing: onWall.facing, seg: onWall.seg, built: 1, hp: 1, maxHp: 1, id: 0 };
+    ctx.save(); ctx.globalAlpha = ok ? 0.85 : 0.4; drawWallPiece(ctx, ghost, false, game.time); ctx.restore();
+    if (!ok) { ctx.strokeStyle = '#ff6a5a'; ctx.lineWidth = 2; ctx.strokeRect(onWall.tx * T, onWall.ty * T, def.size * T, def.size * T); }
+    return;
+  }
   const ok = canPlaceBuilding(game, view.team, view.placing, tx, ty).ok;
   ctx.fillStyle = ok ? 'rgba(120,255,140,0.25)' : 'rgba(255,90,80,0.3)';
   ctx.strokeStyle = ok ? '#8cffa0' : '#ff6a5a'; ctx.lineWidth = 2;
@@ -602,30 +612,45 @@ function drawPlacement(ctx, game, view) {
   }
 }
 
-// A wall run being drawn: each square green or red, its front marked, the cost.
+// A wall being dragged out from its pivot: the wall itself, any square where
+// it can't go in red, its front, how many sections and what they cost.
 function drawWallPlacement(ctx, game, view, at) {
-  const T = CONFIG.TILE, end = { tx: Math.floor(at.x / T), ty: Math.floor(at.y / T) }, st = view.wallStart || end;
-  const tiles = wallLine(st.tx, st.ty, end.tx, end.ty);
-  const facing = wallFacing(game, st.tx, st.ty, end.tx, end.ty, view.wallFlip);
-  let ok = 0;
+  const T = CONFIG.TILE, team = view.team;
+  // Snap points nearby: the ends of your walls, gate posts and bastions.
+  for (const q of wallSnapPoints(game, team)) if (Math.hypot(q.x - at.x, q.y - at.y) < T * 4) {
+    ctx.strokeStyle = 'rgba(255,210,90,0.6)'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.arc(q.x, q.y, WALL_W / 2 + 6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  }
+  const a = view.wallStart || snapWallPoint(game, team, at);
+  ctx.fillStyle = '#ffd25a'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(a.x, a.y, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();   // the pivot
+  if (!view.wallStart) return;
+  const b = clampWallEnd(a, snapWallPoint(game, team, at));
+  if (Math.hypot(b.x - a.x, b.y - a.y) < 4) return;
+  const facing = wallFacingAB(game, a, b, view.wallFlip), nx = Math.cos(facing), ny = Math.sin(facing);
+  const tiles = wallTiles(a.x, a.y, b.x, b.y);
   for (const [x, y] of tiles) {
-    const good = canPlaceBuilding(game, view.team, 'wall', x, y).ok; if (good) ok++;
-    ctx.fillStyle = good ? 'rgba(120,255,140,0.3)' : 'rgba(255,90,80,0.35)'; ctx.strokeStyle = good ? '#8cffa0' : '#ff6a5a'; ctx.lineWidth = 1.5;
-    ctx.fillRect(x * T, y * T, T, T); ctx.strokeRect(x * T + 0.5, y * T + 0.5, T - 1, T - 1);
+    const i = y * game.map.W + x, mine = game.wallGrid && game.wallGrid[i] === team;
+    if (mine) continue;   // already wall there: joins it
+    const good = canPlaceBuilding(game, team, 'wall', x, y).ok;
+    if (!good) { ctx.fillStyle = 'rgba(255,90,80,0.35)'; ctx.strokeStyle = '#ff6a5a'; ctx.lineWidth = 1.5; ctx.fillRect(x * T, y * T, T, T); ctx.strokeRect(x * T + 0.5, y * T + 0.5, T - 1, T - 1); }
   }
-  if (view.wallStart) {
-    // Which way it faces (the outside): arrows along the run.
-    const fx = Math.cos(facing), fy = Math.sin(facing);
-    ctx.fillStyle = 'rgba(255,210,90,0.95)';
-    for (let k = 0; k < tiles.length; k += 3) {
-      const [x, y] = tiles[k], cx = (x + 0.5) * T + fx * 22, cy = (y + 0.5) * T + fy * 22;
-      ctx.beginPath(); ctx.moveTo(cx + fx * 9, cy + fy * 9); ctx.lineTo(cx - fy * 6, cy + fx * 6); ctx.lineTo(cx + fy * 6, cy - fx * 6); ctx.closePath(); ctx.fill();
-    }
-    const [lx, ly] = tiles[tiles.length - 1];
-    ctx.font = 'bold 13px system-ui, sans-serif'; ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.lineWidth = 3;
-    const label = `${ok} × ${BUILDING_TYPES.wall.cost} = ${ok * BUILDING_TYPES.wall.cost}`;
-    ctx.strokeText(label, (lx + 1.2) * T, (ly + 0.4) * T); ctx.fillText(label, (lx + 1.2) * T, (ly + 0.4) * T);
+  ctx.save(); ctx.globalAlpha = 0.7;
+  drawWallBand(ctx, [a, b], nx, ny, { faction: game.teams[team].faction, team }, 1, false, game.time);
+  ctx.restore();
+  drawWallPillar(ctx, a.x, a.y, { faction: game.teams[team].faction, team }, 0.7);
+  drawWallPillar(ctx, b.x, b.y, { faction: game.teams[team].faction, team }, 0.7);
+  // The front: arrows on the outside.
+  ctx.fillStyle = 'rgba(255,210,90,0.95)';
+  const L = Math.hypot(b.x - a.x, b.y - a.y);
+  for (let d = 24; d < L - 8; d += 64) {
+    const cx = a.x + (b.x - a.x) * d / L + nx * 32, cy = a.y + (b.y - a.y) * d / L + ny * 32;
+    ctx.beginPath(); ctx.moveTo(cx + nx * 9, cy + ny * 9); ctx.lineTo(cx - ny * 6, cy + nx * 6); ctx.lineTo(cx + ny * 6, cy - nx * 6); ctx.closePath(); ctx.fill();
   }
+  ctx.font = 'bold 14px system-ui, sans-serif'; ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.lineWidth = 3.5;
+  const cost = BUILDING_TYPES.wall.cost, n = wallSections({ ax: a.x, ay: a.y, bx: b.x, by: b.y }), label = `${n} section${n === 1 ? '' : 's'} × ${cost} = ${n * cost} scrap`;
+  const lx = b.x + 22, ly = b.y - 18;
+  ctx.strokeText(label, lx, ly); ctx.fillText(label, lx, ly);
 }
 
 function placementTile(world, size) {
@@ -738,46 +763,55 @@ function drawWallNetwork(ctx, game, team, onScreen, time) {
   const T = CONFIG.TILE;
   const shown = new Map();   // piece -> drawn faded (seen before, not in sight now)
   for (const e of game.entities) {
-    if (e.kind !== 'building' || !e.def.wallPiece || !onScreen(e.x, e.y, 200)) continue;
+    if (e.kind !== 'building' || e.type !== 'wall' || !onScreen(e.x, e.y, 300)) continue;
     const vis = view.revealAll || e.team === team || isVisibleTo(game, team, e);
     if (vis || e.seen[team]) shown.set(e, !vis);
   }
-  // Runs: straight lines of squares, drawn through their middle line.
   const runs = new Map();
-  for (const [e] of shown) if (e.type === 'wall') { const k = e.team + ':' + (e.runId || 'x' + e.id); if (!runs.has(k)) runs.set(k, []); runs.get(k).push(e); }
-  const near = (p, list, skip) => {   // a wall piece of the same side touching point p
-    let best = null, bd = T * 1.45;
-    for (const [o] of shown) {
-      if (skip.has(o) || o.team !== list[0].team) continue;
-      const half = o.size * T / 2, dx = Math.max(0, Math.abs(p.x - o.x) - half), dy = Math.max(0, Math.abs(p.y - o.y) - half), d = Math.hypot(dx, dy);
-      if (d < bd && d < T * 0.75) { bd = d; best = o; }
-    }
-    return best;
-  };
+  for (const [e] of shown) { const k = e.team + ':' + (e.runId || 'x' + e.id); if (!runs.has(k)) runs.set(k, []); runs.get(k).push(e); }
+  const pillars = [];
   for (const list of runs.values()) {
-    const f = list[0].facing || 0, nx = Math.cos(f), ny = Math.sin(f), ux = -ny, uy = nx;
-    const c = list.reduce((a, e) => a + e.x * nx + e.y * ny, 0) / list.length;
-    const pts = list.map(e => ({ e, t: e.x * ux + e.y * uy })).sort((a, b) => a.t - b.t);
-    const diag = Math.abs(nx) > 0.2 && Math.abs(ny) > 0.2, step = diag ? T * 0.72 : T, ext = diag ? T * 0.36 : T / 2;
-    const at = t => ({ x: c * nx + t * ux, y: c * ny + t * uy });
-    // Split where pieces are missing (breached) or still being built.
-    let seg = [pts[0]];
-    const segs = [];
-    for (let i = 1; i < pts.length; i++) {
-      const a = pts[i - 1], b = pts[i];
-      if (b.t - a.t > step * 1.35 || (a.e.built >= 1) !== (b.e.built >= 1)) { segs.push(seg); seg = [b]; } else seg.push(b);
+    const g = wallSeg(game, list[0]), vx = g.bx - g.ax, vy = g.by - g.ay, L = Math.hypot(vx, vy);
+    const f = list[0].facing || 0, nx = Math.cos(f), ny = Math.sin(f);
+    if (L < 1) { pillars.push({ x: g.ax, y: g.ay, e: list[0], faded: shown.get(list[0]) }); continue; }
+    const ux = vx / L, uy = vy / L;
+    // Where each piece's square cuts the line: those stretches are drawn.
+    const spans = [];
+    for (const e of list) {
+      const x0 = e.tx * T - 0.5, x1 = (e.tx + 1) * T + 0.5, y0 = e.ty * T - 0.5, y1 = (e.ty + 1) * T + 0.5;
+      let t0 = 0, t1 = L;
+      for (const [d, o, lo, hi] of [[ux, g.ax, x0, x1], [uy, g.ay, y0, y1]]) {
+        if (Math.abs(d) < 1e-9) { if (o < lo || o > hi) { t0 = 1; t1 = 0; } continue; }
+        let a = (lo - o) / d, b = (hi - o) / d; if (a > b) [a, b] = [b, a];
+        t0 = Math.max(t0, a); t1 = Math.min(t1, b);
+      }
+      if (t1 > t0) spans.push({ t0, t1, e });
     }
-    segs.push(seg);
-    const run = new Set(list);
-    for (const sg of segs) {
-      const p0 = at(sg[0].t - ext), p1 = at(sg[sg.length - 1].t + ext);
-      // Join the ends onto whatever wall, gate or bastion they touch.
-      const j0 = near(p0, list, run), j1 = near(p1, list, run);
-      // (Gates and bastions sit flush on the ends: only other wall runs need a join.)
-      const line = [j0 && j0.type === 'wall' ? { x: j0.x, y: j0.y } : null, p0, p1, j1 && j1.type === 'wall' ? { x: j1.x, y: j1.y } : null].filter(Boolean);
-      const built = sg[0].e.built >= 1, faded = sg.some(q => shown.get(q.e));
-      drawWallBand(ctx, line, nx, ny, list[0], built ? (faded ? 0.5 : 1) : 0.2 + 0.55 * sg.reduce((a, q) => a + q.e.built, 0) / sg.length, !built, time);
+    spans.sort((a, b) => a.t0 - b.t0);
+    // Join neighbouring stretches with the same state into one band.
+    const bands = [];
+    for (const sp of spans) {
+      const st = sp.e.built >= 1 ? 1 : 0, last = bands[bands.length - 1];
+      if (last && last.st === st && sp.t0 <= last.t1 + 2) { last.t1 = Math.max(last.t1, sp.t1); last.n++; last.built += sp.e.built; last.faded = last.faded || shown.get(sp.e); }
+      else bands.push({ t0: sp.t0, t1: sp.t1, st, n: 1, built: sp.e.built, faded: shown.get(sp.e) });
     }
+    for (const bd of bands) {
+      const p0 = { x: g.ax + ux * bd.t0, y: g.ay + uy * bd.t0 }, p1 = { x: g.ax + ux * bd.t1, y: g.ay + uy * bd.t1 };
+      drawWallBand(ctx, [p0, p1], nx, ny, list[0], bd.st ? (bd.faded ? 0.5 : 1) : 0.2 + 0.55 * bd.built / bd.n, !bd.st, time);
+      // A pillar at each end of the run; a broken end where it was breached.
+      for (const [t, p] of [[bd.t0, p0], [bd.t1, p1]]) {
+        const end = t < 2 ? { x: g.ax, y: g.ay } : t > L - 2 ? { x: g.bx, y: g.by } : null;
+        if (end) pillars.push({ x: end.x, y: end.y, e: list[0], faded: bd.faded, alpha: bd.st ? 1 : 0.2 + 0.55 * bd.built / bd.n });
+        else if (!game.entities.some(o => (o.def.gate || o.def.bastion) && o.team === list[0].team && o.hp > 0 && Math.hypot(o.x - p.x, o.y - p.y) < T * 1.8)) drawRubbleEnd(ctx, p, ux, uy, t === bd.t0 ? -1 : 1, list[0]);   // a real breach, not a gate
+      }
+    }
+  }
+  // Pillars last, so joins between runs sit under one round post.
+  const done = [];
+  for (const pl of pillars) {
+    if (done.some(q => Math.hypot(q.x - pl.x, q.y - pl.y) < 4)) continue;
+    done.push(pl);
+    drawWallPillar(ctx, pl.x, pl.y, pl.e, pl.faded ? 0.5 : (pl.alpha || 1));
   }
 }
 function drawWallBand(ctx, pts, nx, ny, piece, alpha, building, time) {
@@ -785,7 +819,7 @@ function drawWallBand(ctx, pts, nx, ny, piece, alpha, building, time) {
     ctx.beginPath();
     pts.forEach((p, i) => { const x = p.x + nx * off, y = p.y + ny * off; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
   };
-  ctx.save(); ctx.globalAlpha *= alpha; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.save(); ctx.globalAlpha *= alpha; ctx.lineJoin = 'round'; ctx.lineCap = 'butt';
   ctx.strokeStyle = 'rgba(0,0,0,0.28)'; ctx.lineWidth = WALL_W + 2; ctx.save(); ctx.translate(3, 4); path(0); ctx.stroke(); ctx.restore();   // shadow
   ctx.strokeStyle = C.edge; ctx.lineWidth = WALL_W; path(0); ctx.stroke();
   ctx.strokeStyle = C.base; ctx.lineWidth = WALL_W - 3; path(0); ctx.stroke();
@@ -807,6 +841,26 @@ function drawWallBand(ctx, pts, nx, ny, piece, alpha, building, time) {
   for (let d = 24; d < total - 12; d += 48) { const p = along(d); ctx.fillRect(p.x - nx * 2 - 2.5, p.y - ny * 2 - 2.5, 5, 5); }
   ctx.restore();
 }
+function drawWallPillar(ctx, x, y, piece, alpha = 1) {
+  const C = wallColours(piece.faction), r = WALL_W / 2 + 3;
+  ctx.save(); ctx.globalAlpha *= alpha;
+  ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.arc(x + 3, y + 4, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = C.base; ctx.strokeStyle = C.edge; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = C.top; ctx.beginPath(); ctx.arc(x, y, r - 5, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = C.hi; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, r - 5, Math.PI * 0.9, Math.PI * 1.6); ctx.stroke();
+  ctx.fillStyle = TEAMS[piece.team].color; ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+function drawRubbleEnd(ctx, p, ux, uy, dir, piece) {
+  const C = wallColours(piece.faction);
+  ctx.save(); ctx.fillStyle = C.base; ctx.strokeStyle = C.edge; ctx.lineWidth = 1;
+  for (let k = 0; k < 4; k++) {
+    const o = (k - 1.5) * 8, x = p.x - uy * o + ux * dir * (3 + (k % 2) * 4), y = p.y + ux * o + uy * dir * (3 + (k % 2) * 4);
+    ctx.beginPath(); ctx.arc(x, y, 3 + (k % 2), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+  ctx.restore();
+}
 function drawWallPiece(ctx, b, ghost, time) {
   const T = CONFIG.TILE, s = b.size * T, x0 = b.tx * T, y0 = b.ty * T;
   const C = wallColours(b.faction), accent = TEAMS[b.team].color;
@@ -824,30 +878,27 @@ function drawWallPiece(ctx, b, ghost, time) {
       ctx.beginPath(); ctx.arc(b.x + fx * 11, b.y + fy * 11, 3, 0, Math.PI * 2); ctx.fill();
     }
   } else if (b.def.gate) {
-    // Two heavy posts the wall runs into, doors sliding between them.
-    const a = Math.atan2(fx, -fy), cx = b.x, cy = b.y;   // along the wall
+    // Two pillars on the wall's line, doors sliding between them.
+    const g = b.seg || (() => { const ux = -fy, uy = fx, w = T * 1.55; return { ax: b.x - ux * w, ay: b.y - uy * w, bx: b.x + ux * w, by: b.y + uy * w }; })();
+    const cx = (g.ax + g.bx) / 2, cy = (g.ay + g.by) / 2, half = Math.hypot(g.bx - g.ax, g.by - g.ay) / 2, a = Math.atan2(g.by - g.ay, g.bx - g.ax);
     let open = 0;
     forUnitsNear(game, cx, cy, 80, u => { if (u.team === b.team && u.hp > 0 && Math.hypot(u.x - cx, u.y - cy) < 75) open = 1; });
     b.openK = (b.openK || 0) + ((open ? 1 : 0) - (b.openK || 0)) * 0.15;
-    ctx.translate(cx, cy); ctx.rotate(a);
-    const L = s / 2 + 4, H = WALL_W / 2;
-    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(-L + 3, -H + 4, 2 * L, 2 * H);
-    ctx.fillStyle = 'rgba(20,18,14,0.55)'; ctx.fillRect(-L + 12, -H + 5, 2 * L - 24, 2 * H - 10);   // the opening
-    const d = (L - 12) * (1 - b.openK * 0.9);
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(a);
+    const H = WALL_W / 2 - 5, gap = half - (WALL_W / 2 + 1);
+    ctx.fillStyle = 'rgba(20,18,14,0.45)'; ctx.fillRect(-gap, -H, 2 * gap, 2 * H);   // the opening
+    const d = gap * (1 - b.openK * 0.92);
     for (const k of [-1, 1]) {
-      ctx.save(); ctx.translate(k * (L - 12 - d / 2), 0);
-      ctx.fillStyle = C.top; ctx.fillRect(-d / 2, -H + 8, d, 2 * H - 16); ctx.strokeRect(-d / 2, -H + 8, d, 2 * H - 16);
+      ctx.save(); ctx.translate(k * (gap - d / 2), 0);
+      ctx.fillStyle = C.top; ctx.fillRect(-d / 2, -H + 3, d, 2 * H - 6); ctx.strokeRect(-d / 2, -H + 3, d, 2 * H - 6);
       ctx.fillStyle = '#e0b030';
-      for (let q = -d / 2 + 2; q < d / 2 - 4; q += 7) { ctx.beginPath(); ctx.moveTo(q, -H + 8); ctx.lineTo(q + 3.5, -H + 8); ctx.lineTo(q + 7, H - 8); ctx.lineTo(q + 3.5, H - 8); ctx.closePath(); ctx.fill(); }
+      for (let q = -d / 2 + 2; q < d / 2 - 4; q += 7) { ctx.beginPath(); ctx.moveTo(q, -H + 3); ctx.lineTo(q + 3.5, -H + 3); ctx.lineTo(q + 7, H - 3); ctx.lineTo(q + 3.5, H - 3); ctx.closePath(); ctx.fill(); }
       ctx.restore();
     }
-    for (const k of [-1, 1]) {   // posts
-      const px = k * (L - 6);
-      ctx.fillStyle = C.base; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(px - 8, -H - 3, 16, 2 * H + 6, 4) : ctx.rect(px - 8, -H - 3, 16, 2 * H + 6); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = C.top; ctx.fillRect(px - 5, -H + 1, 10, 2 * H - 2);
-      ctx.fillStyle = accent; ctx.fillRect(px - 2, -3, 4, 6);
-    }
-    ctx.fillStyle = C.dark; ctx.fillRect(-L + 12, H - 4, 2 * L - 24, 3);   // front sill
+    ctx.restore();
+    ctx.restore(); ctx.save();
+    drawWallPillar(ctx, g.ax, g.ay, b, ghost ? 0.5 : b.built < 1 ? 0.25 + 0.6 * b.built : 1);
+    drawWallPillar(ctx, g.bx, g.by, b, ghost ? 0.5 : b.built < 1 ? 0.25 + 0.6 * b.built : 1);
   } else {
     // Bastion: a heavy square keep the wall runs into, round towers on its
     // corners, battlements, a ring where a gun or radar can stand.

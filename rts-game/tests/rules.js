@@ -19,7 +19,7 @@ function load() {
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
     'createGame, generateMap, generateUrbanMap, generateTidalMap, WEAPONS, makeWeapon, loadoutDef, isVisibleTo, scrapIsDangerous, TILE_DIRT, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
-    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, COMMAND, buildCost, WALL, wallLine, wallFacing, damageForTest: damage });', ctx);
+    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, COMMAND, buildCost, WALL, wallLine, wallFacing, wallTiles, wallSections, snapOntoWall, snapWallPoint, wallFacingAB, damageForTest: damage });', ctx);
   return ctx;
 }
 
@@ -1428,6 +1428,42 @@ section('Compound walls');
   const back = S.loadGame(S.saveGame(g)).game;
   const p0 = live[2], i0 = p0.ty * W + p0.tx;
   check('a saved game keeps its walls and what they block', back.wallGrid[i0] === 1 && back.wallCount === g.wallCount);
+}
+
+section('Walls at any angle, from a pivot');
+{
+  const S = load();
+  const g = S.createGame({ seed: 3, difficulty: 'normal', aiTeams: [] });
+  for (const e of g.entities) if (e.kind === 'unit' && e.type !== 'mobileRecycler') e.hp = 0;
+  S.stepGame(g);
+  g.teams[1].explored.fill(1);
+  const T = S.CONFIG.TILE, W = g.map.W;
+  const clear = (x0, y0, n) => { for (let y = y0; y < y0 + n; y++) for (let x = x0; x < x0 + n; x++) if (S.isBlockedTile(g, x, y)) return false; return true; };
+  let ox = 0, oy = 0;
+  outer: for (let r = 0; r < 50; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (clear(Math.floor(W / 2) + dx, Math.floor(g.map.H / 2) + dy, 26)) { ox = Math.floor(W / 2) + dx; oy = Math.floor(g.map.H / 2) + dy; break outer; }
+  const hb = S.addUnit(g, 'heavyBuilder', 1, (ox + 2) * T, (oy + 20) * T);
+  g.teams[1].scrap = 2000;
+  const a = { x: (ox + 2.3) * T, y: (oy + 2.6) * T }, b = { x: (ox + 13.1) * T, y: (oy + 7.4) * T };   // a shallow angle
+  const s0 = g.teams[1].scrap;
+  S.issueCommand(g, 1, { type: 'buildWall', ids: [hb.id], a, b, facing: S.wallFacingAB(g, a, b, false) });
+  const run = g.entities.filter(e => e.type === 'wall');
+  const n = S.wallSections({ ax: a.x, ay: a.y, bx: b.x, by: b.y });
+  check('a wall at any angle is priced by its length (sections), not by the squares it covers', Math.round(s0 - g.teams[1].scrap) === n * S.BUILDING_TYPES.wall.cost && n === Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / T - 0.05), `${n} sections, ${run.length} squares, paid ${Math.round(s0 - g.teams[1].scrap)}`);
+  // No gaps: each square touches the next along a side.
+  const set = new Set(run.map(e => e.tx + ',' + e.ty));
+  const linked = run.every(e => run.length === 1 || [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => set.has((e.tx + dx) + ',' + (e.ty + dy))));
+  check('and leaves no gap to slip through', linked && run.every(e => e.seg && e.seg.ax === a.x));
+  check('a new wall snaps onto the end of one you already have', (() => { const q = S.snapWallPoint(g, 1, { x: b.x + 9, y: b.y - 7 }); return q.x === b.x && q.y === b.y; })());
+  check('a wall is at most 16 sections long', S.wallSections({ ax: 0, ay: 0, bx: 40 * T, by: 0 }) > 16 && (() => { g.teams[1].scrap = 5000; const before = g.entities.length; S.issueCommand(g, 1, { type: 'buildWall', ids: [hb.id], a: { x: (ox + 2) * T, y: (oy + 14.5) * T }, b: { x: (ox + 60) * T, y: (oy + 14.5) * T }, facing: 0 }); return g.entities.length - before <= 17; })());
+  // A gate dropped onto the wall: lined up with it, replacing the sections under it.
+  for (const e of g.entities) if (e.def.wallPiece) e.built = 1;
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, on = S.snapOntoWall(g, 1, 'gate', mid);
+  const before = g.entities.filter(e => e.type === 'wall').length;
+  g.teams[1].scrap = 2000;
+  S.issueCommand(g, 1, { type: 'build', ids: [hb.id], building: 'gate', tx: on.tx, ty: on.ty, facing: on.facing, seg: on.seg });
+  const gate = g.entities.find(e => e.type === 'gate');
+  check('a gate dropped onto a wall replaces the wall under it, lined up with it', gate && gate.seg && g.entities.filter(e => e.type === 'wall').length < before &&
+    Math.abs(Math.atan2(gate.seg.by - gate.seg.ay, gate.seg.bx - gate.seg.ax) - Math.atan2(b.y - a.y, b.x - a.x)) < 0.01);
 }
 
 section('Computer opponents build walls');
