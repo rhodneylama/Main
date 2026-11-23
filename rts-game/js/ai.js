@@ -344,8 +344,9 @@ function wallPlan(game, ai) {
   return plans[ai.persona] || null;
 }
 // A straight wall `len` long, `R` squares out from (cx, cy) toward angle a
-// (snapped to the four main directions), with a gate in the middle and
-// bastions at the ends if wanted. Returns a list of jobs for the Heavy Constructor.
+// (snapped to the four main directions), with a 3-square gap in the middle
+// for its own vehicles, guarded by a bastion either side if wanted (and
+// bastions at the ends of a long wall). Returns a list of jobs for the Heavy Constructor.
 function wallJobs(cx, cy, a, R, len, gate, bastions) {
   const ax = Math.abs(Math.cos(a)) >= Math.abs(Math.sin(a));
   const d = ax ? Math.sign(Math.cos(a)) || 1 : Math.sign(Math.sin(a)) || 1;
@@ -355,16 +356,18 @@ function wallJobs(cx, cy, a, R, len, gate, bastions) {
   const back = (x, y) => ax ? [d > 0 ? x - 1 : x, y] : [x, d > 0 ? y - 1 : y];   // 2x2 pieces stick out behind, not in front
   const jobs = [], mid = Math.floor(len / 2);
   const skip = new Set();
+  const flank = gate && bastions && len >= 10, ends = bastions && len >= 16;
   if (gate) { skip.add(mid - 1); skip.add(mid); skip.add(mid + 1); }
-  if (bastions && len >= 8) { skip.add(0); skip.add(1); skip.add(len - 2); skip.add(len - 1); }
+  if (flank) for (const k of [mid - 3, mid - 2, mid + 2, mid + 3]) skip.add(k);
+  if (ends) for (const k of [0, 1, len - 2, len - 1]) skip.add(k);
   let run = [];
   for (let k = 0; k < len; k++) {
     if (skip.has(k)) { if (run.length) jobs.push({ kind: 'run', tiles: run, facing }); run = []; continue; }
     run.push(at(k));
   }
   if (run.length) jobs.push({ kind: 'run', tiles: run, facing });
-  if (gate) { const [x, y] = at(mid - 1); jobs.push({ kind: 'gate', tx: ax ? x - 1 : x, ty: ax ? y : y - 1, facing }); }   // 3x3, centred on the line
-  if (bastions && len >= 8) for (const k of [0, len - 2]) { const [x, y] = back(...at(k)); jobs.push({ kind: 'bastion', tx: x, ty: y, facing }); }
+  const bk = [...(flank ? [mid - 3, mid + 2] : []), ...(ends ? [0, len - 2] : [])];
+  for (const k of bk) { const [x, y] = back(...at(k)); jobs.push({ kind: 'bastion', tx: x, ty: y, facing }); }
   return jobs;
 }
 function aiWalls(game, team, ai, plan, hq, units, buildings, cmd) {

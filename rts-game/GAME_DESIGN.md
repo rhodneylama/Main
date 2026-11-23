@@ -505,13 +505,13 @@ in `sim.js`).
 ### Compound walls (23 November 2026)
 
 A **Heavy Constructor** (built by a **Recycler II**: 130 scrap, 10 s, 420
-HP, slow at 34) builds walls, gates and bastions, and nothing else; a
+HP, slow at 34) builds walls and bastions, and nothing else (gates were
+removed on 23 November 2026: leave a gap between two bastions instead); a
 normal Constructor can't build them. No research is needed.
 
 | Piece | Cost | Time | HP | Size | What it does |
 | --- | --- | --- | --- | --- | --- |
 | Wall | 35 a section | 3 s a square | 1,500 a square | line | Dragged out from a pivot at **any angle**, up to 16 sections long; a **section** is one square of length, whatever the angle. Underneath, it blocks every square its line passes through (both squares where it crosses a corner), so nothing slips through. |
-| Gate | 110 | 9 s | 2,600 | 3×3 | Opens for your own vehicles (an opening three squares wide); as solid as a wall to the enemy. |
 | Bastion | 140 | 12 s | 3,500 | 2×2 | A thick wall tower: a Constructor can build a **Gun Tower or a Radar on top**. |
 
 - **Building one (23 November 2026):** select the Heavy Constructor, pick
@@ -2440,3 +2440,7 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     bastions drop onto a wall, lined up with it.
 47. **Wider gates** (23 November 2026): gates are 3 squares wide (110
     scrap, 2,600 health), with the posts further apart.
+48. **Gates removed** (23 November 2026): a gap between two bastions does
+    the same job. Computer opponents leave a 3-square gap in the middle of
+    their wall with a bastion either side. (Gates in older saved games
+    still work.)

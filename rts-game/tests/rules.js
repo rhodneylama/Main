@@ -1373,20 +1373,16 @@ section('Compound walls');
   check('but right behind it is fine', behind);
   run(g, S, 22 * S.BUILDING_TYPES.wall.buildTime + 70);
   check('the Heavy Constructor builds the run one piece after another', pieces.every(p => p.built >= 1), `${pieces.filter(p => p.built >= 1).length}/22`);
-  // A gate: your vehicles pass, the enemy's don't.
+  // No gates: leave a gap (between bastions) instead.
   S.issueCommand(g, 1, { type: 'build', ids: [hb.id], building: 'gate', tx: ox + 12, ty: oy + 11, facing: 0 });
-  const gate = g.entities.find(e => e.type === 'gate');
-  run(g, S, 20);
-  check('a gate fills the gap', gate && gate.built >= 1);
-  const fr = S.addUnit(g, 'tank', 1, (ox + 4) * T, (oy + 12) * T), en = S.addUnit(g, 'scout', 2, (ox + 20) * T, (oy + 12) * T);
-  fr.stance = 'stealth'; en.stance = 'stealth';
-  en.def = Object.assign({}, en.def, { weapon: null });   // unarmed: it can only look for a way round
+  check('gates are gone: leave a gap between bastions instead', S.BUILDING_TYPES.gate.buildable === false && !g.entities.some(e => e.type === 'gate'));
+  const fr = S.addUnit(g, 'tank', 1, (ox + 4) * T, (oy + 12) * T);
+  fr.stance = 'stealth';
   S.issueCommand(g, 1, { type: 'move', ids: [fr.id], x: (ox + 20) * T, y: (oy + 16) * T });
-  S.issueCommand(g, 2, { type: 'move', ids: [en.id], x: (ox + 4) * T, y: (oy + 12) * T });
   run(g, S, 25);
-  check('your own vehicles drive through your gate', fr.x > (ox + 13) * T);
-  check("the enemy can't get through it", Math.abs(en.x - (ox + 12.5) * T) > T || en.x > (ox + 13) * T || en.y < oy * T || en.y > (oy + 24) * T);
-  en.hp = 0; fr.hp = 0; S.stepGame(g);
+  check('your vehicles drive out through the gap', fr.x > (ox + 13) * T);
+  fr.hp = 0; S.stepGame(g);
+  for (const y of [oy + 11, oy + 12]) S.addBuilding(g, 'wall', 1, ox + 12, y, true).facing = 0;   // close it for the next test
   // Breaking through: an armed enemy shoots its way in.
   const raider = S.addUnit(g, 'tank', 2, (ox + 20) * T, (oy + 6) * T);
   raider.stance = 'stealth';
@@ -1455,15 +1451,14 @@ section('Walls at any angle, from a pivot');
   check('and leaves no gap to slip through', linked && run.every(e => e.seg && e.seg.ax === a.x));
   check('a new wall snaps onto the end of one you already have', (() => { const q = S.snapWallPoint(g, 1, { x: b.x + 9, y: b.y - 7 }); return q.x === b.x && q.y === b.y; })());
   check('a wall is at most 16 sections long', S.wallSections({ ax: 0, ay: 0, bx: 40 * T, by: 0 }) > 16 && (() => { g.teams[1].scrap = 5000; const before = g.entities.length; S.issueCommand(g, 1, { type: 'buildWall', ids: [hb.id], a: { x: (ox + 2) * T, y: (oy + 14.5) * T }, b: { x: (ox + 60) * T, y: (oy + 14.5) * T }, facing: 0 }); return g.entities.length - before <= 17; })());
-  // A gate dropped onto the wall: lined up with it, replacing the sections under it.
+  // A bastion dropped onto the wall takes the place of the wall under it.
   for (const e of g.entities) if (e.def.wallPiece) e.built = 1;
-  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, on = S.snapOntoWall(g, 1, 'gate', mid);
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, on = S.snapOntoWall(g, 1, 'bastion', mid);
   const before = g.entities.filter(e => e.type === 'wall').length;
   g.teams[1].scrap = 2000;
-  S.issueCommand(g, 1, { type: 'build', ids: [hb.id], building: 'gate', tx: on.tx, ty: on.ty, facing: on.facing, seg: on.seg });
-  const gate = g.entities.find(e => e.type === 'gate');
-  check('a gate dropped onto a wall replaces the wall under it, lined up with it', gate && gate.seg && g.entities.filter(e => e.type === 'wall').length < before &&
-    Math.abs(Math.atan2(gate.seg.by - gate.seg.ay, gate.seg.bx - gate.seg.ax) - Math.atan2(b.y - a.y, b.x - a.x)) < 0.01);
+  S.issueCommand(g, 1, { type: 'build', ids: [hb.id], building: 'bastion', tx: on.tx, ty: on.ty, facing: on.facing });
+  const bas = g.entities.find(e => e.type === 'bastion');
+  check('a bastion dropped onto a wall replaces the wall under it', bas && g.entities.filter(e => e.type === 'wall').length < before && Math.hypot(bas.x - mid.x, bas.y - mid.y) < T * 1.5);
 }
 
 section('Computer opponents build walls');
@@ -1474,7 +1469,7 @@ section('Computer opponents build walls');
   g.ai[2] = { next: 0, nextWave: 9999, persona: 'raider' };
   for (let i = 0; i < 30 * 60 * 16 && !g.winner; i++) { S.aiUpdate(g, 1); S.aiUpdate(g, 2); S.stepGame(g); g.events.length = 0; }
   const n = (t, type) => g.entities.filter(e => e.team === t && e.type === type && e.built >= 1).length;
-  check('a Fortress walls the front of its base, with a gate and bastions', n(1, 'wall') >= 8 && n(1, 'gate') >= 1 && n(1, 'bastion') >= 1, `${n(1, 'wall')} walls, ${n(1, 'gate')} gate, ${n(1, 'bastion')} bastions`);
+  check('a Fortress walls the front of its base, with bastions guarding the gap', n(1, 'wall') >= 8 && n(1, 'bastion') >= 1 && !n(1, 'gate'), `${n(1, 'wall')} walls, ${n(1, 'bastion')} bastions`);
   check('a Raider walls its Extractors instead', n(2, 'wall') >= 4 && !n(2, 'bastion'), `${n(2, 'wall')} walls`);
 }
 

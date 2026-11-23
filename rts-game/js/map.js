@@ -618,7 +618,7 @@ function findPathOn(game, sx, sy, gx, gy, team = 0, breach = false) {
       if (dx && dy && (!open(x + dx, y) || !open(x, y + dy))) continue;
       const j = ny * W + nx;
       if (closed[j]) continue;
-      const ng = g[i] + (dx && dy ? Math.SQRT2 : 1) + extra(j);
+      const ng = g[i] + (dx && dy ? Math.SQRT2 : 1) + (wg ? extra(j) : 0);
       if (ng < g[j]) { g[j] = ng; came[j] = i; push(ng + h(nx, ny), j); }
     }
   }
