@@ -572,7 +572,14 @@ function drawPlacement(ctx, game, view) {
   if (view.placing === 'wall') { drawWallPlacement(ctx, game, view, at); return; }
   let { tx, ty } = placementTile(at, def.size);
   const bs = bastionAt(game, view.team, view.placing, tx, ty);
-  if (bs) { tx = bs.tx; ty = bs.ty; }
+  if (bs) {
+    // A Gun Tower or Radar up on a bastion: in its middle.
+    const ok = canPlaceBuilding(game, view.team, view.placing, bs.tx, bs.ty).ok, h = def.size * T / 2;
+    ctx.fillStyle = ok ? 'rgba(120,255,140,0.25)' : 'rgba(255,90,80,0.3)'; ctx.strokeStyle = ok ? '#8cffa0' : '#ff6a5a'; ctx.lineWidth = 2;
+    ctx.fillRect(bs.x - h, bs.y - h, 2 * h, 2 * h); ctx.strokeRect(bs.x - h, bs.y - h, 2 * h, 2 * h);
+    if (def.weapon) { ctx.setLineDash([4, 6]); ctx.beginPath(); ctx.arc(bs.x, bs.y, def.weapon.range * WALL.mountReach, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
+    return;
+  }
   const onWall = snapOntoWall(game, view.team, view.placing, at);
   if (onWall) {
     // Dropped onto a wall: lined up with it, replacing the sections under it.

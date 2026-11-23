@@ -494,8 +494,8 @@ const BUILDING_TYPES = {
     desc: 'Opens for your vehicles and stays shut to the enemy. Put one in your wall so your own vehicles can get out.',
   },
   bastion: {
-    name: 'Bastion', cost: 140, buildTime: 12, hp: 3500, size: 2, sight: 160, wallPiece: true, bastion: true, anywhere: true, facing: true,
-    desc: 'A thick wall tower. A Constructor can build a Gun Tower or a Radar on top (15% more reach from up there); if the bastion falls, so does what is on it.',
+    name: 'Bastion', cost: 170, buildTime: 14, hp: 4500, size: 3, sight: 160, wallPiece: true, bastion: true, anywhere: true, facing: true,
+    desc: 'A thick 3x3 wall tower, centred on a wall (or on its own). A Constructor can build a Gun Tower or a Radar on top (15% more reach from up there); if the bastion falls, so does what is on it.',
   },
   // Powers Shield Projectors: each Generator powers up to `powers` of them,
   // and every powered projector burns `upkeep` scrap a second while its

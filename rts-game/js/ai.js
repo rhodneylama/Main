@@ -353,21 +353,21 @@ function wallJobs(cx, cy, a, R, len, gate, bastions) {
   const facing = ax ? (d > 0 ? 0 : Math.PI) : (d > 0 ? Math.PI / 2 : -Math.PI / 2);
   const line = Math.round((ax ? cx : cy) + d * R), start = Math.round((ax ? cy : cx) - len / 2);
   const at = k => ax ? [line, start + k] : [start + k, line];
-  const back = (x, y) => ax ? [d > 0 ? x - 1 : x, y] : [x, d > 0 ? y - 1 : y];   // 2x2 pieces stick out behind, not in front
   const jobs = [], mid = Math.floor(len / 2);
   const skip = new Set();
   const flank = gate && bastions && len >= 10, ends = bastions && len >= 16;
   if (gate) { skip.add(mid - 1); skip.add(mid); skip.add(mid + 1); }
-  if (flank) for (const k of [mid - 3, mid - 2, mid + 2, mid + 3]) skip.add(k);
-  if (ends) for (const k of [0, 1, len - 2, len - 1]) skip.add(k);
+  // Bastions are 3x3, centred on the line: they cover the squares either side.
+  if (flank) for (const k of [mid - 4, mid - 3, mid - 2, mid + 2, mid + 3, mid + 4]) skip.add(k);
+  if (ends) for (const k of [0, 1, 2, len - 3, len - 2, len - 1]) skip.add(k);
   let run = [];
   for (let k = 0; k < len; k++) {
     if (skip.has(k)) { if (run.length) jobs.push({ kind: 'run', tiles: run, facing }); run = []; continue; }
     run.push(at(k));
   }
   if (run.length) jobs.push({ kind: 'run', tiles: run, facing });
-  const bk = [...(flank ? [mid - 3, mid + 2] : []), ...(ends ? [0, len - 2] : [])];
-  for (const k of bk) { const [x, y] = back(...at(k)); jobs.push({ kind: 'bastion', tx: x, ty: y, facing }); }
+  const bk = [...(flank ? [mid - 3, mid + 3] : []), ...(ends ? [1, len - 2] : [])];
+  for (const k of bk) { const [x, y] = at(k); jobs.push({ kind: 'bastion', tx: x - 1, ty: y - 1, facing }); }
   return jobs;
 }
 function aiWalls(game, team, ai, plan, hq, units, buildings, cmd) {

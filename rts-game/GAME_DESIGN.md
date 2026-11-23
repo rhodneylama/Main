@@ -512,7 +512,7 @@ normal Constructor can't build them. No research is needed.
 | Piece | Cost | Time | HP | Size | What it does |
 | --- | --- | --- | --- | --- | --- |
 | Wall | 35 a section | 3 s a square | 1,500 a square | line | Dragged out from a pivot, square centre to square centre, straight or at 45°, up to 16 sections; a **section** is one step from square to square. Underneath, it blocks every square its line passes through (both squares where it crosses a corner), so nothing slips through. |
-| Bastion | 140 | 12 s | 3,500 | 2×2 | A thick wall tower: a Constructor can build a **Gun Tower or a Radar on top**. |
+| Bastion | 170 | 14 s | 4,500 | 3×3 | A thick wall tower, centred on a wall's line (or standing alone): a Constructor can build a **Gun Tower or a Radar on top**, in its middle. |
 
 - **Building one (23 November 2026):** select the Heavy Constructor, pick
   **Wall**, then press (or touch) where it starts: that is its **pivot**.
@@ -536,10 +536,13 @@ normal Constructor can't build them. No research is needed.
   share one round pillar. It is paid for by length when laid out (if you
   can't afford all of it, as much as you can afford is laid out from the
   pivot) and built square by square from behind.
-  **Gates and bastions drop onto a wall:** with Gate or Bastion picked,
-  tap on one of your walls and it is set into the wall, lined up with its
-  angle, replacing the squares under it (finished squares are refunded).
-  Away from a wall they are placed on their own.
+  **Bastions lock onto walls (23 November 2026):** with Bastion picked,
+  tap on one of your walls and the bastion sits centred on the wall's line,
+  on one of its section points (ends included), replacing the squares under
+  it (finished squares are refunded); the preview shows the bastion on the
+  wall. Away from a wall it stands alone. Being 3×3, its centre is a square
+  centre, so walls started from a bastion stay on the grid and run
+  straight through its middle.
 - **Looks:** each wall is drawn as one smooth, thick band (34 px, a little
   more than a square) along its exact line from pivot to end, with a round
   **pillar** at each end, so walls meeting at a shared point look like one
@@ -2463,3 +2466,7 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     notches with a tick; the squares they'll stand on are outlined; wall
     ends and bastions pull from 1.5 squares; the dotted marks on walls are
     now a solid stripe.
+51. **3×3 bastions** (23 November 2026): bastions are 3×3 (170 scrap,
+    4,500 health), lock centred onto a wall's line at a section point or
+    stand alone, and carry a Gun Tower or Radar in their middle; walls
+    from a bastion stay on the grid.

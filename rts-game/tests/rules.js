@@ -1463,7 +1463,9 @@ section('Walls at any angle, from a pivot');
   g.teams[1].scrap = 2000;
   S.issueCommand(g, 1, { type: 'build', ids: [hb.id], building: 'bastion', tx: on.tx, ty: on.ty, facing: on.facing });
   const bas = g.entities.find(e => e.type === 'bastion');
-  check('a bastion dropped onto a wall replaces the wall under it', bas && g.entities.filter(e => e.type === 'wall').length < before && Math.hypot(bas.x - mid.x, bas.y - mid.y) < T * 1.5);
+  const lineD = bas ? Math.abs((bas.x - a.x) * (b.y - a.y) - (bas.y - a.y) * (b.x - a.x)) / Math.hypot(b.x - a.x, b.y - a.y) : 99;
+  check('a 3x3 bastion dropped onto a wall sits centred on its line, replacing the wall under it', bas && bas.size === 3 && g.entities.filter(e => e.type === 'wall').length < before && lineD < T * 0.75 && (bas.x - T / 2) % T === 0,
+    bas ? `${lineD.toFixed(1)} px off the line` : 'none');
 }
 
 section('Computer opponents build walls');
