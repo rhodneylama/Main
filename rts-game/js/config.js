@@ -364,7 +364,9 @@ const HEAVY_KINDS = ['tank', 'heavy', 'sentry', 'artillery', 'mobileRecycler'];
 // and its field has `shield.hp` a tile; it draws one Generator share per
 // `shield.tilesPerPower` tiles. `mountReach`: a tower or radar on a bastion
 // sees and shoots this much further. `vsArtillery`: shells hurt walls more.
-const WALL = { maxRun: 16, front: 4, mountReach: 1.15, vsArtillery: 1.25,
+// `grid`: wall pivots and ends snap to points this far apart (half a square);
+// `angleStep`: wall angles snap to steps of this many degrees.
+const WALL = { maxRun: 16, front: 4, grid: 16, angleStep: 15, mountReach: 1.15, vsArtillery: 1.25,
   shield: { cost: 30, time: 25, hp: 330, tilesPerPower: 6 } };
 // Commanders: up to `max` per side (after Field Command research), each
 // leading up to `size` vehicles (the commander included). A commander's

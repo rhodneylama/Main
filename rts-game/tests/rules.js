@@ -19,7 +19,7 @@ function load() {
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
     'createGame, generateMap, generateUrbanMap, generateTidalMap, WEAPONS, makeWeapon, loadoutDef, isVisibleTo, scrapIsDangerous, TILE_DIRT, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
-    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, COMMAND, buildCost, WALL, wallLine, wallFacing, wallTiles, wallSections, snapOntoWall, snapWallPoint, wallFacingAB, damageForTest: damage });', ctx);
+    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, COMMAND, buildCost, WALL, wallLine, wallFacing, wallTiles, wallSections, snapOntoWall, snapWallPoint, wallFacingAB, snapWallStart, snapWallEnd, damageForTest: damage });', ctx);
   return ctx;
 }
 
@@ -1449,6 +1449,11 @@ section('Walls at any angle, from a pivot');
   const set = new Set(run.map(e => e.tx + ',' + e.ty));
   const linked = run.every(e => run.length === 1 || [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => set.has((e.tx + dx) + ',' + (e.ty + dy))));
   check('and leaves no gap to slip through', linked && run.every(e => e.seg && e.seg.ax === a.x));
+  const piv = S.snapWallStart(g, 1, { x: (ox + 20.37) * T, y: (oy + 20.71) * T });
+  const ends = [{ x: piv.x + 200, y: piv.y + 7 }, { x: piv.x + 150, y: piv.y + 160 }, { x: piv.x + 120, y: piv.y + 75 }].map(q => S.snapWallEnd(g, 1, piv, q));
+  const onGrid = q => q.x % S.WALL.grid === 0 && q.y % S.WALL.grid === 0;
+  check('wall pivots snap to the grid (every half square) and angles to 15° steps', onGrid(piv) && ends.every(e => e.angle % 15 === 0) && onGrid(ends[0]) && onGrid(ends[1]),
+    ends.map(e => `${e.angle}° (${e.x}, ${e.y})`).join(', '));
   check('a new wall snaps onto the end of one you already have', (() => { const q = S.snapWallPoint(g, 1, { x: b.x + 9, y: b.y - 7 }); return q.x === b.x && q.y === b.y; })());
   check('a wall is at most 16 sections long', S.wallSections({ ax: 0, ay: 0, bx: 40 * T, by: 0 }) > 16 && (() => { g.teams[1].scrap = 5000; const before = g.entities.length; S.issueCommand(g, 1, { type: 'buildWall', ids: [hb.id], a: { x: (ox + 2) * T, y: (oy + 14.5) * T }, b: { x: (ox + 60) * T, y: (oy + 14.5) * T }, facing: 0 }); return g.entities.length - before <= 17; })());
   // A bastion dropped onto the wall takes the place of the wall under it.

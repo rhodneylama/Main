@@ -263,6 +263,31 @@ function snapWallPoint(game, team, p, r = CONFIG.TILE * 0.9) {
   for (const q of wallSnapPoints(game, team)) { const d = Math.hypot(q.x - p.x, q.y - p.y); if (d < bd) { bd = d; best = q; } }
   return best ? { x: best.x, y: best.y, snapped: best.kind } : { x: p.x, y: p.y };
 }
+// Where a wall's pivot goes: onto a wall end or bastion close by, otherwise
+// the nearest grid point (every WALL.grid pixels), so walls stay aligned.
+function snapWallStart(game, team, p) {
+  const q = snapWallPoint(game, team, p);
+  if (q.snapped) return q;
+  const G = WALL.grid;
+  return { x: Math.round(p.x / G) * G, y: Math.round(p.y / G) * G };
+}
+// Where its end goes: onto a wall end or bastion close by; otherwise at an
+// angle in WALL.angleStep steps and a length in grid steps (diagonal grid
+// steps at 45°, so the end lands on a grid point), at most WALL.maxRun squares.
+function snapWallEnd(game, team, a, p) {
+  const q = snapWallPoint(game, team, p);
+  if (q.snapped && Math.hypot(q.x - a.x, q.y - a.y) <= WALL.maxRun * CONFIG.TILE + 1 && Math.hypot(q.x - a.x, q.y - a.y) > 4) return q;
+  const step = WALL.angleStep * Math.PI / 180;
+  const ang = Math.round(Math.atan2(p.y - a.y, p.x - a.x) / step) * step;
+  const quarter = Math.abs(Math.round(ang / (Math.PI / 4)) * (Math.PI / 4) - ang) < 1e-6;
+  const diag = quarter && Math.abs(Math.round(ang / (Math.PI / 2)) * (Math.PI / 2) - ang) > 1e-6;
+  const unit = diag ? WALL.grid * Math.SQRT2 : WALL.grid;
+  const max = Math.floor(WALL.maxRun * CONFIG.TILE / unit) * unit;
+  const len = Math.min(max, Math.max(unit, Math.round(Math.hypot(p.x - a.x, p.y - a.y) / unit) * unit));
+  const r = v => Math.round(v * 1000) / 1000;
+  return { x: r(a.x + Math.cos(ang) * len), y: r(a.y + Math.sin(ang) * len), angle: Math.round(ang * 180 / Math.PI) };
+}
+
 // A gate or bastion dropped onto one of your walls: lined up with it.
 // Returns { tx, ty, facing, seg } or null when not near a wall.
 function snapOntoWall(game, team, type, p) {

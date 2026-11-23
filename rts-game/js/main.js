@@ -250,7 +250,7 @@ canvas.addEventListener('mousedown', e => {
   if (view.placing === 'wall') {
     // Walls: press on the pivot, drag out the length and angle, let go to build
     // (or click the pivot, then click the end).
-    if (!view.wallStart) { view.wallStart = snapWallPoint(game, view.team, w); view.wallDrag = true; refreshPanel(); return; }
+    if (!view.wallStart) { view.wallStart = snapWallStart(game, view.team, w); view.wallDrag = true; refreshPanel(); return; }
     placeBuilding(w, e.shiftKey); return;
   }
   if (view.placing) { placeBuilding(w, e.shiftKey); return; }
@@ -615,7 +615,7 @@ canvas.addEventListener('touchstart', e => {
     const p = pts[0], w = toWorld(p.x, p.y);
     touch.start = { x: p.x, y: p.y, cx: view.cam.x, cy: view.cam.y };
     touch.mode = 'wall';
-    if (!view.wallStart) { view.wallStart = snapWallPoint(game, view.team, w); view.placeAt = null; view.placeReady = false; refreshPanel(); }
+    if (!view.wallStart) { view.wallStart = snapWallStart(game, view.team, w); view.placeAt = null; view.placeReady = false; refreshPanel(); }
     else { view.placeAt = w; }
     return;
   }
@@ -814,8 +814,8 @@ function placeBuilding(w, keepPlacing) {
   if (!builder || !def) { view.placing = null; return; }
   if (view.placing === 'wall') {
     // From the pivot to here (snapped onto a wall end, gate post or bastion if close).
-    if (!view.wallStart) { view.wallStart = snapWallPoint(game, view.team, w); refreshPanel(); return; }
-    const a = view.wallStart, b = clampWallEnd(a, snapWallPoint(game, view.team, w));
+    if (!view.wallStart) { view.wallStart = snapWallStart(game, view.team, w); refreshPanel(); return; }
+    const a = view.wallStart, b = snapWallEnd(game, view.team, a, w);
     issueCommand(game, view.team, { type: 'buildWall', ids: [builder.id], a, b, facing: wallFacingAB(game, a, b, view.wallFlip) });
     sound('build');
     // Keep going (Shift): the next wall starts where this one ended.
@@ -1312,7 +1312,7 @@ function refreshPanel() {
     }
     const tip = document.createElement('div'); tip.className = 'dim small tip';
     tip.textContent = view.placing === 'wall' ? (!view.wallStart ? `${isTouch ? 'Touch' : 'Press'} where the wall starts (its pivot). It snaps onto the end of a wall or a bastion nearby.`
-        : `${isTouch ? 'Drag from the pivot to set the length and angle, then press Build wall' : 'Drag out the length and angle, and let go (or click where it ends)'}. Up to 16 sections at ${BUILDING_TYPES.wall.cost} scrap each. The arrows show its front: nothing can be built there. Flip front swaps it.${isTouch ? '' : ' Shift keeps going from the end.'}`)
+        : `${isTouch ? 'Drag from the pivot to set the length and angle, then press Build wall' : 'Drag out the length and angle, and let go (or click where it ends)'}. It snaps to the grid (every half square) and to 15° angles. Up to 16 sections at ${BUILDING_TYPES.wall.cost} scrap each. The arrows show its front: nothing can be built there. Flip front swaps it.${isTouch ? '' : ' Shift keeps going from the end.'}`)
       : view.placing && BUILDING_TYPES[view.placing].wallPiece ? `${isTouch ? 'Tap' : 'Click'} on one of your walls to set it into the wall, lined up with it (it replaces the sections under it).`
       : !view.placing ? (builder.def.wallBuilder ? `Pick Wall, then drag it out from a pivot: any angle, up to 16 sections. For a way out, leave a gap between two Bastions. Drop a Bastion onto a wall to set it in; it can carry a Gun Tower or Radar.` : `Pick a building, then ${isTouch ? 'tap' : 'click'} where it should go.`)
       : isTouch ? 'Tap inside the green zone to position it, then press Build here.'
