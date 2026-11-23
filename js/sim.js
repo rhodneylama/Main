@@ -202,6 +202,96 @@ function wallFacing(game, x0, y0, x1, y1, flip) {
   if (flip) f += Math.PI;
   return snapFacing(Math.atan2(Math.sin(f), Math.cos(f)));
 }
+// --- Walls at any angle: a pivot and an end point (world pixels) ---
+// Every square the line passes through, including both squares where it
+// crosses a corner, so nothing can slip between the pieces.
+function wallTiles(ax, ay, bx, by) {
+  const T = CONFIG.TILE, out = [], seen = new Set();
+  const add = (x, y) => { const k = x + ',' + y; if (!seen.has(k)) { seen.add(k); out.push([x, y]); } };
+  let x = Math.floor(ax / T), y = Math.floor(ay / T);
+  const ex = Math.floor(bx / T), ey = Math.floor(by / T), dx = bx - ax, dy = by - ay;
+  const sx = Math.sign(dx), sy = Math.sign(dy);
+  const tdx = dx ? Math.abs(T / dx) : Infinity, tdy = dy ? Math.abs(T / dy) : Infinity;
+  let tmx = dx ? ((sx > 0 ? (x + 1) * T - ax : ax - x * T) / Math.abs(dx)) : Infinity;
+  let tmy = dy ? ((sy > 0 ? (y + 1) * T - ay : ay - y * T) / Math.abs(dy)) : Infinity;
+  add(x, y);
+  // Step square by square until the next border crossed would be past the end.
+  for (let n = 0; n < 200 && (x !== ex || y !== ey) && Math.min(tmx, tmy) <= 1 + 1e-9; n++) {
+    if (Math.abs(tmx - tmy) < 1e-9) { add(x + sx, y); add(x, y + sy); x += sx; y += sy; tmx += tdx; tmy += tdy; }
+    else if (tmx < tmy) { x += sx; tmx += tdx; }
+    else { y += sy; tmy += tdy; }
+    add(x, y);
+  }
+  return out;
+}
+// How many sections a wall is: one per square of its length (at least one).
+const wallSections = g => Math.max(1, Math.ceil(Math.hypot(g.bx - g.ax, g.by - g.ay) / CONFIG.TILE - 0.05));
+// The end of a wall dragged out from the pivot: at most WALL.maxRun squares long.
+function clampWallEnd(a, b) {
+  const max = WALL.maxRun * CONFIG.TILE, d = Math.hypot(b.x - a.x, b.y - a.y);
+  return d <= max ? { x: b.x, y: b.y } : { x: a.x + (b.x - a.x) * max / d, y: a.y + (b.y - a.y) * max / d };
+}
+// Which way a wall from A to B faces: across the line, toward the middle of
+// the map unless flipped. Any angle.
+function wallFacingAB(game, a, b, flip) {
+  const T = CONFIG.TILE;
+  let f = Math.atan2(b.y - a.y, b.x - a.x) + Math.PI / 2;
+  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, cx = game.map.W * T / 2, cy = game.map.H * T / 2;
+  if (Math.cos(f) * (cx - mx) + Math.sin(f) * (cy - my) < 0) f += Math.PI;
+  if (flip) f += Math.PI;
+  return Math.atan2(Math.sin(f), Math.cos(f));
+}
+// The line a wall piece belongs to (its run's pivot and end).
+function wallSeg(game, p) {
+  if (p.seg) return p.seg;
+  const run = wallRun(game, p);
+  const a = run[0] || p, z = run[run.length - 1] || p;
+  return { ax: a.x, ay: a.y, bx: z.x, by: z.y };
+}
+// Points a new wall snaps to: the ends of your walls, gate posts, bastions.
+function wallSnapPoints(game, team) {
+  const out = [], T = CONFIG.TILE;
+  for (const e of game.entities) {
+    if (e.kind !== 'building' || e.team !== team || !e.def.wallPiece || e.hp <= 0) continue;
+    if (e.def.bastion) out.push({ x: e.x, y: e.y, kind: 'bastion' });
+    else if (e.seg) { out.push({ x: e.seg.ax, y: e.seg.ay, kind: e.def.gate ? 'gate' : 'wall' }, { x: e.seg.bx, y: e.seg.by, kind: e.def.gate ? 'gate' : 'wall' }); }
+  }
+  return out;
+}
+function snapWallPoint(game, team, p, r = CONFIG.TILE * 0.9) {
+  let best = null, bd = r;
+  for (const q of wallSnapPoints(game, team)) { const d = Math.hypot(q.x - p.x, q.y - p.y); if (d < bd) { bd = d; best = q; } }
+  return best ? { x: best.x, y: best.y, snapped: best.kind } : { x: p.x, y: p.y };
+}
+// A gate or bastion dropped onto one of your walls: lined up with it.
+// Returns { tx, ty, facing, seg } or null when not near a wall.
+function snapOntoWall(game, team, type, p) {
+  const def = BUILDING_TYPES[type], T = CONFIG.TILE;
+  if (!def || !(def.gate || def.bastion)) return null;
+  let best = null, bd = T * 1.2;
+  for (const e of game.entities) {
+    if (e.type !== 'wall' || e.team !== team || e.hp <= 0) continue;
+    const g = wallSeg(game, e), vx = g.bx - g.ax, vy = g.by - g.ay, L = Math.hypot(vx, vy) || 1;
+    const t = Math.max(0, Math.min(L, ((p.x - g.ax) * vx + (p.y - g.ay) * vy) / L));
+    const qx = g.ax + vx / L * t, qy = g.ay + vy / L * t, d = Math.hypot(p.x - qx, p.y - qy);
+    if (d < bd) { bd = d; best = { g, ux: vx / L, uy: vy / L, qx, qy, facing: e.facing || 0 }; }
+  }
+  if (!best) return null;
+  const tx = Math.round(best.qx / T - def.size / 2), ty = Math.round(best.qy / T - def.size / 2);
+  // The gate's posts sit on the wall's line either side of its middle.
+  const cx = (tx + def.size / 2) * T, cy = (ty + def.size / 2) * T;
+  const k = (cx - best.g.ax) * best.ux + (cy - best.g.ay) * best.uy, mx = best.g.ax + best.ux * k, my = best.g.ay + best.uy * k;
+  const w = T * 1.55;   // posts stand just outside the opening, on the wall either side
+  const seg = { ax: mx - best.ux * w, ay: my - best.uy * w, bx: mx + best.ux * w, by: my + best.uy * w };
+  return { tx, ty, facing: best.facing, seg };
+}
+// Take a wall piece away without a fuss (a gate or bastion is replacing it).
+function dropWallPiece(game, b) {
+  setOccupied(game, b, -1); releaseBuilding(game, b);
+  b.hp = 0; game.byId.delete(b.id);
+  game.entities = game.entities.filter(e => e !== b);
+}
+
 // Is this footprint in front of one of your walls (where nothing may be built)?
 function inFrontOfWall(game, team, tx, ty, size) {
   if (!game.wallCount) return false;
@@ -307,7 +397,8 @@ function canPlaceBuilding(game, team, type, tx, ty) {
     if (x < 1 || y < 1 || x >= m.W - 1 || y >= m.H - 1) return { ok: false, why: 'Off the map' };
     const i = y * m.W + x;
     if (!tm.explored[i]) return { ok: false, why: 'Unexplored ground' };
-    if (isBlockedTile(game, x, y) || (game.gateGrid && game.gateGrid[i])) return { ok: false, why: 'Something is in the way' };
+    const ownWall = (def.gate || def.bastion) && game.wallGrid && game.wallGrid[i] === team && game.occupied[i] === 1 && (game.byId.get(game.wallId[i]) || {}).type === 'wall';
+    if (!ownWall && (isBlockedTile(game, x, y) || (game.gateGrid && game.gateGrid[i]))) return { ok: false, why: 'Something is in the way' };
     if (m.noBuild && m.noBuild[i]) return { ok: false, why: m.tidalMap ? "Can't build on the sand or the causeways: build on solid ground" : "Can't build on the streets: use open lots, plazas and courtyards" };
   }
   // Repair pads don't block vehicles, but nothing can be built on top of one.
@@ -434,9 +525,11 @@ function issueCommand(game, team, cmd) {
       const check = canPlaceBuilding(game, team, cmd.building, cmd.tx, cmd.ty);
       if (!check.ok) { pushEvent(game, team, check.why, 'warn'); return; }
       tm.scrap -= def.cost;
+      // A gate or bastion put on your wall takes the place of the wall under it.
+      if (def.gate || def.bastion) for (const w of game.entities.filter(e => e.type === 'wall' && e.team === team && e.hp > 0 && e.tx >= cmd.tx && e.tx < cmd.tx + def.size && e.ty >= cmd.ty && e.ty < cmd.ty + def.size)) { dropWallPiece(game, w); tm.scrap += w.built >= 1 ? (w.value ?? w.def.cost) : 0; }
       const b = addBuilding(game, cmd.building, team, cmd.tx, cmd.ty, false);
-      if (def.facing) b.facing = typeof cmd.facing === 'number' ? snapFacing(cmd.facing) : snapFacing(b.turret);
-      if (def.gate || def.bastion) b.facing = Math.round(b.facing / (Math.PI / 2)) * (Math.PI / 2);   // gates and bastions square to the map
+      if (def.facing) b.facing = typeof cmd.facing === 'number' ? (def.wallPiece ? cmd.facing : snapFacing(cmd.facing)) : snapFacing(b.turret);
+      if (def.gate && cmd.seg) b.seg = { ax: cmd.seg.ax, ay: cmd.seg.ay, bx: cmd.seg.bx, by: cmd.seg.by };   // its posts, on the wall's line
       if (check.mount) { b.mountOn = check.mount; game.byId.get(check.mount).mountId = b.id; mountBoost(b); }
       u.order = { type: 'build', targetId: b.id };
       planPathNear(game, u, b);
@@ -447,19 +540,37 @@ function issueCommand(game, team, cmd) {
       // built one after another by the Heavy Constructor.
       const u = units.find(x => x.def.wallBuilder);
       if (!u) { if (units.some(x => x.def.role === 'builder')) pushEvent(game, team, 'Walls are built by a Heavy Constructor (Recycler II)', 'warn'); return; }
-      const tm = game.teams[team], def = BUILDING_TYPES.wall;
-      const facing = typeof cmd.facing === 'number' ? snapFacing(cmd.facing) : 0, runId = game.nextRunId++;
-      const placed = [];
-      let short = false;
-      for (const [tx, ty] of (cmd.tiles || []).slice(0, WALL.maxRun * 2)) {
-        if (tm.scrap < def.cost) { short = true; break; }
-        if (!canPlaceBuilding(game, team, 'wall', tx, ty).ok) continue;
-        tm.scrap -= def.cost;
-        const b = addBuilding(game, 'wall', team, tx, ty, false);
-        b.facing = facing; b.runId = runId; placed.push(b.id);
+      const tm = game.teams[team], def = BUILDING_TYPES.wall, T = CONFIG.TILE;
+      const facing = typeof cmd.facing === 'number' ? cmd.facing : 0, runId = game.nextRunId++;
+      // From a pivot to an end point (any angle), or a list of squares (the computer's walls).
+      let tiles = cmd.tiles || [], seg;
+      if (cmd.a && cmd.b) {
+        const a = { x: +cmd.a.x, y: +cmd.a.y }, b = clampWallEnd(a, { x: +cmd.b.x, y: +cmd.b.y });
+        seg = { ax: a.x, ay: a.y, bx: b.x, by: b.y }; tiles = wallTiles(a.x, a.y, b.x, b.y);
+      } else if (tiles.length) {
+        const [f, l] = [tiles[0], tiles[tiles.length - 1]];
+        seg = { ax: (f[0] + 0.5) * T, ay: (f[1] + 0.5) * T, bx: (l[0] + 0.5) * T, by: (l[1] + 0.5) * T };
       }
-      if (!placed.length) { pushEvent(game, team, short ? 'Not enough scrap' : 'No room for a wall there', 'warn'); return; }
-      if (short) pushEvent(game, team, `Not enough scrap: ${placed.length} wall pieces laid out`, 'warn');
+      // Priced by length: one section per square of length, whatever the angle.
+      let sections = cmd.a && cmd.b ? wallSections(seg) : tiles.length;
+      const can = Math.floor(tm.scrap / def.cost);
+      if (can < 1) { pushEvent(game, team, 'Not enough scrap', 'warn'); return; }
+      if (can < sections && cmd.a && cmd.b) {
+        // Only part of it is affordable: build that much, from the pivot.
+        const k = can / sections;
+        seg = { ax: seg.ax, ay: seg.ay, bx: seg.ax + (seg.bx - seg.ax) * k, by: seg.ay + (seg.by - seg.ay) * k };
+        tiles = wallTiles(seg.ax, seg.ay, seg.bx, seg.by); sections = can;
+        pushEvent(game, team, `Not enough scrap for all of it: ${can} sections laid out`, 'warn');
+      } else if (can < sections) { tiles = tiles.slice(0, can); sections = can; }
+      const ok = tiles.slice(0, WALL.maxRun * 3).filter(([tx, ty]) => canPlaceBuilding(game, team, 'wall', tx, ty).ok);
+      if (!ok.length) { pushEvent(game, team, 'No room for a wall there', 'warn'); return; }
+      const total = sections * def.cost;
+      tm.scrap -= total;
+      const placed = [];
+      for (const [tx, ty] of ok) {
+        const b = addBuilding(game, 'wall', team, tx, ty, false);
+        b.facing = facing; b.runId = runId; b.seg = seg; b.value = total / ok.length; placed.push(b.id);
+      }
       u.order = { type: 'build', targetId: placed[0], queue: placed.slice(1) };
       planPathNear(game, u, game.byId.get(placed[0]));
       break;
@@ -472,12 +583,12 @@ function issueCommand(game, team, cmd) {
       const run = wallRun(game, p);
       if (run.some(x => x.built < 1)) { pushEvent(game, team, 'Finish building the wall first', 'warn'); return; }
       if (run.some(x => x.runShield)) return;
-      const n = run.length, cost = n * WALL.shield.cost;
+      const n = wallSections(wallSeg(game, p)), cost = n * WALL.shield.cost;
       if (tm.scrap < cost) { pushEvent(game, team, 'Not enough scrap', 'warn'); return; }
-      const a = run[0], z = run[n - 1], anchor = run[Math.floor((n - 1) / 2)], T = CONFIG.TILE;
-      anchor.fieldAt = { x: (a.x + z.x) / 2, y: (a.y + z.y) / 2 };
+      const anchor = run[Math.floor((n - 1) / 2)], T = CONFIG.TILE, sg = wallSeg(game, p);
+      anchor.fieldAt = { x: (sg.ax + sg.bx) / 2, y: (sg.ay + sg.by) / 2 };
       anchor.def = Object.assign({}, anchor.def, { upgrade: { name: 'Shield Wall', cost, time: WALL.shield.time, hp: anchor.maxHp,
-        field: { length: Math.hypot(z.x - a.x, z.y - a.y) + T, offset: 22, hp: n * WALL.shield.hp, regen: 25, regenDelay: 4, reboot: 13.5, rebootHp: 0.35, vsArtillery: 1.5 },
+        field: { length: Math.hypot(sg.bx - sg.ax, sg.by - sg.ay) + T, offset: 22, hp: n * WALL.shield.hp, regen: 25, regenDelay: 4, reboot: 13.5, rebootHp: 0.35, vsArtillery: 1.5 },
         power: Math.max(1, n / WALL.shield.tilesPerPower) } });
       for (const x of run) x.runShield = anchor.id;
       tm.scrap -= cost; anchor.upgrading = 0; anchor.upgradeKey = null;
@@ -2594,7 +2705,7 @@ function removeDead(game) {
 // on the ground where it stood. Scavengers can collect them.
 function demolishInto(game, b) {
   setOccupied(game, b, -1); releaseBuilding(game, b);
-  const value = Math.round((b.def.salvageValue ?? b.def.cost) * 0.5);
+  const value = Math.round((b.value ?? b.def.salvageValue ?? b.def.cost) * 0.5);
   const piles = Math.max(1, Math.ceil(value / 40));
   for (let i = 0; i < piles && value > 0; i++) {
     const a = i / piles * Math.PI * 2, r = piles > 1 ? b.radius * 0.5 : 0;
