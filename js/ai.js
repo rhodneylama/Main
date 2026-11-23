@@ -136,6 +136,8 @@ function aiUpdate(game, team) {
   for (const arm of buildings.filter(b => b.type === 'armory' && b.built >= 1 && !b.researching)) {
     const topics = ['w_sabot', 'w_hmg'];
     if (game.difficulty === 'hard') topics.push('w_swarm', 'w_shield');
+    // Plasma answers shields: researched first once enemy Shield Projectors are seen.
+    if (game.difficulty !== 'easy' && game.entities.some(e => e.team !== team && e.type === 'shield' && e.seen && e.seen[team])) topics.unshift('w_plasma');
     const next = topics.find(k => !tm.research[k] && !buildings.some(b => b.researching && b.researching.key === k));
     if (next && tm.scrap >= RESEARCH[next].cost) cmd({ type: 'research', buildingId: arm.id, key: next });
     else if (next) ai.savingUp = true;
@@ -143,8 +145,8 @@ function aiUpdate(game, team) {
   // Every Factory gets the same loadouts.
   for (const f of buildings.filter(b => b.type === 'factory' && b.built >= 1)) {
     const lo = f.loadouts || {};
-    for (const [w, unit, slot] of [['sabot', 'tank', 'cannon'], ['sabot', 'heavy', 'cannon'], ['hmg', 'scout', 'gun'], ['hmg', 'heavy', 'gun'], ['hmg', 'tank', 'gun'], ['swarm', 'hornet', 'rocket'], ['shield', 'heavy', 'special'], ['shield', 'scout', 'special']])
-      if (tm.research['w_' + w] && !(lo[unit] && lo[unit][slot])) cmd({ type: 'loadout', unit, slot, weapon: w, buildingId: f.id });
+    for (const [w, unit, slot] of [['plasma', 'tank', 'cannon'], ['plasma', 'heavy', 'cannon'], ['sabot', 'tank', 'cannon'], ['sabot', 'heavy', 'cannon'], ['hmg', 'scout', 'gun'], ['hmg', 'heavy', 'gun'], ['hmg', 'tank', 'gun'], ['swarm', 'hornet', 'rocket'], ['shield', 'heavy', 'special'], ['shield', 'scout', 'special']])
+      if (tm.research['w_' + w] && (w === 'plasma' ? !(lo[unit] && lo[unit][slot] === 'plasma') : !(lo[unit] && lo[unit][slot]))) cmd({ type: 'loadout', unit, slot, weapon: w, buildingId: f.id });
   }
   // Towers: fit the best researched weapon for their hardpoint (once, for good).
   for (const b of buildings) {

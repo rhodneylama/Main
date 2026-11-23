@@ -975,7 +975,7 @@ function refreshPanel() {
       const next = CONFIG.VET_KILLS[e.rank || 0];
       extra = `${CONFIG.VET_NAMES[e.rank || 0]} · ${e.kills || 0} kill${e.kills === 1 ? '' : 's'}${next ? ` (${next - (e.kills || 0)} more to ${CONFIG.VET_NAMES[(e.rank || 0) + 1]})` : ''}`;
     }
-    if (e.type === 'generator' && e.built >= 1) extra = `Powering ${e.powering || 0} / ${d.powers} Shield Projectors · ${((e.powering || 0) * d.upkeep * 60).toFixed(0)} scrap a minute`;
+    if (e.type === 'generator' && e.built >= 1) extra = `Power used ${+(e.powering || 0).toFixed(1)} / ${d.powers} (a Shield Projector takes 1, a Shield Projector II 1⅓) · ${((e.powering || 0) * d.upkeep * 60).toFixed(0)} scrap a minute`;
     if (e.type === 'shield' && e.built >= 1) {
       const f = e.field;
       extra = !e.powered ? (game.teams[e.team].scrap <= 0 ? 'No scrap to run it: field down' : 'No power: build a Power Generator (one powers 4)')
@@ -1172,8 +1172,8 @@ function refreshPanel() {
         const building = types.includes(now) ? UNIT_TYPES[now] : null;
         const note = building && first.waiting ? 'Needs scrap' : building && first.blocked ? 'Unit limit' : null;
         const cancelType = counts[type] ? type : types.find(t => counts[t]);
-        addBtn(d.name, d.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'produce', buildingId: first.id, unit: type, count: input.keys.has('Shift') ? 5 : 1 }),
-          { title: `${d.name} — ${d.cost} scrap each, ${d.buildTime}s. Paid when it starts building.\n${d.desc}`, note, badge: queued,
+        addBtn(d.name, buildCost(first, type), keys.shift(), () => issueCommand(game, view.team, { type: 'produce', buildingId: first.id, unit: type, count: input.keys.has('Shift') ? 5 : 1 }),
+          { title: `${d.name} — ${buildCost(first, type)} scrap each, ${d.buildTime}s. Paid when it starts building.\n${d.desc}`, note, badge: queued,
             progress: building && !first.waiting && !first.blocked ? first.prodTime / building.buildTime : null,
             onCancel: cancelType ? () => { issueCommand(game, view.team, { type: 'cancel', buildingId: first.id, unit: cancelType }); refreshPanel(); } : null,
             pickLabel: types.length > 1 ? (d.base ? 'Mk II' : 'Mk I') : null,
