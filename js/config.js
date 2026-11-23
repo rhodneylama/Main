@@ -267,7 +267,7 @@ const RESEARCH = {
   // Unlocks a building rather than a vehicle (BUILDING_TYPES.shield.requires).
   shields:    { name: 'Forcefield Tech',    cost: 250, time: 60, unlocks: 'Shield Projectors' },
   // Lets you hand a battle group to one of its vehicles to lead (see COMMAND).
-  command:    { name: 'Field Command',      cost: 250, time: 60, unlocks: 'commanders: hand up to 3 battle groups to a vehicle to lead' },
+  command:    { name: 'Field Command',      cost: 250, time: 60, unlocks: 'commanders: hand up to 2 battle groups to a vehicle to lead' },
   // Weapons, researched at an Armory: added from WEAPONS below.
 };
 
@@ -354,10 +354,10 @@ const HEAVY_KINDS = ['tank', 'heavy', 'sentry', 'artillery', 'mobileRecycler'];
 // Commanders: up to `max` per side (after Field Command research), each
 // leading up to `size` vehicles (the commander included). A commander's
 // rank lifts the whole group: aim ×(1 + acc × (rank + 1)), reload
-// ×(1 - reload × (rank + 1)). Your direct orders override the commander for
-// `hold` seconds. An attack that has lost `fallBack` of its strength falls
+// ×(1 - reload × (rank + 1)). A delegated group takes only general orders
+// (through its commander) until you take back command. An attack that has lost `fallBack` of its strength falls
 // back to regroup, then goes again after `regroup` seconds.
-const COMMAND = { max: 3, size: 10, acc: 0.05, reload: 0.04, hold: 30, think: 3, fallBack: 0.55, regroup: 60 };
+const COMMAND = { max: 2, size: 10, acc: 0.05, reload: 0.04, think: 3, fallBack: 0.55, regroup: 60 };
 // Research topics for every weapon (key 'w_' + weapon), done at an Armory.
 for (const [k, w] of Object.entries(WEAPONS)) RESEARCH['w_' + k] = { name: w.name, cost: w.cost, time: Math.round(w.cost * 0.27), weapon: k };
 // Stock weapons carry their slot type, name and count; extra stock weapons on

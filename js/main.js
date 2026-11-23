@@ -371,9 +371,18 @@ function groupMembers(key) {
 }
 // mode: 'set' makes the selection the whole group, 'add' adds it to the
 // group, 'leave' takes it out of any group. A vehicle is in one group at a time.
+const isWorkKey = k => /^W/.test(k);
+const fitsGroup = (u, key) => !u.cmdId && (key === null ? true : isWorkKey(key) ? u.def.role !== 'combat' : u.def.role === 'combat');
+const groupName = k => isWorkKey(k) ? `Work group ${k.slice(1)}` : `Battle group ${k}`;
 function setGroup(key, mode = 'set') {
-  const units = mine(view.selected).filter(u => u.kind === 'unit');
-  if (!units.length) { logMessage('Select some vehicles first', 'warn'); sound('error'); return; }
+  if (key && !isWorkKey(key) && myCommands().some(c => String(c.n) === key)) { logMessage(`Number ${key} is Command ${key}: take back command first`, 'warn'); sound('error'); return; }
+  const picked = mine(view.selected).filter(u => u.kind === 'unit');
+  const units = picked.filter(u => fitsGroup(u, key));
+  if (!units.length) {
+    logMessage(!picked.length ? 'Select some vehicles first' : picked.every(u => u.cmdId) ? 'Those vehicles are under a commander'
+      : key && isWorkKey(key) ? 'Work groups are for workers (Scavengers, Constructors, Repair Drones)' : 'Battle groups are for fighting vehicles: put workers in a work group', 'warn');
+    sound('error'); return;
+  }
   for (const k of Object.keys(input.groups)) input.groups[k] = input.groups[k].filter(id => !units.some(u => u.id === id));
   if (mode === 'set') input.groups[key] = units.map(u => u.id);
   else if (mode === 'add') input.groups[key] = [...groupMembers(key).map(u => u.id), ...units.map(u => u.id)];
@@ -381,7 +390,9 @@ function setGroup(key, mode = 'set') {
   view.groupOf = new Map();
   for (const [k, ids] of Object.entries(input.groups)) for (const id of ids) view.groupOf.set(id, k);
   const n = `${units.length} vehicle${units.length > 1 ? 's' : ''}`;
-  logMessage(mode === 'leave' ? `${n} left ${units.length > 1 ? 'their' : 'its'} battle group` : mode === 'add' ? `${n} added to battle group ${key} (${groupMembers(key).length} now)` : `Battle group ${key}: ${n}`, 'info');
+  const left = picked.length - units.length;
+  logMessage((mode === 'leave' ? `${n} left ${units.length > 1 ? 'their' : 'its'} group` : mode === 'add' ? `${n} added to ${groupName(key).toLowerCase()} (${groupMembers(key).length} now)` : `${groupName(key)}: ${n}`) +
+    (left && mode !== 'leave' ? ` (${left} left out: ${isWorkKey(key) ? 'fighting vehicles go in battle groups' : 'workers go in work groups'})` : ''), 'info');
   sound('ack');
   refreshPanel(); updateGroupBar(true);
 }
@@ -442,6 +453,31 @@ const commandOf = u => u && u.cmdId ? myCommands().find(c => c.id === u.cmdId) :
 const commandMembers = c => c.members.map(id => game.byId.get(id)).filter(u => u && u.hp > 0);
 const ORDER_TEXT = { 'attack:base': 'Attack the enemy base', 'attack:extractors': 'Attack enemy Extractors', 'hunt:base': 'Hunt enemy units', 'guard:base': 'Guard our base', 'guard:extractors': 'Guard our Extractors' };
 const commandOrderText = c => c.order ? ORDER_TEXT[c.order.kind + ':' + (c.order.kind === 'hunt' ? 'base' : c.order.target)] : 'Waiting for a general order';
+// Take vehicles out of any battle or work group (when they go to a commander).
+function ungroup(ids) {
+  for (const k of Object.keys(input.groups)) { input.groups[k] = input.groups[k].filter(id => !ids.includes(id)); if (!input.groups[k].length) delete input.groups[k]; }
+  view.groupOf = new Map();
+  for (const [k, ids2] of Object.entries(input.groups)) for (const id of ids2) view.groupOf.set(id, k);
+}
+// Hand a battle group to one of its vehicles: the group becomes Command N
+// (same number, with a star) and leaves your direct control.
+function promote(u, key) {
+  const tm = game.teams[view.team], before = myCommands().length;
+  issueCommand(game, view.team, { type: 'promote', unitId: u.id, ids: groupMembers(key).map(v => v.id), n: key });
+  const c = (tm.commands || []).length > before && myCommands().find(x => x.cmdrId === u.id);
+  if (c) { ungroup(c.members); select(commandMembers(c)); }
+  sound('ack'); refreshPanel(); updateGroupBar(true);
+}
+// Take back command: the vehicles go back to being battle group N.
+function releaseCommand(c) {
+  const ids = commandMembers(c).map(u => u.id), k = String(c.n);
+  issueCommand(game, view.team, { type: 'cmdRelease', cmdId: c.id });
+  ungroup(ids);
+  input.groups[k] = [...(input.groups[k] || []), ...ids];
+  for (const id of ids) view.groupOf.set(id, k);
+  logMessage(`Battle group ${k} is back under your direct command`, 'info');
+  sound('ack'); refreshPanel(); updateGroupBar(true);
+}
 // Which battle group the whole selection makes up exactly, if any.
 function selectionGroup() {
   const units = mine(view.selected).filter(u => u.kind === 'unit');
@@ -468,8 +504,8 @@ function updateGroupBar(force) {
   bar.innerHTML = '';
   for (const k of keys) {
     const b = document.createElement('button');
-    b.className = k === cur ? 'active' : '';
-    b.title = `Battle group ${k}: tap to select, tap again to jump to it`;
+    b.className = (k === cur ? 'active' : '') + (isWorkKey(k) ? ' work' : '');
+    b.title = `${groupName(k)}: tap to select, tap again to jump to it`;
     b.innerHTML = `<b>${k}</b><small>${groupMembers(k).length}</small>`;
     onPress(b, () => { if (selectionGroup() === k) centerOn(groupMembers(k)[0]); else select(groupMembers(k)); updateGroupBar(true); });
     bar.appendChild(b);
@@ -483,9 +519,13 @@ function updateGroupBar(force) {
     onPress(b, () => { const m = commandMembers(c); if (c.id === selCmd) centerOn(game.byId.get(c.cmdrId) || m[0]); else select(m); updateGroupBar(true); });
     bar.appendChild(b);
   }
+  // In number order: battle groups and commands (★) by number, then work groups.
+  const rank = b => { const t = b.querySelector('b').textContent; return t[0] === 'W' ? 100 + +t.slice(1) : +t.replace('★', ''); };
+  [...bar.children].sort((a, b) => rank(a) - rank(b)).forEach(b => bar.appendChild(b));
 }
 function recallGroup(key) {
-  const g = groupMembers(key);
+  const c = myCommands().find(x => String(x.n) === key);
+  const g = c ? commandMembers(c) : groupMembers(key);
   if (!g.length) { logMessage(`Group ${key} is empty`, 'info'); return; }
   const now = performance.now();
   if (input.lastGroup === key && now - input.lastGroupAt < 400) centerOn(g[0]);
@@ -500,8 +540,10 @@ function toggleArmyMenu() {
   const groups = Object.keys(input.groups).sort().filter(k => groupMembers(k).length);
   openPop($('q-army'), [
     { heading: 'Battle groups' },
-    ...(groups.length ? groups.map(k => ({ label: `Battle group ${k}`, count: groupMembers(k).length, active: selectionGroup() === k, onClick: () => recallGroup(k) }))
+    ...myCommands().filter(c => commandMembers(c).length).map(c => ({ label: `★ Command ${c.n}`, note: commandOrderText(c), count: commandMembers(c).length, onClick: () => recallGroup(String(c.n)) })),
+    ...(groups.filter(k => !isWorkKey(k)).length ? groups.filter(k => !isWorkKey(k)).map(k => ({ label: `Battle group ${k}`, count: groupMembers(k).length, active: selectionGroup() === k, onClick: () => recallGroup(k) }))
       : [{ label: 'No battle groups yet', note: 'Select vehicles, then Group ▾ to make one', disabled: true }]),
+    ...(groups.some(isWorkKey) ? [{ heading: 'Work groups' }, ...groups.filter(isWorkKey).map(k => ({ label: groupName(k), count: groupMembers(k).length, active: selectionGroup() === k, onClick: () => recallGroup(k) }))] : []),
     { label: 'All combat vehicles', count: all.length, disabled: !all.length, onClick: selectArmy },
     { heading: 'Jump to' },
     { label: 'Idle worker', onClick: idleWorker },
@@ -794,7 +836,7 @@ window.addEventListener('keydown', e => {
     else select([]);
     return;
   }
-  if (/^[1-9]$/.test(e.key)) {
+  if (/^[1-5]$/.test(e.key)) {
     if (e.ctrlKey || e.metaKey) { setGroup(e.key); e.preventDefault(); }
     else recallGroup(e.key);
     return;
@@ -963,7 +1005,7 @@ function refreshPanel() {
     if (e.type === 'radar' && e.built >= 1) extra = e.level > 2 ? 'Constant radar feed' : `Next radar ping in ${Math.ceil(e.pingTimer)}s (every ${e.level > 1 ? 15 : 30}s)`;
     if (e.type === 'repairpad' && e.built >= 1) extra = 'Drive damaged vehicles onto the pad to repair them.';
     const cg = isMine(e) && commandOf(e);
-    if (cg) extra += `<br><span class="cmdline">${cg.cmdrId === e.id ? '★ Commander of' : 'Under'} Command ${cg.n} · ${cg.style && cg.order ? STYLE_TEXT[cg.style] : commandOrderText(cg)}${e.cmdHold > game.time ? ' · following your orders for now' : ''}</span>`;
+    if (cg) extra += `<br><span class="cmdline">${cg.cmdrId === e.id ? '★ Commander of' : 'Under'} Command ${cg.n} · ${cg.style && cg.order ? STYLE_TEXT[cg.style] : commandOrderText(cg)}</span>`;
     // In the words of whoever owns it (a Kethra Bulwark, not a Tank).
     info.innerHTML = `<div class="selname" style="color:${TEAMS[e.team].color}">${nameOf(e)}<span class="hp">Health ${Math.ceil(e.hp)} / ${e.maxHp}</span></div>
       <div class="dim extra">${factionText(e.faction, extra)}</div><div class="dim small">${factionText(e.faction, d.desc)}</div>`;
@@ -1207,6 +1249,26 @@ function refreshPanel() {
   const keys = [...HOTKEYS];
   const scouts = ofType(sel, 'scout'), tanks = ofType(sel, 'tank'), scavs = ofType(sel, 'scavenger');
   const order = (type, list, extra = {}) => { issueCommand(game, view.team, { type, ids: list.map(u => u.id), ...extra }); sound('ack'); };
+  // A command group: you speak to it only through its commander.
+  const units0 = sel.filter(e => e.kind === 'unit'), cg = units0.length && commandOf(units0[0]);
+  if (cg && units0.every(u => u.cmdId === cg.id)) {
+    const cur = cg.order ? cg.order.kind + ':' + (cg.order.kind === 'hunt' ? 'base' : cg.order.target) : '';
+    const give = (kind, target) => { issueCommand(game, view.team, { type: 'cmdOrder', cmdId: cg.id, kind, target }); sound('ack'); refreshPanel(); updateGroupBar(true); };
+    addMenu(`★ Command ${cg.n}`, keys.shift(), [
+      { heading: 'General order: the commander picks the tactics' },
+      { label: 'Attack the enemy base', active: cur === 'attack:base', note: 'Head-on or a pincer from two sides', onClick: () => give('attack', 'base') },
+      { label: 'Attack enemy Extractors', active: cur === 'attack:extractors', note: 'Raids the Extractors you know of', onClick: () => give('attack', 'extractors') },
+      { label: 'Hunt enemy units', active: cur === 'hunt:base', note: 'Seeks out and destroys enemy vehicles', onClick: () => give('hunt', 'base') },
+      { label: 'Guard our base', active: cur === 'guard:base', note: 'Posts around your base, or patrols', onClick: () => give('guard', 'base') },
+      { label: 'Guard our Extractors', active: cur === 'guard:extractors', note: 'Guards on the exposed ones, the rest patrol or wait in reserve', onClick: () => give('guard', 'extractors') },
+      { heading: 'Command' },
+      { label: 'Take back command', note: `They become battle group ${cg.n} again, under your direct orders`, onClick: () => releaseCommand(cg) },
+    ], { active: true, primary: !cg.order, title: `Command ${cg.n}: ${commandOrderText(cg)}`, top: 1 });
+    const tip = document.createElement('div'); tip.className = 'dim small tip';
+    tip.textContent = `Delegated to its commander: ${cg.order ? 'change its general order' : 'give it a general order'} from ★ Command ${cg.n}.`;
+    cmds.appendChild(tip);
+    return;
+  }
   const mobileHq = ofType(sel, 'mobileRecycler');
   if (mobileHq.length) addBtn('Deploy base', null, keys.shift(), () => { view.aim = 'deploy'; refreshPanel(); },
     { primary: !view.aim, active: view.aim === 'deploy', title: 'Drive onto a scrap geyser and set up your base there' });
@@ -1247,57 +1309,49 @@ function refreshPanel() {
       { label: 'Go repair', note: 'Drive to the nearest Repair Pad', onClick: () => order('gorepair', hurt) },
   ].filter(Boolean);
   if (more.length) addMenu('Orders', keys.shift(), more);
-  // Battle groups: put the selected vehicles in a numbered group, picked
+  // Groups: fighting vehicles go in battle groups 1-5 (a number handed to a
+  // commander becomes ★ Command N), workers in work groups W1-W3. Picked
   // again with one tap on the group buttons over the battlefield.
-  const vehicles = sel.filter(e => e.kind === 'unit');
+  const vehicles = sel.filter(e => e.kind === 'unit' && !e.cmdId);
   if (vehicles.length) {
     const inGroup = selectionGroup(), anyIn = vehicles.some(u => view.groupOf && view.groupOf.get(u.id));
-    const items = [{ heading: 'Make these battle group' }];
-    for (let k = 1; k <= 5; k++) {
-      const n = groupMembers(String(k)).length;
-      items.push({ label: `Battle group ${k}`, active: inGroup === String(k), note: n ? `Replaces its ${n} vehicle${n > 1 ? 's' : ''}` : 'Empty', onClick: () => setGroup(String(k), 'set') });
+    const combat = vehicles.filter(u => u.def.role === 'combat'), workers = vehicles.filter(u => u.def.role !== 'combat');
+    const cmdsList = myCommands(), items = [];
+    const groupItems = (keysList, mode) => keysList.map(k => {
+      const c = cmdsList.find(x => String(x.n) === k), n = groupMembers(k).length;
+      if (c) return mode === 'set' ? { label: `★ Command ${k}`, disabled: true, note: 'Delegated to a commander' } : null;
+      return mode === 'set' ? { label: groupName(k), active: inGroup === k, note: n ? `Replaces its ${n}` : 'Empty', onClick: () => setGroup(k, 'set') }
+        : n && k !== inGroup ? { label: groupName(k), note: `${n} in it now`, onClick: () => setGroup(k, 'add') } : null;
+    }).filter(Boolean);
+    const B = ['1', '2', '3', '4', '5'], W = ['W1', 'W2', 'W3'];
+    if (combat.length) {
+      items.push({ heading: workers.length ? `Make the ${combat.length} fighting vehicles battle group` : 'Make these battle group' }, ...groupItems(B, 'set'));
+      const add = groupItems(B, 'add'); if (add.length) items.push({ heading: 'Add them to' }, ...add);
     }
-    const addable = Object.keys(input.groups).sort().filter(k => groupMembers(k).length && k !== inGroup);
-    if (addable.length) {
-      items.push({ heading: 'Add these to' });
-      for (const k of addable) items.push({ label: `Battle group ${k}`, note: `${groupMembers(k).length} in it now`, onClick: () => setGroup(k, 'add') });
+    if (workers.length) {
+      items.push({ heading: combat.length ? `Make the ${workers.length} workers work group` : 'Make these work group' }, ...groupItems(W, 'set'));
+      const add = groupItems(W, 'add'); if (add.length) items.push({ heading: 'Add them to' }, ...add);
     }
-    if (anyIn) items.push({ heading: 'Remove' }, { label: 'Leave battle group', note: 'Take these out of their group', onClick: () => setGroup(null, 'leave') });
-    // Commanders: one vehicle of a battle group leads it under general orders.
-    const tm = game.teams[view.team], cmdsList = myCommands(), combat = vehicles.filter(u => u.def.role === 'combat');
+    if (anyIn) items.push({ heading: 'Remove' }, { label: 'Leave group', note: 'Take these out of their group', onClick: () => setGroup(null, 'leave') });
+    // Commanders: one vehicle of a battle group takes it over.
+    const tm = game.teams[view.team];
     const myGroup = vehicles.length === 1 && view.groupOf && view.groupOf.get(vehicles[0].id);
-    if (combat.length) items.push({ heading: 'Commanders' });
-    if (vehicles.length === 1 && combat.length && !vehicles[0].cmdId) {
-      const why = !tm.research.command ? 'Research Field Command at a Research Lab first'
-        : !myGroup ? 'Put it in a battle group first: it will lead that group'
-        : cmdsList.length >= COMMAND.max ? `You already have ${COMMAND.max} commanders` : '';
-      items.push({ label: 'Make commander', disabled: !!why, note: why || `Leads battle group ${myGroup} (up to ${COMMAND.size}). You then give it general orders and it picks the tactics.`,
-        onClick: () => { issueCommand(game, view.team, { type: 'promote', unitId: vehicles[0].id, ids: groupMembers(myGroup).map(u => u.id) }); sound('ack'); refreshPanel(); updateGroupBar(true); } });
+    if (combat.length) {
+      items.push({ heading: 'Commanders' });
+      if (vehicles.length === 1) {
+        const why = !tm.research.command ? 'Research Field Command at a Research Lab first'
+          : !myGroup || isWorkKey(myGroup) ? 'Put it in a battle group first: it will lead that group'
+          : cmdsList.length >= COMMAND.max ? `You already have ${COMMAND.max} commanders` : '';
+        items.push({ label: 'Make commander', disabled: !!why, note: why || `Battle group ${myGroup} becomes ★ Command ${myGroup} (up to ${COMMAND.size}): you give general orders, it picks the tactics`,
+          onClick: () => promote(vehicles[0], myGroup) });
+      } else items.push({ label: 'Make commander', disabled: true, note: tm.research.command ? 'Select just one vehicle of a battle group' : 'Research Field Command at a Research Lab first' });
+      for (const c of cmdsList) {
+        const room = COMMAND.size - commandMembers(c).length;
+        items.push({ label: `Assign to ★ Command ${c.n}`, disabled: room <= 0, note: room <= 0 ? 'Full' : `${commandMembers(c).length}/${COMMAND.size} now${combat.length > room ? `: only ${room} more fit` : ''}`,
+          onClick: () => { const ids = combat.map(u => u.id); issueCommand(game, view.team, { type: 'cmdAssign', cmdId: c.id, ids }); ungroup(ids.filter(id => game.byId.get(id).cmdId)); sound('ack'); refreshPanel(); updateGroupBar(true); } });
+      }
     }
-    const free = combat.filter(u => !u.cmdId);
-    for (const c of cmdsList) if (free.length) {
-      const room = COMMAND.size - commandMembers(c).length;
-      items.push({ label: `Assign to Command ${c.n}`, disabled: room <= 0, note: room <= 0 ? 'Full' : `${commandMembers(c).length}/${COMMAND.size} now${free.length > room ? `: only ${room} more fit` : ''}`,
-        onClick: () => { issueCommand(game, view.team, { type: 'cmdAssign', cmdId: c.id, ids: free.map(u => u.id) }); sound('ack'); refreshPanel(); updateGroupBar(true); } });
-    }
-    if (combat.length && !tm.research.command && vehicles.length > 1) items.push({ label: 'Make commander', disabled: true, note: 'Research Field Command at a Research Lab, then pick one vehicle of a battle group' });
-    addMenu(inGroup ? `Group ${inGroup}` : 'Group', keys.shift(), items, { active: !!inGroup, title: 'Battle groups: save these vehicles as a group you can pick with one tap', top: 1 });
-  }
-  // A command group selected: give its commander a general order.
-  const cg = vehicles.length && commandOf(vehicles[0]);
-  if (cg && vehicles.every(u => u.cmdId === cg.id)) {
-    const cur = cg.order ? cg.order.kind + ':' + (cg.order.kind === 'hunt' ? 'base' : cg.order.target) : '';
-    const give = (kind, target) => { issueCommand(game, view.team, { type: 'cmdOrder', cmdId: cg.id, kind, target }); sound('ack'); refreshPanel(); updateGroupBar(true); };
-    addMenu(`Command ${cg.n}`, keys.shift(), [
-      { heading: 'General order: the commander picks the tactics' },
-      { label: 'Attack the enemy base', active: cur === 'attack:base', note: 'Head-on or a pincer from two sides', onClick: () => give('attack', 'base') },
-      { label: 'Attack enemy Extractors', active: cur === 'attack:extractors', note: 'Raids the Extractors you know of', onClick: () => give('attack', 'extractors') },
-      { label: 'Hunt enemy units', active: cur === 'hunt:base', note: 'Seeks out and destroys enemy vehicles', onClick: () => give('hunt', 'base') },
-      { label: 'Guard our base', active: cur === 'guard:base', note: 'Posts around your base, or patrols', onClick: () => give('guard', 'base') },
-      { label: 'Guard our Extractors', active: cur === 'guard:extractors', note: 'Guards on the exposed ones, the rest patrol or wait in reserve', onClick: () => give('guard', 'extractors') },
-      { heading: 'Command' },
-      { label: 'Take back command', note: 'They go back to your direct orders (they stay a battle group)', onClick: () => { issueCommand(game, view.team, { type: 'cmdRelease', cmdId: cg.id }); sound('ack'); refreshPanel(); updateGroupBar(true); } },
-    ], { active: true, title: `Command ${cg.n}: ${commandOrderText(cg)}`, top: 1 });
+    addMenu(inGroup ? (isWorkKey(inGroup) ? inGroup : `Group ${inGroup}`) : 'Group', keys.shift(), items, { active: !!inGroup, title: 'Battle groups (fighting vehicles) and work groups (workers): pick them again with one tap', top: 1 });
   }
   const parked = recycleCandidates(sel);
   const recycleTip = document.createElement('div'); recycleTip.className = 'dim small tip';
