@@ -621,11 +621,20 @@ function drawWallPlacement(ctx, game, view, at) {
     ctx.strokeStyle = 'rgba(255,210,90,0.6)'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
     ctx.beginPath(); ctx.arc(q.x, q.y, WALL_W / 2 + 6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
   }
-  const a = view.wallStart || snapWallPoint(game, team, at);
+  // The snap grid around the pointer: a dot every half square.
+  const G = WALL.grid, gx = Math.round(at.x / G) * G, gy = Math.round(at.y / G) * G;
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) {
+    const d = Math.hypot(dx, dy); if (d > 6) continue;
+    const big = ((gx / G + dx) % 2 === 0) && ((gy / G + dy) % 2 === 0);   // square corners a little bigger
+    ctx.globalAlpha = 1 - d / 7; ctx.beginPath(); ctx.arc(gx + dx * G, gy + dy * G, big ? 2 : 1.3, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  const a = view.wallStart || snapWallStart(game, team, at);
   ctx.fillStyle = '#ffd25a'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.arc(a.x, a.y, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();   // the pivot
   if (!view.wallStart) return;
-  const b = clampWallEnd(a, snapWallPoint(game, team, at));
+  const b = snapWallEnd(game, team, a, at);
   if (Math.hypot(b.x - a.x, b.y - a.y) < 4) return;
   const facing = wallFacingAB(game, a, b, view.wallFlip), nx = Math.cos(facing), ny = Math.sin(facing);
   const tiles = wallTiles(a.x, a.y, b.x, b.y);
@@ -648,7 +657,9 @@ function drawWallPlacement(ctx, game, view, at) {
     ctx.beginPath(); ctx.moveTo(cx + nx * 9, cy + ny * 9); ctx.lineTo(cx - ny * 6, cy + nx * 6); ctx.lineTo(cx + ny * 6, cy - nx * 6); ctx.closePath(); ctx.fill();
   }
   ctx.font = 'bold 14px system-ui, sans-serif'; ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.lineWidth = 3.5;
-  const cost = BUILDING_TYPES.wall.cost, n = wallSections({ ax: a.x, ay: a.y, bx: b.x, by: b.y }), label = `${n} section${n === 1 ? '' : 's'} × ${cost} = ${n * cost} scrap`;
+  const cost = BUILDING_TYPES.wall.cost, n = wallSections({ ax: a.x, ay: a.y, bx: b.x, by: b.y });
+  const deg = ((Math.round(Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI) % 360) + 360) % 360;
+  const label = `${n} section${n === 1 ? '' : 's'} × ${cost} = ${n * cost} scrap · ${deg}°`;
   const lx = b.x + 22, ly = b.y - 18;
   ctx.strokeText(label, lx, ly); ctx.fillText(label, lx, ly);
 }
@@ -795,6 +806,12 @@ function drawWallNetwork(ctx, game, team, onScreen, time) {
       if (last && last.st === st && sp.t0 <= last.t1 + 2) { last.t1 = Math.max(last.t1, sp.t1); last.n++; last.built += sp.e.built; last.faded = last.faded || shown.get(sp.e); }
       else bands.push({ t0: sp.t0, t1: sp.t1, st, n: 1, built: sp.e.built, faded: shown.get(sp.e) });
     }
+    // Where the run starts or ends on another wall's square (a joint), carry
+    // the band on to the shared pillar.
+    const ownAt = (x, y) => { const i = Math.floor(y / T) * game.map.W + Math.floor(x / T); return game.wallGrid[i] === list[0].team && !list.some(e => e.id === game.wallId[i]); };
+    if (bands.length && bands[0].t0 > 2 && bands[0].t0 < T * 1.6 && ownAt(g.ax, g.ay)) bands[0].t0 = 0;
+    const lb = bands[bands.length - 1];
+    if (lb && lb.t1 < L - 2 && lb.t1 > L - T * 1.6 && ownAt(g.bx, g.by)) lb.t1 = L;
     for (const bd of bands) {
       const p0 = { x: g.ax + ux * bd.t0, y: g.ay + uy * bd.t0 }, p1 = { x: g.ax + ux * bd.t1, y: g.ay + uy * bd.t1 };
       drawWallBand(ctx, [p0, p1], nx, ny, list[0], bd.st ? (bd.faded ? 0.5 : 1) : 0.2 + 0.55 * bd.built / bd.n, !bd.st, time);
