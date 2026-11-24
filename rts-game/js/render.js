@@ -907,7 +907,7 @@ function drawRubbleEnd(ctx, p, ux, uy, dir, piece) {
 // and down, or an L-shaped corner. Its arms reach the edge of its square
 // where another section touches, so a row of sections reads as one wall;
 // a free end gets a cap.
-const SECTION_W = 44;
+const SECTION_W = 62;   // the full width of its square, the same as a Gun Tower's pad
 function sectionArms(b) {
   // Which sides (0 right, 1 down, 2 left, 3 up) this section reaches.
   const r = ((Math.round((b.facing || 0) / (Math.PI / 2)) % 4) + 4) % 4;
@@ -932,7 +932,7 @@ function drawWallSection(ctx, b, ghost, time) {
   if (b.built < 1) ctx.globalAlpha *= 0.3 + 0.6 * b.built;
   // The shape: each arm from the middle to the edge (to the very edge if
   // another section touches, else stopping short with a cap).
-  const reach = side => (sectionTouches(b, side) ? s / 2 : s / 2 - 4);
+  const reach = side => (sectionTouches(b, side) ? s / 2 : s / 2 - 1);
   const shape = off => {
     ctx.beginPath();
     for (const side of arms) {
