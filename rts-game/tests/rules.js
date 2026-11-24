@@ -1443,7 +1443,16 @@ section('Compound walls');
   const h0 = hid.hp, w0hp = fresh.reduce((a, w) => a + w.hp, 0);
   run(g, S, 8);
   const w1hp = fresh.reduce((a, w) => a + w.hp, 0);
-  check('walls stop direct fire: shots at a vehicle behind an enemy wall hit the wall', hid.hp === h0 && w1hp < w0hp, `vehicle ${Math.round(h0)} -> ${Math.round(hid.hp)}, wall ${Math.round(w0hp)} -> ${Math.round(w1hp)}`);
+  check("walls stop direct fire: an enemy gun won't waste shots on a vehicle behind a wall, which stays unharmed", hid.hp === h0, `vehicle ${Math.round(h0)} -> ${Math.round(hid.hp)}, wall ${Math.round(w0hp)} -> ${Math.round(w1hp)}`);
+  // ...and from the inside too: no shooting out through your own wall.
+  const out = S.addUnit(g, 'scout', 2, (ox + 22.5) * T, (oy + 16.5) * T);
+  out.stance = 'stealth'; out.def = Object.assign({}, out.def, { weapon: null });
+  run(g, S, 1);
+  const o0 = out.hp;
+  S.issueCommand(g, 1, { type: 'attack', ids: [hid.id], targetId: out.id });
+  run(g, S, 6);
+  check('nobody shoots out through a wall either: your own wall stops your shots (and takes no damage)', out.hp === o0 && fresh.every(w => w.hp === w.maxHp || w.lastHitBy !== hid), `target ${Math.round(o0)} -> ${Math.round(out.hp)}, fired ${hid.lastShot !== undefined}`);
+  out.hp = 0;
   // (the tower stays as the artillery's spotter: its shots still only hit the wall)
   const arty = S.addUnit(g, 'artillery', 2, (ox + 25.5) * T, (oy + 14.5) * T);
   arty.stance = 'stealth'; run(g, S, 1);
@@ -1485,6 +1494,16 @@ section('Walls at any angle, from a pivot');
   const centre = q => (q.x - T / 2) % T === 0 && (q.y - T / 2) % T === 0;
   check('walls go square centre to square centre, straight or at 45°, a whole section at a time', centre(piv) && ends.every(e => e.angle % 45 === 0 && centre(e) && Number.isInteger(e.sections)),
     ends.map(e => `${e.angle}° ×${e.sections}`).join(', '));
+  {
+    // Alignment guides and meeting walls (on a straight wall on the grid).
+    const C = k => k * T + T / 2;
+    g.teams[1].scrap = 5000;
+    S.issueCommand(g, 1, { type: 'buildWall', ids: [hb.id], a: { x: C(ox + 2), y: C(oy + 16) }, b: { x: C(ox + 12), y: C(oy + 16) }, facing: 0 });
+    const lined = S.snapWallStart(g, 1, { x: C(ox + 12) - T * 0.6, y: C(oy + 20) + 12 });
+    check('a new pivot lines up with a nearby wall end (alignment guide)', lined.x === C(ox + 12) && lined.guides && lined.guides.length > 0, `${(lined.x - C(ox)) / T}, ${(lined.y - C(oy)) / T}`);
+    const meet = S.snapWallEnd(g, 1, { x: C(ox + 7), y: C(oy + 21) }, { x: C(ox + 7) + 3, y: C(oy + 17) + 8 });
+    check('a wall dragged up to another stops exactly on it', meet.y === C(oy + 16) && !!meet.meets, `${(meet.x - C(ox)) / T}, ${(meet.y - C(oy)) / T}`);
+  }
   check('a new wall snaps onto the end of one you already have', (() => { const q = S.snapWallPoint(g, 1, { x: b.x + 9, y: b.y - 7 }); return q.x === b.x && q.y === b.y; })());
   check('a wall is at most 16 sections long', S.wallSections({ ax: 0, ay: 0, bx: 40 * T, by: 0 }) > 16 && S.snapWallEnd(g, 1, piv, { x: piv.x + 60 * T, y: piv.y }).sections === 16 && (() => { g.teams[1].scrap = 5000; const before = g.entities.length; S.issueCommand(g, 1, { type: 'buildWall', ids: [hb.id], a: { x: (ox + 2) * T, y: (oy + 14.5) * T }, b: { x: (ox + 60) * T, y: (oy + 14.5) * T }, facing: 0 }); return g.entities.length - before <= 17; })());
   // A bastion dropped onto the wall takes the place of the wall under it.
