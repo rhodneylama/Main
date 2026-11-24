@@ -340,7 +340,7 @@ function inFrontOfWall(game, team, tx, ty, size) {
 }
 // A Constructor building a Gun Tower or Radar on top of one of your bastions.
 function bastionAt(game, team, type, tx, ty) {
-  if (type !== 'tower' && type !== 'radar') return null;
+  if (type !== 'tower' && type !== 'radar' && type !== 'shield') return null;
   return game.entities.find(e => e.team === team && e.def.bastion && e.hp > 0 && Math.abs(e.tx - tx) <= 1 && Math.abs(e.ty - ty) <= 1) || null;
 }
 // The weapon a tower had before any bastion bonus: its stock gun or its upgrade's.
@@ -612,7 +612,9 @@ function issueCommand(game, team, cmd) {
       break;
     }
     case 'wallShield': {
-      // Wall II: a forcefield along the whole run, in front of it.
+      // (Retired: Shield Projectors go on bastions instead. Shield Walls in
+      // older saved games keep working.)
+      if (!cmd.legacy) return;
       const tm = game.teams[team], p = own(cmd.buildingId);
       if (!p || p.type !== 'wall' || !p.runId) return;
       if (!tm.research.shields) { pushEvent(game, team, 'Research Forcefield Tech at a Research Lab first', 'warn'); return; }
@@ -2123,6 +2125,27 @@ function updateProjectiles(game, dt) {
       const k = Math.min(1, step / (d || 1)), nx = p.x + (p.tx - p.x) * k, ny = p.y + (p.ty - p.y) * k;
       const f = fields.find(f => f.team !== p.team && (nx - p.x) * f.dx + (ny - p.y) * f.dy < 0 && segmentsCross(p.x, p.y, nx, ny, f.ax, f.ay, f.bx, f.by));
       if (f) { p.done = true; hitField(game, f, p); continue; }
+    }
+    // Walls stop direct fire: a shot that reaches an enemy wall hits the wall.
+    // (Artillery arcs over; your own walls don't block your own shots, and a
+    // shot at something on a bastion, or at the wall itself, gets there.)
+    if (game.wallCount && p.kind !== 'artillery') {
+      const T = CONFIG.TILE, W = game.map.W, k = Math.min(1, step / (d || 1)), ex = p.x + (p.tx - p.x) * k, ey = p.y + (p.ty - p.y) * k;
+      const n = Math.max(1, Math.ceil(Math.hypot(ex - p.x, ey - p.y) / 10)), tgt = game.byId.get(p.targetId);
+      let wall = null;
+      for (let s = 1; s <= n && !wall; s++) {
+        const x = p.x + (ex - p.x) * s / n, y = p.y + (ey - p.y) * s / n, i = Math.floor(y / T) * W + Math.floor(x / T);
+        const owner = game.wallGrid[i];
+        if (!owner || owner === p.team) continue;
+        const w = game.byId.get(game.wallId[i]);
+        if (w && w.hp > 0 && w !== tgt && !(tgt && tgt.mountOn === w.id)) wall = { w, x, y };
+      }
+      if (wall) {
+        p.done = true;
+        damage(game, wall.w, p.damage, p);
+        game.effects.push({ kind: 'spark', x: wall.x, y: wall.y, t: 0, life: 0.3, big: p.kind !== 'bullet' });
+        continue;
+      }
     }
     if (d <= step) {
       p.done = true;

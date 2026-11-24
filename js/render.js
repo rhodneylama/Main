@@ -578,6 +578,10 @@ function drawPlacement(ctx, game, view) {
     ctx.fillStyle = ok ? 'rgba(120,255,140,0.25)' : 'rgba(255,90,80,0.3)'; ctx.strokeStyle = ok ? '#8cffa0' : '#ff6a5a'; ctx.lineWidth = 2;
     ctx.fillRect(bs.x - h, bs.y - h, 2 * h, 2 * h); ctx.strokeRect(bs.x - h, bs.y - h, 2 * h, 2 * h);
     if (def.weapon) { ctx.setLineDash([4, 6]); ctx.beginPath(); ctx.arc(bs.x, bs.y, def.weapon.range * WALL.mountReach, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
+    if (def.field) {   // a Shield Projector: where its field will stand
+      const g = fieldGeometry({ def, facing: view.placeFacing || 0, x: bs.x, y: bs.y });
+      ctx.strokeStyle = 'rgba(90,184,255,0.9)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(g.ax, g.ay); ctx.lineTo(g.bx, g.by); ctx.stroke();
+    }
     return;
   }
   const onWall = snapOntoWall(game, view.team, view.placing, at);

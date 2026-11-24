@@ -87,10 +87,13 @@ function aiUpdate(game, team) {
   const builder = idleBuilders[0];
   // A Gun Tower or Radar up on one of its bastions (Fortress and Balanced).
   const plan = wallPlan(game, ai);
-  const freeBastion = plan && plan.towers && buildings.find(b => b.def.bastion && b.built >= 1 && !b.mountId);
+  // Shield wall: Shield Projectors on its bastions (with Forcefield Tech and a Generator); others: Gun Towers.
+  const shieldUp = plan && plan.shield && tm.research.shields && buildings.some(b => b.type === 'generator' && b.built >= 1);
+  const onTop = plan ? (shieldUp ? 'shield' : plan.towers ? 'tower' : null) : null, cap = plan ? (plan.towers || 0) + (plan.shield ? 2 : 0) : 0;
+  const freeBastion = onTop && buildings.find(b => b.def.bastion && b.built >= 1 && !b.mountId);
   const mounted = buildings.filter(b => b.mountOn).length;
-  if (builder && !ai.savingUp && freeBastion && mounted < plan.towers && !buildings.some(b => b.mountOn && b.built < 1) && tm.scrap >= BUILDING_TYPES.tower.cost + 100) {
-    cmd({ type: 'build', ids: [builder.id], building: 'tower', tx: freeBastion.tx, ty: freeBastion.ty });
+  if (builder && !ai.savingUp && freeBastion && mounted < cap && !buildings.some(b => b.mountOn && b.built < 1) && tm.scrap >= BUILDING_TYPES[onTop].cost + 100) {
+    cmd({ type: 'build', ids: [builder.id], building: onTop, tx: freeBastion.tx, ty: freeBastion.ty, facing: snapFacing(toCenter) });
   } else if (builder && !ai.savingUp) {
     const unfinished = buildings.find(b => b.built < 1 && !b.def.wallPiece);
     let want = null, near = null;
@@ -324,7 +327,7 @@ function aiUplinks(game, team, ai, army, hq, cmd) {
 // Each computer opponent gets a hidden personality for the game, which decides
 // how it uses walls (difficulty decides how much and how early):
 //   fortress   walls with bastions and Gun Towers on them, artillery
-//   shieldwall walls upgraded to Shield Walls (needs Forcefield Tech + power)
+//   shieldwall walls with Shield Projectors on the bastions (Forcefield Tech + power)
 //   raider     few walls: short walls at the Extractors it has to defend
 //   balanced   some of everything
 // `after`: from when (s); `base`: length of the wall across the front of its
@@ -402,11 +405,6 @@ function aiWalls(game, team, ai, plan, hq, units, buildings, cmd) {
       if (job.kind === 'run') cmd({ type: 'buildWall', ids: [hb.id], tiles: job.tiles, facing: job.facing });
       else if (canPlaceBuilding(game, team, job.kind, job.tx, job.ty).ok) cmd({ type: 'build', ids: [hb.id], building: job.kind, tx: job.tx, ty: job.ty, facing: job.facing });
     }
-  }
-  // Shield Walls: once it has Forcefield Tech and a Generator.
-  if (plan.shield && tm.research.shields && buildings.some(b => b.type === 'generator' && b.built >= 1)) {
-    const piece = buildings.find(b => b.type === 'wall' && b.built >= 1 && !b.runShield && b.runId && !buildings.some(o => o.runId === b.runId && o.built < 1));
-    if (piece && tm.scrap >= wallRun(game, piece).length * WALL.shield.cost + 150) cmd({ type: 'wallShield', buildingId: piece.id });
   }
 }
 

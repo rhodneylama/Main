@@ -221,8 +221,11 @@ function entityAt(wx, wy, pad = 0, allow = null) {
     if (allow && !allow(e)) continue;
     if (e.team !== view.team && !view.revealAll && !isVisibleTo(game, view.team, e)) continue;
     const d = Math.hypot(e.x - wx, e.y - wy);
-    const r = (e.kind === 'building' ? e.radius : e.radius + 6) + pad;
-    if (d < r && d < bd) { bd = d; best = e; }
+    // What stands on a bastion (a tower, radar or shield) wins a tap on its
+    // middle; the bastion's rim still picks the bastion.
+    const r = (e.kind === 'building' ? (e.mountOn ? CONFIG.TILE : e.radius) : e.radius + 6) + pad;
+    const score = d - (e.mountOn ? 1000 : 0);
+    if (d < r && score < bd) { bd = score; best = e; }
   }
   return best;
 }
@@ -1157,19 +1160,8 @@ function refreshPanel() {
       else addBtn(`Upgrade to ${up.name}`, up.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'upgrade', buildingId: first.id }),
         { title: `${up.cost} scrap, ${up.time}s. Production pauses while upgrading.` });
     }
-    // A wall run: upgrade the whole run to a Shield Wall.
-    if (first.type === 'wall' && first.built >= 1) {
-      const run = wallRun(game, first), anchor = first.runShield && game.byId.get(first.runShield);
-      if (anchor && anchor.upgrading !== null && anchor !== first) addBtn(`Shield Wall ${Math.floor(anchor.upgrading / WALL.shield.time * 100)}%`, null, keys.shift(), () => {}, { locked: true });
-      else if (!first.runShield) {
-        const cost = wallSections(wallSeg(game, first)) * WALL.shield.cost;
-        if (!tm.research.shields) addBtn('Shield Wall', null, keys.shift(), () => logMessage('Research Forcefield Tech at a Research Lab first', 'warn'), { note: 'Research first', locked: true, title: 'Needs Forcefield Tech (Research Lab)' });
-        else addBtn('Shield Wall', cost, keys.shift(), () => issueCommand(game, view.team, { type: 'wallShield', buildingId: first.id }),
-          { title: `Wall II: a forcefield along the whole length of this wall, in front of it. ${cost} scrap, ${WALL.shield.time}s. Needs power: one Generator share per ${WALL.shield.tilesPerPower} sections.` });
-      }
-      tip.textContent = `A wall ${wallSections(wallSeg(game, first))} sections long${first.shieldWall ? ', with a Shield Wall' : ''}. The spiked side is its front: nothing can be built in front of it.`;
-    }
-    if (first.def.bastion && first.built >= 1) tip.textContent = first.mountId ? `Carries a ${nameOf(game.byId.get(first.mountId) || first)}: it shoots and sees 15% further from up here, and falls with the bastion.` : 'Select a Constructor and build a Gun Tower or Radar on it: 15% more reach from up here.';
+    if (first.type === 'wall' && first.built >= 1) tip.textContent = `A wall ${wallSections(wallSeg(game, first))} sections long${first.shieldWall ? ', with a Shield Wall' : ''}. The spiked side is its front: nothing can be built in front of it.`;
+    if (first.def.bastion && first.built >= 1) tip.textContent = first.mountId ? `Carries a ${nameOf(game.byId.get(first.mountId) || first)} (tap it in the middle to select it and upgrade it): it shoots and sees 15% further from up here, and falls with the bastion.` : 'Select a Constructor and build a Gun Tower, Radar or Shield Projector on it: 15% more reach from up here, and it upgrades as usual.';
     if (first.def.gate && first.built >= 1) tip.textContent = 'Opens for your vehicles; the enemy has to break it down.';
     // Radar: a chain of upgrades (Radar II, Radar III).
     if (first.built >= 1 && first.def.levels) {
