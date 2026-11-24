@@ -254,7 +254,7 @@ canvas.addEventListener('mousedown', e => {
     // Walls: press on the pivot, drag out the length and angle, let go to build
     // (or click the pivot, then click the end).
     if (!view.wallStart) { view.wallStart = snapWallStart(game, view.team, w); view.wallDrag = true; refreshPanel(); return; }
-    placeBuilding(w, e.shiftKey); return;
+    view.wallDrag = true; wallEndFor(w); return;   // from the pivot (or where the last wall ended): let go to build
   }
   if (view.placing) { placeBuilding(w, e.shiftKey); return; }
   if (view.attackMode) { attackMoveAt(w); return; }
@@ -327,7 +327,7 @@ function attackMoveAt(w, pad = 0) {
 }
 
 function cancelModes() {
-  view.placing = null; view.placeReady = false; view.wallStart = null; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
+  view.placing = null; view.placeReady = false; view.wallStart = null; view.wallEnd = null; view.loupe = null; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
   refreshPanel();
 }
 
@@ -600,6 +600,7 @@ function selectArmy() {
 
 const touch = { points: new Map(), mode: null, start: null, pinch: null, holdTimer: null };
 const TOUCH_PAD = 14;  // fingers are less precise than a mouse pointer
+const WALL_AIM = 64;   // placing walls by touch: the point aimed at is this far above the finger
 
 function touchPos(t) {
   const r = canvas.getBoundingClientRect();
@@ -615,8 +616,11 @@ canvas.addEventListener('touchstart', e => {
   const pts = [...touch.points.values()];
   if (pts.length === 1 && view.placing === 'wall') {
     // Walls: the first touch sets the pivot; dragging (now or later) sets the
-    // length and angle. Two fingers still move and zoom the map.
-    const p = pts[0], w = toWorld(p.x, p.y);
+    // length and angle. Two fingers still move and zoom the map. The point
+    // aimed at sits a little above the finger (shown in a magnifier), so the
+    // finger doesn't hide it.
+    const p = pts[0], w = toWorld(p.x, p.y - WALL_AIM);
+    view.loupe = { x: p.x, y: p.y - WALL_AIM };
     touch.start = { x: p.x, y: p.y, cx: view.cam.x, cy: view.cam.y };
     touch.mode = 'wall';
     if (!view.wallStart) { view.wallStart = snapWallStart(game, view.team, w); view.wallEnd = null; view.placeAt = null; view.placeReady = false; refreshPanel(); }
@@ -659,7 +663,7 @@ canvas.addEventListener('touchmove', e => {
   }
   if (pts.length !== 1 || !touch.start) return;
   const p = pts[0];
-  if (touch.mode === 'wall') { view.placeAt = toWorld(p.x, p.y); wallEndFor(view.placeAt); return; }
+  if (touch.mode === 'wall') { view.loupe = { x: p.x, y: p.y - WALL_AIM }; view.placeAt = toWorld(p.x, p.y - WALL_AIM); wallEndFor(view.placeAt); return; }
   if (touch.mode === 'box') { view.drag.x1 = p.x; view.drag.y1 = p.y; return; }
   if (touch.mode === 'pending' && Math.hypot(p.x - touch.start.x, p.y - touch.start.y) > 10) {
     touch.mode = 'pan'; clearTimeout(touch.holdTimer);
@@ -683,6 +687,7 @@ function touchEnd(e) {
     return;
   }
   if (e.type === 'touchend' && touch.mode === 'pending' && ended.length) handleTap(ended[0]);
+  view.loupe = null;
   if (touch.mode === 'wall' && view.wallStart) {
     const ready = view.placeAt && Math.hypot(view.placeAt.x - view.wallStart.x, view.placeAt.y - view.wallStart.y) > CONFIG.TILE * 0.6;
     if (ready !== view.placeReady) { view.placeReady = ready; refreshPanel(); }
@@ -837,9 +842,9 @@ function placeBuilding(w, keepPlacing) {
     const a = view.wallStart, b = wallEndFor(w) || snapWallEnd(game, view.team, a, w);
     issueCommand(game, view.team, { type: 'buildWall', ids: [builder.id], a, b, facing: wallFacingAB(game, a, b, view.wallFlip) });
     sound('build');
-    // Keep going (Shift): the next wall starts where this one ended.
-    view.wallStart = keepPlacing ? { x: b.x, y: b.y } : null; view.wallEnd = null; view.placeReady = false; view.placeAt = null;
-    if (!keepPlacing) view.placing = null;
+    // Chain building: the next wall starts where this one ended, until you
+    // press Done (or New pivot to start somewhere else).
+    view.wallStart = { x: b.x, y: b.y }; view.wallEnd = null; view.placeReady = false; view.placeAt = null;
     refreshPanel();
     return;
   }
@@ -963,7 +968,7 @@ function select(list) {
   // Buildings can only be selected one at a time.
   const units = list.filter(e => e.kind === 'unit');
   view.selected = units.length ? units : list.slice(0, 1);
-  view.placing = null; view.placeReady = false; view.wallStart = null; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
+  view.placing = null; view.placeReady = false; view.wallStart = null; view.wallEnd = null; view.loupe = null; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
   closePop();
   if (view.selected.length && isMine(view.selected[0])) sound('select');
   refreshPanel();
@@ -1310,7 +1315,7 @@ function refreshPanel() {
     else if (view.placing && BUILDING_TYPES[view.placing].facing) addBtn('Rotate ↻', null, 'F', rotatePlacement, { title: BUILDING_TYPES[view.placing].wallPiece ? 'Turn it 45° so its front faces out (F)' : 'Turn the forcefield 45° (F)' });
     if (view.placing && isTouch && view.placeReady) addBtn(view.placing === 'wall' ? 'Build wall' : 'Build here', null, '↵', confirmPlacement, { primary: true });
     if (view.placing === 'wall' && view.wallStart) addBtn('New pivot', null, 'R', () => { view.wallStart = null; view.wallEnd = null; view.placeAt = null; view.placeReady = false; refreshPanel(); }, { title: 'Pick a different starting point' });
-    if (view.placing) addBtn('Cancel', null, 'Esc', () => { view.placing = null; view.placeReady = false; view.wallStart = null; view.wallDrag = false; refreshPanel(); });
+    if (view.placing) addBtn(view.placing === 'wall' ? 'Done' : 'Cancel', null, 'Esc', () => { view.placing = null; view.placeReady = false; view.wallStart = null; view.wallEnd = null; view.wallDrag = false; refreshPanel(); });
     // A Constructor can go for repairs, and be recycled on a pad, like any vehicle.
     if (!view.placing) {
       if (builder.hp < builder.maxHp && game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1))
@@ -1320,7 +1325,7 @@ function refreshPanel() {
     }
     const tip = document.createElement('div'); tip.className = 'dim small tip';
     tip.textContent = view.placing === 'wall' ? (!view.wallStart ? `${isTouch ? 'Touch' : 'Press'} where the wall starts (its pivot). It snaps onto the end of a wall or a bastion nearby.`
-        : `${isTouch ? 'Drag from the pivot to set the length and angle, then press Build wall' : 'Drag out the length and angle, and let go (or click where it ends)'}. It goes square to square, straight or at 45°, one section at a time: up to 16 sections at ${BUILDING_TYPES.wall.cost} scrap each. The arrows show its front: nothing can be built there. Flip front swaps it.${isTouch ? '' : ' Shift keeps going from the end.'}`)
+        : `${isTouch ? 'Drag to set the length and angle (the point aimed at is just above your finger), then press Build wall' : 'Drag out the length and angle, and let go (or click where it ends)'}. It goes square to square, straight or at 45°, lines up with nearby walls (dashed guides) and stops on a wall it reaches. The next wall carries on from its end: press Done when finished. ${BUILDING_TYPES.wall.cost} scrap a section, up to 16.`)
       : view.placing && BUILDING_TYPES[view.placing].wallPiece ? `${isTouch ? 'Tap' : 'Click'} on one of your walls to set it into the wall, lined up with it (it replaces the sections under it).`
       : !view.placing ? (builder.def.wallBuilder ? `Pick Wall, then drag it out from a pivot: any angle, up to 16 sections. For a way out, leave a gap between two Bastions. Drop a Bastion onto a wall to set it in; it can carry a Gun Tower or Radar.` : `Pick a building, then ${isTouch ? 'tap' : 'click'} where it should go.`)
       : isTouch ? 'Tap inside the green zone to position it, then press Build here.'
@@ -1612,6 +1617,23 @@ function handleEvents() {
 // -----------------------------------------------------------------------------
 
 let panelTimer = 0;
+// A magnifier over the point being aimed at (placing walls by touch).
+function drawLoupe(c, p) {
+  // Up and off to the side (away from the screen edge), so it never covers what you're joining.
+  const R = 54, k = 2.2, left = p.x > c.canvas.width / 2, cx = left ? Math.max(R + 8, p.x - R - 56) : Math.min(c.canvas.width - R - 8, p.x + R + 56), cy = Math.max(R + 8, p.y - R - 24);
+  c.save(); c.setTransform(1, 0, 0, 1, 0, 0);
+  c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.save(); c.clip();
+  c.fillStyle = '#000'; c.fillRect(cx - R, cy - R, 2 * R, 2 * R);
+  c.drawImage(c.canvas, p.x - R / k, p.y - R / k, 2 * R / k, 2 * R / k, cx - R, cy - R, 2 * R, 2 * R);
+  c.restore();
+  c.strokeStyle = '#ffd25a'; c.lineWidth = 3; c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,0.8)'; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(cx - 8, cy); c.lineTo(cx + 8, cy); c.moveTo(cx, cy - 8); c.lineTo(cx, cy + 8); c.stroke();
+  // and a small mark where it is aimed
+  c.fillStyle = '#ffd25a'; c.beginPath(); c.arc(p.x, p.y, 3, 0, Math.PI * 2); c.fill();
+  c.restore();
+}
+
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - (lastFrame || now)) / 1000);
@@ -1637,6 +1659,7 @@ function frame(now) {
   view.pings = view.pings.filter(p => p.t < 0.5);
   handleEvents();
   drawGame(ctx, game, view);
+  if (view.loupe && view.placing === 'wall') drawLoupe(ctx, view.loupe);
   if (!minimapCollapsed) drawMinimap(miniCtx, game, view);
   panelTimer += dt;
   if (panelTimer > 0.25) { panelTimer = 0; updateHud(); refreshPanel(); }

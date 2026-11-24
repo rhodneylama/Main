@@ -633,6 +633,11 @@ function drawWallPlacement(ctx, game, view, at) {
     ctx.beginPath(); ctx.arc(q.x, q.y, WALL_W / 2 + 6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
   }
   const a = view.wallStart || snapWallStart(game, team, at);
+  const guide = (from, to) => {   // a dashed line showing what it lines up with
+    ctx.save(); ctx.strokeStyle = 'rgba(255,210,90,0.85)'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 6]);
+    ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke(); ctx.restore();
+  };
+  if (!view.wallStart) for (const g of a.guides || []) guide(g, a);
   // The square the pivot is locked to.
   ctx.strokeStyle = 'rgba(255,210,90,0.9)'; ctx.lineWidth = 2;
   ctx.strokeRect(Math.floor(a.x / T) * T + 1, Math.floor(a.y / T) * T + 1, T - 2, T - 2);
@@ -641,6 +646,8 @@ function drawWallPlacement(ctx, game, view, at) {
   if (!view.wallStart) return;
   const e = view.wallEnd, b = e && e.ax === a.x && e.ay === a.y ? e : snapWallEnd(game, team, a, at);
   if (Math.hypot(b.x - a.x, b.y - a.y) < 4) return;
+  for (const g of b.guides || []) guide(g, b);
+  if (b.meets) { ctx.strokeStyle = 'rgba(255,210,90,0.95)'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(b.x, b.y, WALL_W / 2 + 7, 0, Math.PI * 2); ctx.stroke(); }
   const facing = wallFacingAB(game, a, b, view.wallFlip), nx = Math.cos(facing), ny = Math.sin(facing);
   const tiles = wallTiles(a.x, a.y, b.x, b.y);
   // The squares it will stand on: outlined, red where it can't go.

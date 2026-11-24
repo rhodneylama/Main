@@ -257,32 +257,77 @@ function wallSnapPoints(game, team) {
     if (e.def.bastion) out.push({ x: e.x, y: e.y, kind: 'bastion' });
     else if (e.seg) { out.push({ x: e.seg.ax, y: e.seg.ay, kind: e.def.gate ? 'gate' : 'wall' }, { x: e.seg.bx, y: e.seg.by, kind: e.def.gate ? 'gate' : 'wall' }); }
   }
-  return out;
+  // Each point once (every piece of a wall knows its two ends).
+  const seen = new Set();
+  return out.filter(q => { const k = Math.round(q.x) + ',' + Math.round(q.y); if (seen.has(k)) return false; seen.add(k); return true; });
 }
 function snapWallPoint(game, team, p, r = CONFIG.TILE * 0.9) {
   let best = null, bd = r;
   for (const q of wallSnapPoints(game, team)) { const d = Math.hypot(q.x - p.x, q.y - p.y); if (d < bd) { bd = d; best = q; } }
   return best ? { x: best.x, y: best.y, snapped: best.kind } : { x: p.x, y: p.y };
 }
-// Where a wall's pivot goes: onto a wall end or bastion close by, otherwise
-// the middle of the square under the pointer, so walls stay on the grid.
+// --- Wall snapping: square centres, 8 directions, alignment guides ---
+const WALL_DIRS = [[1, 0], [0, 1], [1, 1], [1, -1]];   // lines across, up and down, and the two 45° diagonals
+// The wall ends and bastions near p that walls line up with.
+function wallGuides(game, team, p, skip) {
+  const T = CONFIG.TILE, R = T * 24;
+  return wallSnapPoints(game, team).filter(q => Math.abs(q.x - p.x) < R && Math.abs(q.y - p.y) < R && !(skip && q.x === skip.x && q.y === skip.y))
+    .sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y)).slice(0, 14);
+}
+// Does q sit on one of the 8 guide lines through g?
+const onGuide = (q, g) => { const dx = Math.round(q.x - g.x), dy = Math.round(q.y - g.y); return (dx || dy) && (dx === 0 || dy === 0 || Math.abs(dx) === Math.abs(dy)); };
+// Is q on one of your walls' lines (within a little), and which wall?
+function onWallLine(game, team, q) {
+  for (const e of game.entities) {
+    if (e.type !== 'wall' || e.team !== team || e.hp <= 0 || !e.seg) continue;
+    const g = e.seg, vx = g.bx - g.ax, vy = g.by - g.ay, L2 = vx * vx + vy * vy;
+    if (!L2) continue;
+    const t = ((q.x - g.ax) * vx + (q.y - g.ay) * vy) / L2;
+    if (t < 0 || t > 1) continue;
+    if (Math.hypot(g.ax + vx * t - q.x, g.ay + vy * t - q.y) < 2) return e;
+  }
+  return null;
+}
+// Where a wall's pivot goes: onto a wall end or bastion close by; otherwise
+// onto a square centre lined up with nearby walls (where two guide lines
+// cross, or on one), otherwise the square under the pointer.
 function snapWallStart(game, team, p) {
   const T = CONFIG.TILE, q = snapWallPoint(game, team, p, T * WALL.snapReach);
   if (q.snapped) return q;
-  return { x: Math.floor(p.x / T) * T + T / 2, y: Math.floor(p.y / T) * T + T / 2 };
+  const sq = { x: Math.floor(p.x / T) * T + T / 2, y: Math.floor(p.y / T) * T + T / 2 };
+  const guides = wallGuides(game, team, p);
+  let best = null, bd = Infinity;
+  // Square centres around the pointer that line up with guides: two guides beat one.
+  for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+    const c = { x: sq.x + ox * T, y: sq.y + oy * T }, hits = guides.filter(g => onGuide(c, g));
+    if (!hits.length) continue;
+    const d = Math.hypot(c.x - p.x, c.y - p.y) - (hits.length > 1 ? T * 0.6 : 0);
+    if (d < bd) { bd = d; best = { x: c.x, y: c.y, guides: hits.slice(0, 2) }; }
+  }
+  return best && bd < T * 1.1 ? best : sq;
 }
-// Where its end goes: one of 8 directions (straight or 45°), a whole number
-// of sections (square to square) from the pivot, at most WALL.maxRun; or
-// onto a wall end or bastion close by that lies in one of those directions.
+// Where its end goes: one of 8 directions from the pivot, a whole number of
+// sections (square to square), at most WALL.maxRun. It prefers, within a
+// section of the pointer: a wall end or bastion; then a point on another of
+// your walls (so the two meet); then a point lined up with a guide.
 function snapWallEnd(game, team, a, p) {
   const T = CONFIG.TILE, q = snapWallPoint(game, team, p, T * WALL.snapReach);
   const dirOk = (dx, dy) => Math.abs(dx) < 0.5 || Math.abs(dy) < 0.5 || Math.abs(Math.abs(dx) - Math.abs(dy)) < 0.5;
   if (q.snapped && (q.x !== a.x || q.y !== a.y) && dirOk(q.x - a.x, q.y - a.y) && Math.max(Math.abs(q.x - a.x), Math.abs(q.y - a.y)) <= WALL.maxRun * T + 0.5) return q;
   const step = Math.PI / 4, ang = Math.round(Math.atan2(p.y - a.y, p.x - a.x) / step) * step;
   const dx = Math.round(Math.cos(ang)), dy = Math.round(Math.sin(ang));
-  const along = (p.x - a.x) * dx + (p.y - a.y) * dy, per = dx && dy ? 2 * T : T;   // diagonal: one section is a square across and a square down
-  const n = Math.min(WALL.maxRun, Math.max(1, Math.round(along / per)));
-  return { x: a.x + dx * n * T, y: a.y + dy * n * T, angle: Math.round(ang * 180 / Math.PI), sections: n };
+  const along = (p.x - a.x) * dx + (p.y - a.y) * dy, per = dx && dy ? 2 * T : T;
+  const raw = along / per, n0 = Math.min(WALL.maxRun, Math.max(1, Math.round(raw)));
+  const at = n => ({ x: a.x + dx * n * T, y: a.y + dy * n * T, angle: Math.round(ang * 180 / Math.PI), sections: n });
+  const guides = wallGuides(game, team, p, a);
+  let best = null, bs = Infinity;
+  for (let n = Math.max(1, n0 - 2); n <= Math.min(WALL.maxRun, n0 + 2); n++) {
+    const c = at(n), meet = onWallLine(game, team, c), hits = meet ? [] : guides.filter(g => onGuide(c, g));
+    if (!meet && !hits.length) continue;
+    const score = Math.abs(n - raw) - (meet ? 0.6 : 0.3 * Math.min(2, hits.length));
+    if (score < bs && Math.abs(n - raw) < (meet ? WALL.snapReach + 0.1 : 1.05)) { bs = score; best = Object.assign(c, meet ? { meets: meet.id } : { guides: hits.slice(0, 2) }); }
+  }
+  return best || at(n0);
 }
 
 // A gate or bastion dropped onto one of your walls: lined up with it.
@@ -1913,6 +1958,20 @@ function edgeDist(a, b) {
 }
 
 // Pick the best nearby enemy. Prefers things that can shoot back.
+// Can e's direct fire reach t, or is a wall in the way? (Artillery arcs
+// over; a gun up on a bastion fires over the walls.)
+function clearShot(game, e, t, w = e.def.weapon) {
+  if (!game.wallCount || (w && w.projectile === 'artillery') || e.mountOn) return true;
+  const T = CONFIG.TILE, W = game.map.W, d = Math.hypot(t.x - e.x, t.y - e.y), n = Math.max(1, Math.ceil(d / 12));
+  for (let s = 1; s < n; s++) {
+    const x = e.x + (t.x - e.x) * s / n, y = e.y + (t.y - e.y) * s / n, i = Math.floor(y / T) * W + Math.floor(x / T);
+    if (!game.wallGrid[i]) continue;
+    const id = game.wallId[i];
+    if (id !== t.id && id !== t.mountOn) return false;
+  }
+  return true;
+}
+
 function findTarget(game, e, radius) {
   let best = null, bestScore = Infinity;
   const w = e.def.weapon;
@@ -1926,7 +1985,10 @@ function findTarget(game, e, radius) {
     if (o.kind === 'building') score += o.def.weapon ? 40 : 200;
     else if (!o.def.weapon) score += 120;
     if (o === e.lastHitBy) score -= 150;
-    if (score < bestScore) { bestScore = score; best = o; }
+    if (score < bestScore) {
+      if (game.wallCount && !clearShot(game, e, o, w)) return;
+      bestScore = score; best = o;
+    }
   };
   const g = game.ugrid;
   if (!g) { for (const o of game.entities) consider(o); return best; }
@@ -2126,23 +2188,22 @@ function updateProjectiles(game, dt) {
       const f = fields.find(f => f.team !== p.team && (nx - p.x) * f.dx + (ny - p.y) * f.dy < 0 && segmentsCross(p.x, p.y, nx, ny, f.ax, f.ay, f.bx, f.by));
       if (f) { p.done = true; hitField(game, f, p); continue; }
     }
-    // Walls stop direct fire: a shot that reaches an enemy wall hits the wall.
-    // (Artillery arcs over; your own walls don't block your own shots, and a
-    // shot at something on a bastion, or at the wall itself, gets there.)
-    if (game.wallCount && p.kind !== 'artillery') {
+    // Walls stop direct fire, from either side: a shot that reaches a wall
+    // hits it (only artillery arcs over, and a gun up on a bastion fires over
+    // the walls). A shot at the wall itself, or at what's on a bastion, gets there.
+    if (game.wallCount && p.kind !== 'artillery' && !(game.byId.get(p.owner) || {}).mountOn) {
       const T = CONFIG.TILE, W = game.map.W, k = Math.min(1, step / (d || 1)), ex = p.x + (p.tx - p.x) * k, ey = p.y + (p.ty - p.y) * k;
       const n = Math.max(1, Math.ceil(Math.hypot(ex - p.x, ey - p.y) / 10)), tgt = game.byId.get(p.targetId);
       let wall = null;
       for (let s = 1; s <= n && !wall; s++) {
         const x = p.x + (ex - p.x) * s / n, y = p.y + (ey - p.y) * s / n, i = Math.floor(y / T) * W + Math.floor(x / T);
-        const owner = game.wallGrid[i];
-        if (!owner || owner === p.team) continue;
+        if (!game.wallGrid[i]) continue;
         const w = game.byId.get(game.wallId[i]);
         if (w && w.hp > 0 && w !== tgt && !(tgt && tgt.mountOn === w.id)) wall = { w, x, y };
       }
       if (wall) {
         p.done = true;
-        damage(game, wall.w, p.damage, p);
+        if (wall.w.team !== p.team) damage(game, wall.w, p.damage, p);   // your own wall just stops your shot
         game.effects.push({ kind: 'spark', x: wall.x, y: wall.y, t: 0, life: 0.3, big: p.kind !== 'bullet' });
         continue;
       }
