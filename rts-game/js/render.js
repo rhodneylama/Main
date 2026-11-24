@@ -571,6 +571,17 @@ function drawPlacement(ctx, game, view) {
   if (!at) return;
   if (view.placing === 'wall') { drawWallPlacement(ctx, game, view, at); return; }
   let { tx, ty } = placementTile(at, def.size);
+  if (def.mountable) {
+    // A wall section: shown as it will stand, snapped flush to its neighbours.
+    const sn = snapWallSection(game, view.team, view.placing, tx, ty);
+    if (sn) { tx = sn.tx; ty = sn.ty; }
+    const ok = canPlaceBuilding(game, view.team, view.placing, tx, ty).ok;
+    const ghost = { def, type: view.placing, faction: game.teams[view.team].faction, team: view.team, tx, ty, size: def.size,
+      x: (tx + def.size / 2) * T, y: (ty + def.size / 2) * T, facing: view.placeFacing || 0, built: 1, hp: 1, maxHp: 1, id: 0 };
+    ctx.save(); ctx.globalAlpha = ok ? 0.8 : 0.35; drawWallSection(ctx, ghost, false, game.time); ctx.restore();
+    ctx.strokeStyle = ok ? 'rgba(140,255,160,0.8)' : '#ff6a5a'; ctx.lineWidth = 1.5; ctx.strokeRect(tx * T + 0.5, ty * T + 0.5, def.size * T - 1, def.size * T - 1);
+    return;
+  }
   const bs = bastionAt(game, view.team, view.placing, tx, ty);
   if (bs) {
     // A Gun Tower or Radar up on a bastion: in its middle.
@@ -892,7 +903,86 @@ function drawRubbleEnd(ctx, p, ux, uy, dir, piece) {
   }
   ctx.restore();
 }
+// A wall section (2x2, the size of a Gun Tower): a thick slab across or up
+// and down, or an L-shaped corner. Its arms reach the edge of its square
+// where another section touches, so a row of sections reads as one wall;
+// a free end gets a cap.
+const SECTION_W = 44;
+function sectionArms(b) {
+  // Which sides (0 right, 1 down, 2 left, 3 up) this section reaches.
+  const r = ((Math.round((b.facing || 0) / (Math.PI / 2)) % 4) + 4) % 4;
+  return b.def.corner ? [r, (r + 1) % 4] : (r % 2 ? [1, 3] : [0, 2]);
+}
+function sectionTouches(b, side) {
+  // Another wall piece of the same side against this edge?
+  if (!game || !game.wallGrid) return false;
+  const W = game.map.W, s = b.size, [dx, dy] = [[1, 0], [0, 1], [-1, 0], [0, -1]][side];
+  for (let k = 0; k < s; k++) {
+    const x = dx > 0 ? b.tx + s : dx < 0 ? b.tx - 1 : b.tx + k, y = dy > 0 ? b.ty + s : dy < 0 ? b.ty - 1 : b.ty + k;
+    if (x < 0 || y < 0 || x >= W || y >= game.map.H) continue;
+    if (game.wallGrid[y * W + x] === b.team) return true;
+  }
+  return false;
+}
+function drawWallSection(ctx, b, ghost, time) {
+  const T = CONFIG.TILE, s = b.size * T, C = wallColours(b.faction), cx = b.x, cy = b.y, h = SECTION_W / 2;
+  const arms = sectionArms(b), dirs = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+  ctx.save();
+  if (ghost) ctx.globalAlpha = 0.5;
+  if (b.built < 1) ctx.globalAlpha *= 0.3 + 0.6 * b.built;
+  // The shape: each arm from the middle to the edge (to the very edge if
+  // another section touches, else stopping short with a cap).
+  const reach = side => (sectionTouches(b, side) ? s / 2 : s / 2 - 4);
+  const shape = off => {
+    ctx.beginPath();
+    for (const side of arms) {
+      const [dx, dy] = dirs[side], L = reach(side) - (sectionTouches(b, side) ? 0 : off), w = h - off;
+      ctx.rect(Math.min(cx, cx + dx * L) - (dy ? w : 0), Math.min(cy, cy + dy * L) - (dx ? w : 0), dx ? L : 2 * w, dy ? L : 2 * w);
+    }
+    ctx.rect(cx - h + off, cy - h + off, 2 * (h - off), 2 * (h - off));   // the middle
+  };
+  ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.save(); ctx.translate(3, 4); shape(0); ctx.fill(); ctx.restore();
+  ctx.fillStyle = C.edge; shape(0); ctx.fill();
+  ctx.fillStyle = C.base; shape(1.5); ctx.fill();
+  ctx.fillStyle = C.top; shape(8); ctx.fill();
+  // Battlements along both faces, the whole length of each arm.
+  ctx.fillStyle = C.dark;
+  for (const side of arms) {
+    const [dx, dy] = dirs[side], L = reach(side);
+    for (let t = 3; t < L - 3; t += 9) for (const o of [-1, 1]) {
+      const x = cx + dx * t + (dy ? o * (h - 3.5) : 0), y = cy + dy * t + (dx ? o * (h - 3.5) : 0);
+      ctx.fillRect(x - 2.5, y - 2.5, 5, 5);
+    }
+  }
+  // A seam where it meets the next section, and the side's colour along the top.
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1.5;
+  for (const side of arms) if (sectionTouches(b, side)) {
+    const [dx, dy] = dirs[side], e = s / 2 - 0.75;
+    ctx.beginPath(); ctx.moveTo(cx + dx * e - dy * (h - 7), cy + dy * e - dx * (h - 7)); ctx.lineTo(cx + dx * e + dy * (h - 7), cy + dy * e + dx * (h - 7)); ctx.stroke();
+  }
+  ctx.strokeStyle = TEAMS[b.team].color; ctx.lineWidth = 2; ctx.beginPath();
+  for (const side of arms) { const [dx, dy] = dirs[side], L = reach(side) - 6; ctx.moveTo(cx, cy); ctx.lineTo(cx + dx * L, cy + dy * L); }
+  ctx.stroke();
+  // A cap on each free end.
+  for (const side of arms) if (!sectionTouches(b, side)) {
+    const [dx, dy] = dirs[side], L = reach(side);
+    ctx.fillStyle = C.dark; ctx.fillRect(cx + dx * (L - 5) - (dy ? h : 2.5), cy + dy * (L - 5) - (dx ? h : 2.5), dy ? 2 * h : 5, dx ? 2 * h : 5);
+  }
+  ctx.restore();
+  if (b.built < 1 && !ghost) { ctx.strokeStyle = TEAMS[b.team].color; ctx.lineWidth = 1.5; ctx.strokeRect(b.tx * T + 1.5, b.ty * T + 1.5, s - 3, s - 3); }
+  else if (b.built >= 1) {
+    if (b.hp < b.maxHp * 0.5) {
+      ctx.strokeStyle = 'rgba(10,10,8,0.7)'; ctx.lineWidth = 1.4; ctx.beginPath();
+      ctx.moveTo(cx - h * 0.7, cy - h * 0.6); ctx.lineTo(cx, cy - 2); ctx.lineTo(cx + h * 0.5, cy + h * 0.7);
+      if (b.hp < b.maxHp * 0.25) { ctx.moveTo(cx - h * 0.8, cy + h * 0.3); ctx.lineTo(cx, cy - 2); }
+      ctx.stroke();
+    }
+    if (b.hitFlash > 0) flashOver(ctx, cx, cy, s * 0.45);
+  }
+}
+
 function drawWallPiece(ctx, b, ghost, time) {
+  if (b.def.mountable) { drawWallSection(ctx, b, ghost, time); return; }
   const T = CONFIG.TILE, s = b.size * T, x0 = b.tx * T, y0 = b.ty * T;
   const C = wallColours(b.faction), accent = TEAMS[b.team].color;
   const fx = Math.cos(b.facing || 0), fy = Math.sin(b.facing || 0);

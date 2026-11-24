@@ -502,96 +502,47 @@ in `sim.js`).
   Generator by its Recycler and two Shield Projectors in front of its base,
   facing the middle of the map.
 
-### Compound walls (23 November 2026)
+### Walls (redesigned 24 November 2026)
 
-A **Heavy Constructor** (built by a **Recycler II**: 130 scrap, 10 s, 420
-HP, slow at 34) builds walls and bastions, and nothing else (gates were
-removed on 23 November 2026: leave a gap between two bastions instead); a
-normal Constructor can't build them. No research is needed.
+Walls are built **one section at a time**. A **Heavy Constructor** (built
+by a **Recycler II**: 130 scrap, 10 s, 420 HP, slow at 34; drawn long and
+broad with a dozer blade and hazard stripes) builds them, and nothing else.
 
 | Piece | Cost | Time | HP | Size | What it does |
 | --- | --- | --- | --- | --- | --- |
-| Wall | 35 a section | 3 s a square | 1,500 a square | line | Dragged out from a pivot, square centre to square centre, straight or at 45°, up to 16 sections; a **section** is one step from square to square. Underneath, it blocks every square its line passes through (both squares where it crosses a corner), so nothing slips through. |
-| Bastion | 170 | 14 s | 4,500 | 3×3 | A thick wall tower, centred on a wall's line (or standing alone): a Constructor can build a **Gun Tower or a Radar on top**, in its middle. |
+| Wall | 75 | 8 s | 4,000 | 2×2 (a Gun Tower's size) | A straight section, across or up and down (**Rotate**). |
+| Wall Corner | 75 | 8 s | 4,000 | 2×2 | An L-shaped section that turns the wall; **Rotate** fits it to any of the four corners. |
 
-- **Building one (23 November 2026):** select the Heavy Constructor, pick
-  **Wall**, then press (or touch) where it starts: that is its **pivot**.
-  Drag out from the pivot to set its length and angle, and let go (on a
-  phone: then press **Build wall**; you can drag again to adjust first).
-  Clicking the pivot and then the end works too. The preview shows the
-  wall itself, any square where it can't go in red, arrows on its front,
-  and "N sections × 35 = cost". **Flip front** (`F`) swaps the front;
-  **New pivot** starts again. Shift-click carries on from the end.
-  **Alignment (23 November 2026):** walls go from **square centre to
-  square centre**, in one of **8 directions** (straight or 45°), a whole
-  **section** at a time (one square across, or one square across and one
-  down at 45°), up to 16 sections at 35 scrap each. While dragging, the end
-  moves in notches: it stays put until the pointer is clearly nearer the
-  next notch, then clicks over with a tick (and a tiny buzz on phones).
-  The squares it will stand on are outlined (red where it can't go) and
-  the square the pivot is locked to is marked. Snapping onto your own walls
-  comes first. **Alignment guides:** the pivot snaps onto square centres
-  that line up (across, up and down, or at 45°) with nearby wall ends and
-  bastions, preferring where two such lines cross; the end prefers a
-  length that lines up the same way, and **meets another wall**: dragged
-  to within 1.5 sections of one of your walls, it stops exactly on that
-  wall's line (a gold ring shows it). Dashed lines show what it's lining
-  up with. **On a phone**, the point aimed at sits a little above your
-  finger, with a magnifier beside it. **Chain building:** after each wall,
-  the next starts from its end until you press **Done** (or **New pivot**).
-  The pivot (and the end, if it lies in one of the 8 directions) snap onto
-  the end of one of your walls or
-  a bastion within about a square, so walls meet exactly and
-  share one round pillar. It is paid for by length when laid out (if you
-  can't afford all of it, as much as you can afford is laid out from the
-  pivot) and built square by square from behind.
-  **Bastions lock onto walls (23 November 2026):** with Bastion picked,
-  tap on one of your walls and the bastion sits centred on the wall's line,
-  on one of its section points (ends included), replacing the squares under
-  it (finished squares are refunded); the preview shows the bastion on the
-  wall. Away from a wall it stands alone. Being 3×3, its centre is a square
-  centre, so walls started from a bastion stay on the grid and run
-  straight through its middle.
-- **Looks:** each wall is drawn as one smooth, thick band (34 px, a little
-  more than a square) along its exact line from pivot to end, with a round
-  **pillar** at each end, so walls meeting at a shared point look like one
-  structure. A gate's two posts are the same pillars, on the wall's line,
-  with striped doors between; the wall runs into bastions and tucks under
-  them. A breach
-  shows as a gap in the band; a run still being built is faded with a
-  solid outline in your colour. A solid stripe in your colour runs along
-  the top. (What blocks vehicles is still the squares underneath.)
-- **The front:** each piece faces one way: the outside, drawn with a darker
-  face and a row of spikes. **Nothing can be built in front of your own
-  wall** (4 squares out); anything can go right behind it. Walls can be
-  built anywhere you have explored, any distance from your base.
+- **Building:** pick Wall or Wall Corner, tap where it goes (Build here)
+  or click. A section placed near another **snaps flush against it**, so
+  walls line up neatly. Placing carries on section after section until
+  **Done**. Each section is built on its own, so a long wall takes a
+  Heavy Constructor a while and costs a lot: walls are for where they
+  matter, not for walling in everything.
+- **Joining:** sections that touch draw as one continuous wall (a thin
+  seam between sections); a free end gets a cap.
+- **Gaps:** leave a gap for your own vehicles. Gun Towers can stand in the
+  gap, or on the wall.
+- **On the wall:** a Constructor can build a **Gun Tower, Radar or Shield
+  Projector** on any section (or corner). It stands in the section's
+  middle, sees, shoots and pings **15% further**, **upgrades as usual**
+  (tap it to select it), and falls when the section falls.
+- **Walls stop direct fire from both sides:** guns, cannons, rockets and
+  missiles hit the wall (an enemy wall takes the damage; your own wall just
+  stops your shot). Only **artillery** arcs over, and a gun up on a wall
+  fires over. Nothing picks targets it can't hit through a wall.
 - **Breaking through:** armed vehicles plan their route through an enemy
-  wall when going round costs more (a wall square counts as 14 squares of
-  driving, a gate 6), then stop at it and shoot their way through. Unarmed
-  vehicles only go round. Vehicles don't shoot walls on their own
-  otherwise (only when one is in the way, or you order an attack on it).
+  wall when going round costs more (each wall square counts as 14 squares
+  of driving), then stop and shoot their way through. Unarmed vehicles go
+  round.
 - **What hurts walls:** artillery shells ×1.25, **HE Cannon ×1.7, Bunker
-  Buster ×1.8**, **Plasma ×0.5** (walls shrug it off), on top of each
-  weapon's usual damage against buildings.
-- **On a bastion:** a Gun Tower, Radar or Shield Projector, built by a
-  Constructor, sits in the bastion's middle. It sees, shoots and pings 15%
-  further, and **upgrades exactly as usual** (Heavy or Artillery Tower,
-  Radar II and III, Shield Projector II); tap the middle of the bastion to
-  select it, the rim to select the bastion. If the bastion falls, what's
-  on it falls too.
-- **Walls stop direct fire, both ways (24 November 2026):** a shot that
-  reaches a wall hits it, so nothing shoots through a wall from either
-  side: guns, cannons, rockets and missiles all stop there (an enemy wall
-  takes the damage; your own wall just stops your shot). Only
-  **artillery** arcs over, and a **gun up on a bastion** fires over the
-  walls. Vehicles and towers don't pick targets they can't hit through a
-  wall. Something on a bastion (or the wall itself) can be shot at
-  directly.
-- **Shield Walls were removed (24 November 2026):** put a **Shield
-  Projector on a bastion** instead (needs Forcefield Tech and power as
-  usual; it upgrades to Shield Projector II). Shield Walls in older saved
-  games keep working.
+  Buster ×1.8**, **Plasma ×0.5**.
+- **Picking walls back up:** a Heavy Constructor sent to an unfinished
+  section finishes every unfinished section joined to it; **Resume walls**
+  sends it to all unfinished sections nearby.
 - Repair Drones repair walls like any building.
+- **Retired:** the drawn walls (pivot and drag, Shield Walls, gates and
+  bastions) from 23 November. They still load and work in older saves.
 
 ### Building lifecycle
 
@@ -1162,20 +1113,20 @@ other buildings before targeting them.
 
 **Personality (23 November 2026).** Each computer opponent gets a hidden
 personality for the game, which decides how it uses walls; the difficulty
-decides how much and how early:
+decides how much and how early. It builds its walls in sections across the
+side of its base that faces you, 13 squares out, with a 2-section gap in
+the middle for its own vehicles:
 
 | Personality | Easy | Normal | Hard |
 | --- | --- | --- | --- |
-| Fortress | 8-square wall from 15:00 | 14-square wall with a gate and bastions from 7:00, 2 Gun Towers on them | 18 squares from 6:00, towers, and walls at its Extractors |
-| Shield wall | 6 squares from 18:20 | 12 squares, bastions from 8:00, Shield Projectors on them | 16 squares from 7:00, Shield Projectors on its bastions, Extractor walls |
-| Raider | no walls | short walls at its Extractors from 10:00 | an 8-square base wall and Extractor walls from 8:00 |
-| Balanced | 6 squares from 18:20 | 10 squares, gate, bastions from 8:00, 1 tower | 14 squares from 7:00, a tower, Extractor walls |
+| Fortress | 4 sections from 15:00 | 7 sections from 7:00, 2 Gun Towers on the wall by the gap | 9 sections from 6:00, towers, and walls at its Extractors |
+| Shield wall | 3 sections from 18:20 | 6 sections from 8:00, Shield Projectors on the wall | 8 sections from 7:00, Shield Projectors, Extractor walls |
+| Raider | no walls | 3 sections at its Extractors from 10:00 | a 4-section base wall and Extractor walls from 8:00 |
+| Balanced | 3 sections from 18:20 | 5 sections from 8:00, 1 tower | 7 sections from 7:00, a tower, Extractor walls |
 
-The base wall stands 13 squares out from its Recycler, across the side
-facing your base, with the gate in the middle. On Normal and Hard it also
-walls any Extractor that gets attacked. A Heavy Constructor is built a
-minute before walls are due, and army production pauses while it saves up
-for the next piece (its defence budget).
+On Normal and Hard it also walls any Extractor that gets attacked. A Heavy
+Constructor is built a minute before walls are due, and army production
+pauses while it saves up for the next section.
 
 It makes decisions at intervals (`thinkEvery`, with ±15% random jitter). On
 each decision it runs through these steps in order:
@@ -1863,7 +1814,7 @@ Plain HTML and JavaScript with no build step: open `index.html` to play.
 | `js/campaign.js` | The campaign's rules: the theater, war reports, support, starting bonuses, battle results (section 16, "Campaign") |
 | `js/war.js` | The war map screen and starting campaign battles (drop-in, Take command, Reinforce) |
 | `js/saves.js` | Where saved games are kept: the published page's private per-person store, or this browser (see section 16, "Saving") |
-| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (274 checks). |
+| `tests/rules.js` | The rules tests. Run `node rts-game/tests/rules.js` from the repository folder; it prints PASS or FAIL per check (260 checks). |
 
 Other documents in the folder: `README.md` (how to play, controls, unit
 tables), `ROADMAP.md` (planned stages), `ECONOMY_TEST_REPORT.md` (the October
@@ -1915,7 +1866,7 @@ rebuilt.
 
 | Test type | Method | What it checks |
 | --- | --- | --- |
-| **Rules tests** (`tests/rules.js`, 274 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 44.9 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Orders** (Aggressive by default: an enemy beside the route is attacked, then they carry on to where they were sent; Stealth holds fire and arrives sooner; Return fire shoots in passing and keeps going; Hunt as a pack destroys a known enemy building across the map and keeps together; Hunt with nothing known goes searching; a guard goes after whoever attacks what it guards, even out of its range, then returns to its post; an idle vehicle helps a friend under fire nearby; a group attacking one target fans out in an arc; 100 units a side; 200 vehicles fighting take well under a second per battle second); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused); **Campaign** (fifteen battlefields all joined up; each side starts with its half and two battles under way; only neighbouring enemy battlefields can be attacked; more neighbours held means more starting vehicles, and they appear in the battle; each battlefield keeps its own map; war reports come in on time at the chosen pace, at most 12 while away, none on Hold; on Normal the AI commanders alone don't decide the war in 60 reports; winning takes the battlefield; leaving puts it back on paper from how it stood; Reinforce: the allied commander never moves your strike force and sends you some of what it builds); **Uplinks and call-ins** (three uplinks on open ground, the middle in the middle, the sides mirrored; one vehicle captures in about 15 s, three three times as fast; contested means no change; holding two counts only once online; hold two for 3 minutes to win; uplinks earn call-ins; everyone starts with one call-in; the computer opponent uses its call-ins; supply drop lands with 300 scrap; none left, nothing called; reinforcements land where chosen, only on explored ground); **Campaign battlefields** (the holder starts with a base; more support and time held means more built up; two landing zones clear of the defences, one to liberate from level 2; you land where you chose with a strike force, three call-ins, supply crates and knowledge of their Recycler; campaign battles run faster; some battlefields are capture-and-hold; landing zones always on the far half of the map); **Hit and miss** (less likely to hit a fast mover, at long range, or on the move; buildings always hit; in a fight some shots miss; vehicles keep moving while they fire); **Shields** (no field without a Generator; with one it boots after its reboot time; a powered projector burns 6 scrap a minute; fire from the front is stopped by the field, from behind it gets through; shot down it collapses and the projector is open, then reboots after 13.5 s partly charged; one Generator powers four; no scrap, no shields); **Radar and Forcefield Tech** (a Radar builds anywhere explored and lets you build around it; pings every 30 s, Radar II every 15 s, Radar III constantly; upgrades cost 250 then 500, and stop at III; Shield Projectors need Forcefield Tech and cost 180); **Veterans and armour** (two kills make a Veteran, five an Elite with more health; veterans hit much more often even on the move; side hits do 25% more, rear 50% more); **Repair Drones, Fight then repair, the Juggernaut** (tuning: Extractor income, shield strength and reboot, Artillery reload but not the tower's; a drone on Auto repair fixes a vehicle before a building, then both; a Constructor can't repair; Fight then repair goes to the pad at yellow and comes back; the Juggernaut's stats, slower than a Tank; its Mk II with +40% damage on both guns; it fires at two targets at once); **Drone Follow and the ruined city** (a drone on Follow stays with its vehicle and repairs it, and goes back to Auto repair when it is lost; the city is mirrored, everything can be driven to, a canal with bridges crosses it, building room is scarce, nothing can be built on a street, and there is a route between the bases); **Fixed guns, Tidal Flats, the Armory** (a tower and a dug-in Sentry hit a moving target more often; Tidal Flats is mirrored, reachable at low tide and joined by causeways at high tide, nothing builds on the sand, the tide floods and drains on time, a vehicle caught on the sand is swamped and washed ashore, fresh scrap washes up; the Armory researches eight weapons, a weapon must be researched before it's fitted, new Tanks get the Railgun while older ones keep the cannon, weapons scale with the vehicle, Sabot hits heavy armour harder, a Flamethrower burns what's around its target, a Shock Emitter slows, a Rocket Battery fires three, saved games keep weapons and loadouts); **Loadouts per Factory, Extractor II, radar reach** (each Factory keeps its own loadout and builds with it; Extractor II pumps 40% faster with more health; each Radar upgrade reaches much farther); **Commanders** (need Field Command; a battle group's vehicle takes command of it; 10 vehicles and 2 commanders at most; the command keeps the group's number; taking back command; the group aims better; Guard our Extractors posts guards and keeps the rest busy; direct orders don't reach a delegated group; Attack moves the group out; the most experienced takes over when the commander falls; saved games keep commanders); **Plasma and Shield Projector II**; **Compound walls** (Heavy Constructor from a Recycler II only and only for walls; a run is laid out and paid for piece by piece and built in order; nothing in front of your wall, behind is fine; gates are gone and a gap lets your side out; an armed enemy breaks through; HE, Bunker Buster and artillery hurt walls more, Plasma half; a Gun Tower on a bastion reaches 15% further and falls with it; Shield Wall needs Forcefield Tech, spans the run and draws power; saves keep walls); **Walls on the grid** (priced by sections, no gaps, snaps onto a wall end, square centre to centre in 8 directions a whole section at a time, 16 sections at most, a bastion dropped onto a wall replaces it); **Computer opponents build walls** (a Fortress walls its front with bastions guarding the gap; a Raider walls its Extractors). |
+| **Rules tests** (`tests/rules.js`, 260 checks) | Run the simulation without graphics (Node.js), set up a situation, and check the result. | **Map** (10 seeds): size, corners, point symmetry, rock edge, 20 geysers, 20-tile spacing, 10 per half, mirrored geysers and scrap, 36 fields, everything reachable. **Route-finding:** a cross-map route exists and takes under 15 ms. Deploying; storage and its cap; Base Silo; Recycler income; **Extractor pays about 44.9 a minute straight into the total, holds up to 120 while storage is full and lets it flow in when there is room**; no Transports or Extractor Silos; basic Scavengers can't deploy; Recycler II; Scavenger II deploys; research; tower fire; demolish refund; pad walkability; every vehicle kind repaired on the pad; workers wait on the pad; **repaired units leave the pad, to its waypoint if set**; Recycle; artillery stabilisers; **production queue** (no upfront cost, waits for scrap, counts past 5, cancel by type refunds only what was paid); **Guard** (a building, a unit, follows it, fights what hit it); **Gun Tower upgrades** (Artillery and Heavy, cost, new weapon, only one upgrade); **Artillery spotting** (doesn't fire at what its side can't see; fires out to its full range once a friendly vehicle spots the target); **Hornet and Sentry** (Factory builds them; the Hornet sits between a Scout and a Tank on cost, armour and speed and fires rockets; a packed-up Sentry never fires; dug in it lowers its legs, then fires a rapid stream, and never moves or chases; a move order packs it up); **Factions** (each side gets its chosen faction, everything it owns carries it, names and messages in its words, same numbers for both, Scrapline by default); **Orders** (Aggressive by default: an enemy beside the route is attacked, then they carry on to where they were sent; Stealth holds fire and arrives sooner; Return fire shoots in passing and keeps going; Hunt as a pack destroys a known enemy building across the map and keeps together; Hunt with nothing known goes searching; a guard goes after whoever attacks what it guards, even out of its range, then returns to its post; an idle vehicle helps a friend under fire nearby; a group attacking one target fans out in an arc; 100 units a side; 200 vehicles fighting take well under a second per battle second); **Saving** (a battle saves and loads; a loaded battle plays on exactly as the original for 3 minutes; a non-save is refused); **Campaign** (fifteen battlefields all joined up; each side starts with its half and two battles under way; only neighbouring enemy battlefields can be attacked; more neighbours held means more starting vehicles, and they appear in the battle; each battlefield keeps its own map; war reports come in on time at the chosen pace, at most 12 while away, none on Hold; on Normal the AI commanders alone don't decide the war in 60 reports; winning takes the battlefield; leaving puts it back on paper from how it stood; Reinforce: the allied commander never moves your strike force and sends you some of what it builds); **Uplinks and call-ins** (three uplinks on open ground, the middle in the middle, the sides mirrored; one vehicle captures in about 15 s, three three times as fast; contested means no change; holding two counts only once online; hold two for 3 minutes to win; uplinks earn call-ins; everyone starts with one call-in; the computer opponent uses its call-ins; supply drop lands with 300 scrap; none left, nothing called; reinforcements land where chosen, only on explored ground); **Campaign battlefields** (the holder starts with a base; more support and time held means more built up; two landing zones clear of the defences, one to liberate from level 2; you land where you chose with a strike force, three call-ins, supply crates and knowledge of their Recycler; campaign battles run faster; some battlefields are capture-and-hold; landing zones always on the far half of the map); **Hit and miss** (less likely to hit a fast mover, at long range, or on the move; buildings always hit; in a fight some shots miss; vehicles keep moving while they fire); **Shields** (no field without a Generator; with one it boots after its reboot time; a powered projector burns 6 scrap a minute; fire from the front is stopped by the field, from behind it gets through; shot down it collapses and the projector is open, then reboots after 13.5 s partly charged; one Generator powers four; no scrap, no shields); **Radar and Forcefield Tech** (a Radar builds anywhere explored and lets you build around it; pings every 30 s, Radar II every 15 s, Radar III constantly; upgrades cost 250 then 500, and stop at III; Shield Projectors need Forcefield Tech and cost 180); **Veterans and armour** (two kills make a Veteran, five an Elite with more health; veterans hit much more often even on the move; side hits do 25% more, rear 50% more); **Repair Drones, Fight then repair, the Juggernaut** (tuning: Extractor income, shield strength and reboot, Artillery reload but not the tower's; a drone on Auto repair fixes a vehicle before a building, then both; a Constructor can't repair; Fight then repair goes to the pad at yellow and comes back; the Juggernaut's stats, slower than a Tank; its Mk II with +40% damage on both guns; it fires at two targets at once); **Drone Follow and the ruined city** (a drone on Follow stays with its vehicle and repairs it, and goes back to Auto repair when it is lost; the city is mirrored, everything can be driven to, a canal with bridges crosses it, building room is scarce, nothing can be built on a street, and there is a route between the bases); **Fixed guns, Tidal Flats, the Armory** (a tower and a dug-in Sentry hit a moving target more often; Tidal Flats is mirrored, reachable at low tide and joined by causeways at high tide, nothing builds on the sand, the tide floods and drains on time, a vehicle caught on the sand is swamped and washed ashore, fresh scrap washes up; the Armory researches eight weapons, a weapon must be researched before it's fitted, new Tanks get the Railgun while older ones keep the cannon, weapons scale with the vehicle, Sabot hits heavy armour harder, a Flamethrower burns what's around its target, a Shock Emitter slows, a Rocket Battery fires three, saved games keep weapons and loadouts); **Loadouts per Factory, Extractor II, radar reach** (each Factory keeps its own loadout and builds with it; Extractor II pumps 40% faster with more health; each Radar upgrade reaches much farther); **Commanders** (need Field Command; a battle group's vehicle takes command of it; 10 vehicles and 2 commanders at most; the command keeps the group's number; taking back command; the group aims better; Guard our Extractors posts guards and keeps the rest busy; direct orders don't reach a delegated group; Attack moves the group out; the most experienced takes over when the commander falls; saved games keep commanders); **Plasma and Shield Projector II**; **Wall sections** (Heavy Constructor from a Recycler II only and only for walls; a section is a Gun Tower's size and costs 75, with a corner piece; old walls no longer built; sections are built one by one and Resume walls finishes them; a new section snaps flush; vehicles drive out through a gap; an armed enemy breaks into a walled-in spot; HE, Bunker Buster and artillery hurt walls more, Plasma half; a Gun Tower on a section reaches 15% further, upgrades as usual and falls with it; a Shield Projector on a section works and upgrades; walls stop direct fire both ways, artillery arcs over; saves keep walls); **Computer opponents build walls** (a Fortress walls its front with bastions guarding the gap; a Raider walls its Extractors). |
 | **AI duels** (`tests/balance/duels.sh`) | The current opponent plays an earlier version of itself (`tests/balance/ai_previous.js`, the first one; `ai_v2.js` with `OPP=v2`, the 18 October one) on many seeds, 4 games at a time, up to 60 minutes each. With `BOTHOLD=1` both sides use the previous version, giving the baseline for the same seeds. | Whether a change to the opponent actually makes it stronger. Each tactic was tried alone, then in combinations; see the results below. |
 | **AI-vs-AI batches** | Run 30 to 120 full games between two computer players on different seeds. | Games end, typical length, and **fairness** by team and by corner. |
 | **AI tech progression** | Log when the AI reaches each milestone at each difficulty. | The AI actually upgrades, researches and fields Mk II units. |
@@ -2510,3 +2461,9 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     piece joined to it, nearest first; a **Resume walls** button sends it
     back to all unfinished walls and bastions nearby. It is drawn longer
     and broader than a Constructor, with a dozer blade and hazard stripes.
+56. **Walls rebuilt as sections** (24 November 2026): drawn walls, pivots,
+    gates and bastions are gone. Walls are Gun-Tower-sized sections (75
+    scrap, 4,000 health) and corner pieces, built one at a time by the
+    Heavy Constructor, snapping flush to each other. Gun Towers, Radars and
+    Shield Projectors go on top of any section. Computer opponents build
+    their walls the same way.

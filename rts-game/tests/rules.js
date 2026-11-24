@@ -19,7 +19,7 @@ function load() {
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
     'createGame, generateMap, generateUrbanMap, generateTidalMap, WEAPONS, makeWeapon, loadoutDef, isVisibleTo, scrapIsDangerous, TILE_DIRT, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
-    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, COMMAND, buildCost, WALL, wallLine, wallFacing, wallTiles, wallSections, snapOntoWall, snapWallPoint, wallFacingAB, snapWallStart, snapWallEnd, damageForTest: damage });', ctx);
+    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, COMMAND, buildCost, WALL, snapWallSection, damageForTest: damage });', ctx);
   return ctx;
 }
 
@@ -1341,135 +1341,106 @@ section('Commanders');
   check('a saved game keeps its commanders', back.teams[1].commands[0].cmdrId === squad[3].id && back.byId.get(squad[1].id).cmdId === c.id);
 }
 
-section('Compound walls');
+section('Wall sections');
 {
   const S = load();
   const g = S.createGame({ seed: 3, difficulty: 'normal', aiTeams: [] });
   for (const e of g.entities) if (e.kind === 'unit' && e.type !== 'mobileRecycler') e.hp = 0;
   S.stepGame(g);
   g.teams[1].explored.fill(1); g.teams[2].explored.fill(1);
-  const T = S.CONFIG.TILE, W = g.map.W;
+  const T = S.CONFIG.TILE, W = g.map.W, B = S.BUILDING_TYPES;
   const clear = (x0, y0, n) => { for (let y = y0; y < y0 + n; y++) for (let x = x0; x < x0 + n; x++) if (S.isBlockedTile(g, x, y)) return false; return true; };
   let ox = 0, oy = 0;
-  outer: for (let r = 0; r < 50; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (clear(Math.floor(W / 2) + dx, Math.floor(g.map.H / 2) + dy, 26)) { ox = Math.floor(W / 2) + dx; oy = Math.floor(g.map.H / 2) + dy; break outer; }
-  // Who builds walls.
-  const rec = S.BUILDING_TYPES.recycler;
+  outer: for (let r = 0; r < 50; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (clear(Math.floor(W / 2) + dx, Math.floor(g.map.H / 2) + dy, 28)) { ox = Math.floor(W / 2) + dx; oy = Math.floor(g.map.H / 2) + dy; break outer; }
+  const rec = B.recycler;
   check('a Heavy Constructor comes from a Recycler II only', !rec.produces.includes('heavyBuilder') && rec.upgrade.produces.includes('heavyBuilder'));
-  const con = S.addUnit(g, 'constructor', 1, (ox + 6) * T, (oy + 13) * T), hb = S.addUnit(g, 'heavyBuilder', 1, (ox + 8) * T, (oy + 13) * T);
+  check('a wall section is the size of a Gun Tower and costs 75; there is a corner piece too', B.wallblock.size === B.tower.size && B.wallblock.cost === 75 && B.wallcorner.corner && B.wallcorner.cost === 75);
+  check('drawn walls, gates and bastions are no longer built', B.wall.buildable === false && B.gate.buildable === false && B.bastion.buildable === false);
+  const con = S.addUnit(g, 'constructor', 1, (ox + 4) * T, (oy + 14) * T), hb = S.addUnit(g, 'heavyBuilder', 1, (ox + 6) * T, (oy + 14) * T);
   g.teams[1].scrap = 5000;
-  S.issueCommand(g, 1, { type: 'buildWall', ids: [con.id], tiles: S.wallLine(ox + 12, oy, ox + 12, oy + 5), facing: 0 });
-  check('a plain Constructor cannot build walls', !g.entities.some(e => e.type === 'wall'));
+  S.issueCommand(g, 1, { type: 'build', ids: [con.id], building: 'wallblock', tx: ox + 12, ty: oy, facing: Math.PI / 2 });
+  check('a plain Constructor cannot build walls', !g.entities.some(e => e.type === 'wallblock'));
   S.issueCommand(g, 1, { type: 'build', ids: [hb.id], building: 'tower', tx: ox + 2, ty: oy + 2 });
-  check('a Heavy Constructor builds only walls, gates and bastions', !g.entities.some(e => e.type === 'tower'));
-  // A wall drawn as a line, built piece by piece.
-  check('a wall is drawn as a line (16 at most; a 45° line has its corners filled)', S.wallLine(0, 0, 30, 0).length === 16 && S.wallLine(0, 0, 3, 3).length === 7);
-  const scrap0 = g.teams[1].scrap;
-  S.issueCommand(g, 1, { type: 'buildWall', ids: [hb.id], tiles: [...S.wallLine(ox + 12, oy, ox + 12, oy + 10), ...S.wallLine(ox + 12, oy + 13, ox + 12, oy + 23)], facing: 0 });
-  const pieces = g.entities.filter(e => e.type === 'wall');
-  check('each piece of the wall is paid for as it is laid out', pieces.length === 22 && Math.round(scrap0 - g.teams[1].scrap) === 22 * S.BUILDING_TYPES.wall.cost);
-  S.issueCommand(g, 1, { type: 'build', ids: [con.id], building: 'radar', tx: ox + 14, ty: oy + 4 });
-  check("nothing can be built in front of your wall", !g.entities.some(e => e.type === 'radar' && e.tx === ox + 14) && !S.canPlaceBuilding(g, 1, 'radar', ox + 13, oy + 4).ok);
-  const behind = S.canPlaceBuilding(g, 1, 'radar', ox + 9, oy + 4).ok;
-  check('but right behind it is fine', behind);
-  run(g, S, 22 * S.BUILDING_TYPES.wall.buildTime + 70);
-  check('the Heavy Constructor builds the run one piece after another', pieces.every(p => p.built >= 1), `${pieces.filter(p => p.built >= 1).length}/22`);
-  {
-    // Interrupted, it picks the whole wall back up: one tap on an unfinished piece, or Resume walls.
-    g.teams[1].scrap = 5000;
-    const C = k => k * T + T / 2;
-    S.issueCommand(g, 1, { type: 'buildWall', ids: [hb.id], a: { x: C(ox + 3), y: C(oy + 25) }, b: { x: C(ox + 9), y: C(oy + 25) }, facing: Math.PI / 2 });
-    S.issueCommand(g, 1, { type: 'move', ids: [hb.id], x: hb.x - 60, y: hb.y });
-    const left = g.entities.filter(e => e.type === 'wall' && e.built < 1);
-    S.issueCommand(g, 1, { type: 'repair', ids: [hb.id], targetId: left[left.length - 1].id });
-    check('an interrupted Heavy Constructor sent back to one unfinished piece finishes the whole wall', left.length > 1 && 1 + (hb.order.queue || []).length === left.length, `${left.length} unfinished, ${1 + (hb.order.queue || []).length} queued`);
-    S.issueCommand(g, 1, { type: 'stop', ids: [hb.id] });
-    S.issueCommand(g, 1, { type: 'resumeWalls', ids: [hb.id] });
-    check('and Resume walls sends it back to all of them', 1 + (hb.order.queue || []).length >= left.length);
-    for (let k = 0; k < 120 && left.some(e => e.hp > 0 && e.built < 1); k++) run(g, S, 1);
-    check('which it then builds', left.every(e => e.built >= 1));
-  }
-  // No gates: leave a gap (between bastions) instead.
-  S.issueCommand(g, 1, { type: 'build', ids: [hb.id], building: 'gate', tx: ox + 12, ty: oy + 11, facing: 0 });
-  check('gates are gone: leave a gap between bastions instead', S.BUILDING_TYPES.gate.buildable === false && !g.entities.some(e => e.type === 'gate'));
-  const fr = S.addUnit(g, 'tank', 1, (ox + 4) * T, (oy + 12) * T);
+  check('a Heavy Constructor builds only wall sections', !g.entities.some(e => e.type === 'tower'));
+  // One section at a time: three ordered, the Heavy Constructor picks them all up with Resume walls.
+  const s0 = g.teams[1].scrap;
+  for (let k = 0; k < 3; k++) S.issueCommand(g, 1, { type: 'build', ids: [hb.id], building: 'wallblock', tx: ox + 12, ty: oy + 2 * k, facing: Math.PI / 2 });
+  const first = g.entities.filter(e => e.type === 'wallblock');
+  check('each section is built on its own and paid for (75 each)', first.length === 3 && Math.round(s0 - g.teams[1].scrap) === 225 && first.every(e => e.facing === Math.PI / 2));
+  S.issueCommand(g, 1, { type: 'resumeWalls', ids: [hb.id] });
+  for (let k = 0; k < 90 && first.some(e => e.built < 1); k++) run(g, S, 1);
+  check('Resume walls sends the Heavy Constructor round all the unfinished sections', first.every(e => e.built >= 1));
+  // A new section placed near another snaps flush against it.
+  const sn = S.snapWallSection(g, 1, 'wallblock', ox + 13, oy + 7);
+  check('a new section snaps flush against the last one', sn && sn.tx === ox + 12 && sn.ty === oy + 6, sn ? `${sn.tx - ox}, ${sn.ty - oy}` : 'none');
+  // The rest of the wall (straight down, a gap, more wall), finished.
+  const wallS = [...first];
+  for (const k of [3, 4, 5, 8, 9, 10, 11]) { const b = S.addBuilding(g, 'wallblock', 1, ox + 12, oy + 2 * k, true); b.facing = Math.PI / 2; wallS.push(b); }
+  const cor = S.addBuilding(g, 'wallcorner', 1, ox + 12, oy + 24, true); cor.facing = Math.PI;
+  // Your vehicles drive out through the gap.
+  const fr = S.addUnit(g, 'tank', 1, (ox + 6) * T, (oy + 13) * T);
   fr.stance = 'stealth';
-  S.issueCommand(g, 1, { type: 'move', ids: [fr.id], x: (ox + 20) * T, y: (oy + 16) * T });
-  run(g, S, 25);
-  check('your vehicles drive out through the gap', fr.x > (ox + 13) * T);
+  S.issueCommand(g, 1, { type: 'move', ids: [fr.id], x: (ox + 22) * T, y: (oy + 13) * T });
+  run(g, S, 20);
+  check('your vehicles drive out through a gap in the wall', fr.x > (ox + 14) * T);
   fr.hp = 0; S.stepGame(g);
-  for (const y of [oy + 11, oy + 12]) S.addBuilding(g, 'wall', 1, ox + 12, y, true).facing = 0;   // close it for the next test
-  // Breaking through: an armed enemy shoots its way in.
-  const raider = S.addUnit(g, 'tank', 2, (ox + 20) * T, (oy + 6) * T);
+  for (const k of [6, 7]) { const b = S.addBuilding(g, 'wallblock', 1, ox + 12, oy + 2 * k, true); b.facing = Math.PI / 2; wallS.push(b); }   // close it
+  // An armed enemy breaks through to get where it is going: a spot walled in all round.
+  const box = [];
+  for (const [bx, by] of [[0, 0], [2, 0], [4, 0], [0, 2], [4, 2], [0, 4], [2, 4], [4, 4]]) { const b = S.addBuilding(g, 'wallblock', 1, ox + 18 + bx, oy + 18 + by, true); b.facing = by === 2 ? Math.PI / 2 : 0; box.push(b); }
+  const raider = S.addUnit(g, 'tank', 2, (ox + 26) * T, (oy + 21) * T);
   raider.stance = 'stealth';
-  S.issueCommand(g, 2, { type: 'move', ids: [raider.id], x: (ox + 4) * T, y: (oy + 6) * T });
-  run(g, S, 150);
-  check('an armed enemy breaks through the wall to get where it is going', raider.x < (ox + 12) * T && pieces.some(p => p.hp <= 0));
+  S.issueCommand(g, 2, { type: 'move', ids: [raider.id], x: (ox + 21) * T, y: (oy + 21) * T });
+  for (let k = 0; k < 400 && raider.hp > 0 && Math.hypot(raider.x - (ox + 21) * T, raider.y - (oy + 21) * T) > 40; k++) run(g, S, 1);
+  check('an armed enemy breaks through a wall to get where it is going', Math.hypot(raider.x - (ox + 21) * T, raider.y - (oy + 21) * T) <= 40 && box.some(p => p.hp <= 0),
+    `${(raider.x / T - ox).toFixed(1)},${(raider.y / T - oy).toFixed(1)} t ${g.time.toFixed(0)}`);
   raider.hp = 0; S.stepGame(g);
   // What hurts walls.
-  const w0 = pieces.find(p => p.hp > 0);
-  const hit = (p, extra) => { const hp = w0.hp; S.damageForTest(g, w0, 100, Object.assign({ team: 2 }, extra)); const d = hp - w0.hp; w0.hp = w0.maxHp; return d; };
-  const plain = hit(w0, {}), he = hit(w0, { vsWall: S.WEAPONS.he.mod.vsWall }), bunker = hit(w0, { vsWall: S.WEAPONS.bunker.mod.vsWall }), plasma = hit(w0, { vsWall: S.WEAPONS.plasma.mod.vsWall, pierceShield: true }), shell = hit(w0, { kind: 'artillery' });
+  const w0 = wallS.find(p => p.hp > 0);
+  const hit = extra => { const hp = w0.hp; S.damageForTest(g, w0, 100, Object.assign({ team: 2 }, extra)); const d = hp - w0.hp; w0.hp = w0.maxHp; return d; };
+  const plain = hit({}), he = hit({ vsWall: S.WEAPONS.he.mod.vsWall }), bunker = hit({ vsWall: S.WEAPONS.bunker.mod.vsWall }), plasma = hit({ vsWall: S.WEAPONS.plasma.mod.vsWall, pierceShield: true }), shell = hit({ kind: 'artillery' });
   check('HE and Bunker Busters tear into walls; artillery hits them harder; Plasma does half', he > plain * 1.5 && bunker > plain * 1.5 && shell > plain && plasma <= plain * 0.5 + 0.01, `plain ${plain}, HE ${he}, bunker ${bunker}, shell ${shell}, plasma ${plasma}`);
-  // Bastions: a Gun Tower on top shoots further and falls with it.
-  S.issueCommand(g, 1, { type: 'build', ids: [hb.id], building: 'bastion', tx: ox + 11, ty: oy + 24, facing: 0 });
-  const bas = g.entities.find(e => e.type === 'bastion');
-  for (let k = 0; k < 90 && bas && bas.built < 1; k++) run(g, S, 1);
+  // A Gun Tower on a section: reaches further, upgrades as usual, falls with it.
   g.teams[1].scrap = 5000;
-  S.issueCommand(g, 1, { type: 'build', ids: [con.id], building: 'tower', tx: ox + 11, ty: oy + 24 });
-  const top = g.entities.find(e => e.type === 'tower' && e.mountOn === (bas && bas.id));
-  check('a Gun Tower can be built on a bastion, and reaches 15% further from up there', bas && top && top.def.weapon.range === Math.round(S.BUILDING_TYPES.tower.weapon.range * 1.15),);
-  run(g, S, 25);
-  // It upgrades like any Gun Tower, and keeps its reach bonus.
-  g.teams[1].scrap = 5000;
+  const base = wallS.find(p => p.hp > 0 && p.ty === oy + 18);
+  S.issueCommand(g, 1, { type: 'build', ids: [con.id], building: 'tower', tx: base.tx, ty: base.ty });
+  const top = g.entities.find(e => e.type === 'tower' && e.mountOn === base.id);
+  check('a Gun Tower can be built on a wall section, and reaches 15% further from up there', top && top.x === base.x && top.def.weapon.range === Math.round(B.tower.weapon.range * 1.15));
+  for (let k = 0; k < 60 && top && top.built < 1; k++) run(g, S, 1);
   S.issueCommand(g, 1, { type: 'upgrade', buildingId: top.id, option: 'heavytower' });
-  run(g, S, S.BUILDING_TYPES.tower.upgrades.find(o => o.key === 'heavytower').time + 1);
-  const heavy = S.BUILDING_TYPES.tower.upgrades.find(o => o.key === 'heavytower');
-  check('a Gun Tower on a bastion upgrades like any other, keeping its reach bonus', top.variant === 'heavytower' && top.def.weapon.range === Math.round(heavy.weapon.range * 1.15), `${top.variant} range ${top.def.weapon.range}`);
-  if (bas) bas.hp = 0;
-  run(g, S, 0.2);
-  check('if the bastion falls, the tower on it goes too', top && top.hp <= 0 && !g.entities.includes(top));
-  // Shield Projectors go on bastions now (no more Shield Walls).
-  const live = pieces.filter(p => p.hp > 0);
+  const heavy = B.tower.upgrades.find(o => o.key === 'heavytower');
+  run(g, S, heavy.time + 1);
+  check('a Gun Tower on a wall upgrades like any other, keeping its reach bonus', top.variant === 'heavytower' && top.def.weapon.range === Math.round(heavy.weapon.range * 1.15), `${top.variant} ${top.def.weapon.range}`);
+  base.hp = 0; run(g, S, 0.2);
+  check('if the section falls, the tower on it goes too', top.hp <= 0 && !g.entities.includes(top));
+  // A Shield Projector on a section (the corner).
   g.teams[1].research.shields = true; g.teams[1].scrap = 5000;
-  S.issueCommand(g, 1, { type: 'wallShield', buildingId: live[0].id });
-  check('Shield Walls are gone', !live.some(p => p.runShield));
   const gen = S.addBuilding(g, 'generator', 1, ox + 2, oy + 20, true);
-  S.issueCommand(g, 1, { type: 'build', ids: [hb.id], building: 'bastion', tx: ox + 2, ty: oy + 2, facing: 0 });
-  const bas2 = g.entities.find(e => e.type === 'bastion' && e.tx === ox + 2);
-  for (let k = 0; k < 90 && bas2 && bas2.built < 1; k++) run(g, S, 1);
-  g.teams[1].scrap = 5000;
-  S.issueCommand(g, 1, { type: 'build', ids: [con.id], building: 'shield', tx: ox + 2, ty: oy + 2, facing: 0 });
-  const sp = g.entities.find(e => e.type === 'shield' && e.mountOn === (bas2 && bas2.id));
-  check('a Shield Projector can be built on a bastion, in its middle', sp && sp.x === bas2.x && sp.y === bas2.y);
+  S.issueCommand(g, 1, { type: 'build', ids: [con.id], building: 'shield', tx: cor.tx, ty: cor.ty, facing: 0 });
+  const sp = g.entities.find(e => e.type === 'shield' && e.mountOn === cor.id);
   for (let k = 0; k < 60 && sp && sp.built < 1; k++) run(g, S, 1);
   run(g, S, 16);
-  check('and it puts up its field, powered by your Generators', sp && sp.field && sp.field.state === 'up' && gen.powering > 0);
-  g.teams[1].scrap = 5000;
+  check('a Shield Projector can go on a wall section, powered as usual', sp && sp.field && sp.field.state === 'up' && gen.powering > 0);
   S.issueCommand(g, 1, { type: 'upgrade', buildingId: sp.id });
-  run(g, S, S.BUILDING_TYPES.shield.upgrade.time + 1);
-  check('and upgrades to Shield Projector II', sp.level === 2 && sp.def.field.length === 280);
-  // Walls stop direct fire; artillery arcs over.
-  const fresh = [];
-  for (let y = oy + 14; y <= oy + 22; y++) { const w = S.addBuilding(g, 'wall', 1, ox + 20, y, true); w.facing = 0; fresh.push(w); }
-  const wl = fresh[4];
-  const hid = S.addUnit(g, 'tank', 1, (ox + 18.5) * T, (oy + 18.5) * T), gun = S.addBuilding(g, 'tower', 2, ox + 23, oy + 18, true);
+  run(g, S, B.shield.upgrade.time + 1);
+  check('and upgrades to Shield Projector II', sp.level === 2);
+  // Walls stop direct fire both ways; artillery arcs over.
+  const wl = wallS.find(p => p.hp > 0 && p.ty === oy + 4);
+  const hid = S.addUnit(g, 'tank', 1, (ox + 9.5) * T, (oy + 5) * T), gun = S.addBuilding(g, 'tower', 2, ox + 16, oy + 4, true);
   hid.stance = 'stealth';
-  g.teams[2].explored.fill(1); run(g, S, 1);   // let it see first
-  const h0 = hid.hp, w0hp = fresh.reduce((a, w) => a + w.hp, 0);
+  run(g, S, 1);
+  const h0 = hid.hp;
   run(g, S, 8);
-  const w1hp = fresh.reduce((a, w) => a + w.hp, 0);
-  check("walls stop direct fire: an enemy gun won't waste shots on a vehicle behind a wall, which stays unharmed", hid.hp === h0, `vehicle ${Math.round(h0)} -> ${Math.round(hid.hp)}, wall ${Math.round(w0hp)} -> ${Math.round(w1hp)}`);
-  // ...and from the inside too: no shooting out through your own wall.
-  const out = S.addUnit(g, 'scout', 2, (ox + 22.5) * T, (oy + 16.5) * T);
+  check("walls stop direct fire: an enemy gun won't waste shots on a vehicle behind a wall, which stays unharmed", hid.hp === h0);
+  const out = S.addUnit(g, 'scout', 2, (ox + 15.5) * T, (oy + 7.5) * T);
   out.stance = 'stealth'; out.def = Object.assign({}, out.def, { weapon: null });
   run(g, S, 1);
-  const o0 = out.hp;
+  const o0 = out.hp, wl0 = wl.hp;
   S.issueCommand(g, 1, { type: 'attack', ids: [hid.id], targetId: out.id });
   run(g, S, 6);
-  check('nobody shoots out through a wall either: your own wall stops your shots (and takes no damage)', out.hp === o0 && fresh.every(w => w.hp === w.maxHp || w.lastHitBy !== hid), `target ${Math.round(o0)} -> ${Math.round(out.hp)}, fired ${hid.lastShot !== undefined}`);
+  check('nobody shoots out through a wall either (and your own wall takes no damage)', out.hp === o0 && wl.hp === wl0, `fired ${hid.lastShot !== undefined}`);
   out.hp = 0;
-  // (the tower stays as the artillery's spotter: its shots still only hit the wall)
-  const arty = S.addUnit(g, 'artillery', 2, (ox + 25.5) * T, (oy + 14.5) * T);
+  const arty = S.addUnit(g, 'artillery', 2, (ox + 22.5) * T, (oy + 2.5) * T);
   arty.stance = 'stealth'; run(g, S, 1);
   S.issueCommand(g, 2, { type: 'attack', ids: [arty.id], targetId: hid.id });
   for (let k = 0; k < 40 && hid.hp === h0; k++) run(g, S, 1);
@@ -1477,60 +1448,8 @@ section('Compound walls');
   arty.hp = 0; hid.hp = 0; gun.hp = 0; S.stepGame(g);
   // Saves keep the walls (and what they block).
   const back = S.loadGame(S.saveGame(g)).game;
-  const p0 = live[2], i0 = p0.ty * W + p0.tx;
+  const p0 = wallS.find(p => p.hp > 0), i0 = p0.ty * W + p0.tx;
   check('a saved game keeps its walls and what they block', back.wallGrid[i0] === 1 && back.wallCount === g.wallCount);
-}
-
-section('Walls at any angle, from a pivot');
-{
-  const S = load();
-  const g = S.createGame({ seed: 3, difficulty: 'normal', aiTeams: [] });
-  for (const e of g.entities) if (e.kind === 'unit' && e.type !== 'mobileRecycler') e.hp = 0;
-  S.stepGame(g);
-  g.teams[1].explored.fill(1);
-  const T = S.CONFIG.TILE, W = g.map.W;
-  const clear = (x0, y0, n) => { for (let y = y0; y < y0 + n; y++) for (let x = x0; x < x0 + n; x++) if (S.isBlockedTile(g, x, y)) return false; return true; };
-  let ox = 0, oy = 0;
-  outer: for (let r = 0; r < 50; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (clear(Math.floor(W / 2) + dx, Math.floor(g.map.H / 2) + dy, 26)) { ox = Math.floor(W / 2) + dx; oy = Math.floor(g.map.H / 2) + dy; break outer; }
-  const hb = S.addUnit(g, 'heavyBuilder', 1, (ox + 2) * T, (oy + 20) * T);
-  g.teams[1].scrap = 2000;
-  const a = { x: (ox + 2.3) * T, y: (oy + 2.6) * T }, b = { x: (ox + 13.1) * T, y: (oy + 7.4) * T };   // a shallow angle
-  const s0 = g.teams[1].scrap;
-  S.issueCommand(g, 1, { type: 'buildWall', ids: [hb.id], a, b, facing: S.wallFacingAB(g, a, b, false) });
-  const run = g.entities.filter(e => e.type === 'wall');
-  const n = S.wallSections({ ax: a.x, ay: a.y, bx: b.x, by: b.y });
-  check('a wall at any angle is priced by its length (sections), not by the squares it covers', Math.round(s0 - g.teams[1].scrap) === n * S.BUILDING_TYPES.wall.cost && n === Math.round(Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y)) / T), `${n} sections, ${run.length} squares, paid ${Math.round(s0 - g.teams[1].scrap)}`);
-  // No gaps: each square touches the next along a side.
-  const set = new Set(run.map(e => e.tx + ',' + e.ty));
-  const linked = run.every(e => run.length === 1 || [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => set.has((e.tx + dx) + ',' + (e.ty + dy))));
-  check('and leaves no gap to slip through', linked && run.every(e => e.seg && e.seg.ax === a.x));
-  const piv = S.snapWallStart(g, 1, { x: (ox + 20.37) * T, y: (oy + 20.71) * T });
-  const ends = [{ x: piv.x + 200, y: piv.y + 7 }, { x: piv.x + 150, y: piv.y + 160 }, { x: piv.x + 120, y: piv.y + 75 }].map(q => S.snapWallEnd(g, 1, piv, q));
-  const centre = q => (q.x - T / 2) % T === 0 && (q.y - T / 2) % T === 0;
-  check('walls go square centre to square centre, straight or at 45°, a whole section at a time', centre(piv) && ends.every(e => e.angle % 45 === 0 && centre(e) && Number.isInteger(e.sections)),
-    ends.map(e => `${e.angle}° ×${e.sections}`).join(', '));
-  {
-    // Alignment guides and meeting walls (on a straight wall on the grid).
-    const C = k => k * T + T / 2;
-    g.teams[1].scrap = 5000;
-    S.issueCommand(g, 1, { type: 'buildWall', ids: [hb.id], a: { x: C(ox + 2), y: C(oy + 16) }, b: { x: C(ox + 12), y: C(oy + 16) }, facing: 0 });
-    const lined = S.snapWallStart(g, 1, { x: C(ox + 12) - T * 0.6, y: C(oy + 20) + 12 });
-    check('a new pivot lines up with a nearby wall end (alignment guide)', lined.x === C(ox + 12) && lined.guides && lined.guides.length > 0, `${(lined.x - C(ox)) / T}, ${(lined.y - C(oy)) / T}`);
-    const meet = S.snapWallEnd(g, 1, { x: C(ox + 7), y: C(oy + 21) }, { x: C(ox + 7) + 3, y: C(oy + 17) + 8 });
-    check('a wall dragged up to another stops exactly on it', meet.y === C(oy + 16) && !!meet.meets, `${(meet.x - C(ox)) / T}, ${(meet.y - C(oy)) / T}`);
-  }
-  check('a new wall snaps onto the end of one you already have', (() => { const q = S.snapWallPoint(g, 1, { x: b.x + 9, y: b.y - 7 }); return q.x === b.x && q.y === b.y; })());
-  check('a wall is at most 16 sections long', S.wallSections({ ax: 0, ay: 0, bx: 40 * T, by: 0 }) > 16 && S.snapWallEnd(g, 1, piv, { x: piv.x + 60 * T, y: piv.y }).sections === 16 && (() => { g.teams[1].scrap = 5000; const before = g.entities.length; S.issueCommand(g, 1, { type: 'buildWall', ids: [hb.id], a: { x: (ox + 2) * T, y: (oy + 14.5) * T }, b: { x: (ox + 60) * T, y: (oy + 14.5) * T }, facing: 0 }); return g.entities.length - before <= 17; })());
-  // A bastion dropped onto the wall takes the place of the wall under it.
-  for (const e of g.entities) if (e.def.wallPiece) e.built = 1;
-  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, on = S.snapOntoWall(g, 1, 'bastion', mid);
-  const before = g.entities.filter(e => e.type === 'wall').length;
-  g.teams[1].scrap = 2000;
-  S.issueCommand(g, 1, { type: 'build', ids: [hb.id], building: 'bastion', tx: on.tx, ty: on.ty, facing: on.facing });
-  const bas = g.entities.find(e => e.type === 'bastion');
-  const lineD = bas ? Math.abs((bas.x - a.x) * (b.y - a.y) - (bas.y - a.y) * (b.x - a.x)) / Math.hypot(b.x - a.x, b.y - a.y) : 99;
-  check('a 3x3 bastion dropped onto a wall sits centred on its line, replacing the wall under it', bas && bas.size === 3 && g.entities.filter(e => e.type === 'wall').length < before && lineD < T * 0.75 && (bas.x - T / 2) % T === 0,
-    bas ? `${lineD.toFixed(1)} px off the line` : 'none');
 }
 
 section('Computer opponents build walls');
@@ -1541,8 +1460,8 @@ section('Computer opponents build walls');
   g.ai[2] = { next: 0, nextWave: 9999, persona: 'raider' };
   for (let i = 0; i < 30 * 60 * 16 && !g.winner; i++) { S.aiUpdate(g, 1); S.aiUpdate(g, 2); S.stepGame(g); g.events.length = 0; }
   const n = (t, type) => g.entities.filter(e => e.team === t && e.type === type && e.built >= 1).length;
-  check('a Fortress walls the front of its base, with bastions guarding the gap', n(1, 'wall') >= 8 && n(1, 'bastion') >= 1 && !n(1, 'gate'), `${n(1, 'wall')} walls, ${n(1, 'bastion')} bastions`);
-  check('a Raider walls its Extractors instead', n(2, 'wall') >= 4 && !n(2, 'bastion'), `${n(2, 'wall')} walls`);
+  check('a Fortress walls the front of its base in sections, leaving a gap, with Gun Towers on the wall', n(1, 'wallblock') >= 4 && g.entities.some(e => e.team === 1 && e.type === 'tower' && e.mountOn), `${n(1, 'wallblock')} sections`);
+  check('a Raider walls its Extractors instead', n(2, 'wallblock') >= 2, `${n(2, 'wallblock')} sections`);
 }
 
 section('Workers look after themselves');

@@ -821,7 +821,7 @@ function startPlacing(type) {
 }
 function rotatePlacement() {
   if (view.placing === 'wall') { view.wallFlip = !view.wallFlip; return; }   // a wall: swap which side is the front
-  const def = BUILDING_TYPES[view.placing], step = def && (def.gate || def.bastion) ? Math.PI / 2 : Math.PI / 4;
+  const def = BUILDING_TYPES[view.placing], step = def && (def.gate || def.bastion || def.mountable) ? Math.PI / 2 : Math.PI / 4;
   view.placeFacing = snapFacing(Math.round((view.placeFacing || 0) / step) * step + step);
 }
 
@@ -860,6 +860,7 @@ function placeBuilding(w, keepPlacing) {
     return;
   }
   let { tx, ty } = placementTile(w, def.size);
+  if (def.mountable) { const sn = snapWallSection(game, view.team, view.placing, tx, ty); if (sn) { tx = sn.tx; ty = sn.ty; } }
   const bs = bastionAt(game, view.team, view.placing, tx, ty);
   if (bs) { tx = bs.tx; ty = bs.ty; }
   const onWall = snapOntoWall(game, view.team, view.placing, w);
@@ -878,7 +879,9 @@ function placeBuilding(w, keepPlacing) {
   if (game.teams[view.team].scrap < def.cost) { logMessage('Not enough scrap', 'warn'); sound('error'); return; }
   issueCommand(game, view.team, { type: 'build', ids: [builder.id], building: view.placing, tx, ty, facing: def.facing ? view.placeFacing : undefined });
   sound('build');
-  if (!keepPlacing) { view.placing = null; view.placeReady = false; view.placeAt = null; }
+  // Wall sections: keep placing them one after another until Done.
+  if (def.mountable) { view.placeReady = false; view.placeAt = null; }
+  else if (!keepPlacing) { view.placing = null; view.placeReady = false; view.placeAt = null; }
   refreshPanel();
 }
 
@@ -1323,10 +1326,10 @@ function refreshPanel() {
     });
     // Shield Projectors: turn the field to face the threat (F) before building.
     if (view.placing === 'wall') addBtn('Flip front ⇅', null, 'F', () => { rotatePlacement(); refreshPanel(); }, { active: !!view.wallFlip, title: 'Swap which side of the wall is its front (the outside, with spikes) (F)' });
-    else if (view.placing && BUILDING_TYPES[view.placing].facing) addBtn('Rotate ↻', null, 'F', rotatePlacement, { title: BUILDING_TYPES[view.placing].wallPiece ? 'Turn it 45° so its front faces out (F)' : 'Turn the forcefield 45° (F)' });
+    else if (view.placing && BUILDING_TYPES[view.placing].facing) addBtn('Rotate ↻', null, 'F', () => { rotatePlacement(); refreshPanel(); }, { title: BUILDING_TYPES[view.placing].mountable ? (BUILDING_TYPES[view.placing].corner ? 'Turn the corner 90° to fit (F)' : 'Turn the section across or up and down (F)') : 'Turn the forcefield 45° (F)' });
     if (view.placing && isTouch && view.placeReady) addBtn(view.placing === 'wall' ? 'Build wall' : 'Build here', null, '↵', confirmPlacement, { primary: true });
     if (view.placing === 'wall' && view.wallStart) addBtn('New pivot', null, 'R', () => { view.wallStart = null; view.wallEnd = null; view.placeAt = null; view.placeReady = false; refreshPanel(); }, { title: 'Pick a different starting point' });
-    if (view.placing) addBtn(view.placing === 'wall' ? 'Done' : 'Cancel', null, 'Esc', () => { view.placing = null; view.placeReady = false; view.wallStart = null; view.wallEnd = null; view.wallDrag = false; refreshPanel(); });
+    if (view.placing) addBtn(view.placing === 'wall' || BUILDING_TYPES[view.placing].mountable ? 'Done' : 'Cancel', null, 'Esc', () => { view.placing = null; view.placeReady = false; view.wallStart = null; view.wallEnd = null; view.wallDrag = false; refreshPanel(); });
     // A Heavy Constructor can go back and finish walls it was taken off.
     if (!view.placing && builder.def.wallBuilder && game.entities.some(e => e.team === view.team && e.def.wallPiece && e.hp > 0 && e.built < 1 && Math.hypot(e.x - builder.x, e.y - builder.y) < CONFIG.TILE * 24))
       addBtn('Resume walls', null, 'B', () => { issueCommand(game, view.team, { type: 'resumeWalls', ids: [builder.id] }); sound('ack'); refreshPanel(); },
@@ -1341,8 +1344,8 @@ function refreshPanel() {
     const tip = document.createElement('div'); tip.className = 'dim small tip';
     tip.textContent = view.placing === 'wall' ? (!view.wallStart ? `${isTouch ? 'Touch' : 'Press'} where the wall starts (its pivot). It snaps onto the end of a wall or a bastion nearby.`
         : `${isTouch ? 'Drag to set the length and angle (the point aimed at is just above your finger), then press Build wall' : 'Drag out the length and angle, and let go (or click where it ends)'}. It goes square to square, straight or at 45°, lines up with nearby walls (dashed guides) and stops on a wall it reaches. The next wall carries on from its end: press Done when finished. ${BUILDING_TYPES.wall.cost} scrap a section, up to 16.`)
-      : view.placing && BUILDING_TYPES[view.placing].wallPiece ? `${isTouch ? 'Tap' : 'Click'} on one of your walls to set it into the wall, lined up with it (it replaces the sections under it).`
-      : !view.placing ? (builder.def.wallBuilder ? `Pick Wall, then drag it out from a pivot: any angle, up to 16 sections. For a way out, leave a gap between two Bastions. Drop a Bastion onto a wall to set it in; it can carry a Gun Tower or Radar.` : `Pick a building, then ${isTouch ? 'tap' : 'click'} where it should go.`)
+      : view.placing && BUILDING_TYPES[view.placing].mountable ? `${isTouch ? 'Tap where it goes, then Build here' : 'Click where it goes'}: it snaps flush against your other wall sections. Rotate turns it. Keep placing sections one by one; press Done when finished.`
+      : !view.placing ? (builder.def.wallBuilder ? `Build walls one section at a time (${BUILDING_TYPES.wallblock.cost} scrap each): Wall for a straight section, Wall Corner to turn. Leave a gap for your own vehicles. A Constructor can put a Gun Tower, Radar or Shield Projector on any section.` : `Pick a building, then ${isTouch ? 'tap' : 'click'} where it should go.`)
       : isTouch ? 'Tap inside the green zone to position it, then press Build here.'
       : 'Click inside the green zone to build. Shift-click to place several. Right-click cancels.';
     tip.textContent = own_(tip.textContent);

@@ -151,7 +151,7 @@ const UNIT_TYPES = {
   heavyBuilder: {
     name: 'Heavy Constructor', role: 'builder', wallBuilder: true, art: 'constructor', cost: 130, buildTime: 10,
     hp: 420, speed: 34, radius: 15, sight: 220,
-    desc: 'Builds compound walls and bastions (built by a Recycler II). Slow and armoured.',
+    desc: 'Builds wall sections and corners, one at a time (built by a Recycler II). Slow and armoured.',
   },
   // No longer built (repairs moved to the Repair Drone); kept so old saves load.
   constructor2: {
@@ -483,8 +483,24 @@ const BUILDING_TYPES = {
   // can be built in front of your own wall. A gate lets your vehicles through
   // and keeps the enemy out. A bastion carries a Gun Tower or a Radar, which
   // goes down with it.
+  // Wall sections (24 November 2026): a Gun-Tower-sized block, built one at a
+  // time by a Heavy Constructor. A straight section runs across or up and
+  // down (Rotate); a corner turns the wall (Rotate for each of the four
+  // corners). Touching sections join into one wall. A Constructor can put a
+  // Gun Tower, Radar or Shield Projector on a section (15% more reach; it
+  // falls with the section).
+  wallblock: {
+    name: 'Wall', cost: 75, buildTime: 8, hp: 4000, size: 2, sight: 110, wallPiece: true, mountable: true, anywhere: true, facing: true,
+    desc: 'A heavy wall section, the size of a Gun Tower. Build them one by one (Rotate turns it). Blocks vehicles and direct fire (only artillery arcs over); enemies must break through, best with artillery, HE or Bunker Busters. A Constructor can build a Gun Tower, Radar or Shield Projector on top.',
+  },
+  wallcorner: {
+    name: 'Wall Corner', cost: 75, buildTime: 8, hp: 4000, size: 2, sight: 110, wallPiece: true, mountable: true, corner: true, anywhere: true, facing: true,
+    desc: 'A corner section: turns the wall 90°. Rotate it to fit the corner. A Constructor can build a Gun Tower, Radar or Shield Projector on top.',
+  },
+  // Older wall pieces (drawn walls, bastions): no longer built, kept so older
+  // saved games load.
   wall: {
-    name: 'Wall', cost: 35, buildTime: 3, hp: 1500, size: 1, sight: 100, wallPiece: true, anywhere: true, facing: true,
+    buildable: false, name: 'Wall', cost: 35, buildTime: 3, hp: 1500, size: 1, sight: 100, wallPiece: true, anywhere: true, facing: true,
     desc: 'A compound wall: drag it out in a line (a run). Blocks vehicles; enemies must break through it, best with artillery, HE or Bunker Busters (Plasma does half). Nothing can be built in front of it. Upgrade a run to a Shield Wall once you have Forcefield Tech.',
   },
   // No longer built: leave a gap between two bastions instead. Kept so
@@ -494,7 +510,7 @@ const BUILDING_TYPES = {
     desc: 'Opens for your vehicles and stays shut to the enemy. Put one in your wall so your own vehicles can get out.',
   },
   bastion: {
-    name: 'Bastion', cost: 170, buildTime: 14, hp: 4500, size: 3, sight: 160, wallPiece: true, bastion: true, anywhere: true, facing: true,
+    buildable: false, name: 'Bastion', cost: 170, buildTime: 14, hp: 4500, size: 3, sight: 160, wallPiece: true, bastion: true, anywhere: true, facing: true,
     desc: 'A thick 3x3 wall tower, centred on a wall (or on its own). A Constructor can build a Gun Tower or a Radar on top (15% more reach from up there); if the bastion falls, so does what is on it.',
   },
   // Powers Shield Projectors: each Generator powers up to `powers` of them,
