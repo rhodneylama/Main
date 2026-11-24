@@ -945,12 +945,16 @@ function drawWallSection(ctx, b, ghost, time) {
   ctx.fillStyle = C.edge; shape(0); ctx.fill();
   ctx.fillStyle = C.base; shape(1.5); ctx.fill();
   ctx.fillStyle = C.top; shape(8); ctx.fill();
-  // Battlements along both faces, the whole length of each arm.
+  // Battlements along the outer faces: every side of the square the wall
+  // doesn't run out of (both long faces of a straight section; the two outside
+  // faces of a corner, which is one solid block the same width as a section).
   ctx.fillStyle = C.dark;
-  for (const side of arms) {
-    const [dx, dy] = dirs[side], L = reach(side);
-    for (let t = 3; t < L - 3; t += 9) for (const o of [-1, 1]) {
-      const x = cx + dx * t + (dy ? o * (h - 3.5) : 0), y = cy + dy * t + (dx ? o * (h - 3.5) : 0);
+  for (let side = 0; side < 4; side++) if (!arms.includes(side)) {
+    const [dx, dy] = dirs[side];
+    const a = arms.includes((side + 1) % 4) ? reach((side + 1) % 4) : h, b2 = arms.includes((side + 3) % 4) ? reach((side + 3) % 4) : h;
+    // along the face: t runs perpendicular to the side's normal
+    for (let t = -b2 + 3; t < a - 3; t += 9) {
+      const x = cx + dx * (h - 3.5) - dy * t, y = cy + dy * (h - 3.5) + dx * t;
       ctx.fillRect(x - 2.5, y - 2.5, 5, 5);
     }
   }
