@@ -1373,6 +1373,21 @@ section('Compound walls');
   check('but right behind it is fine', behind);
   run(g, S, 22 * S.BUILDING_TYPES.wall.buildTime + 70);
   check('the Heavy Constructor builds the run one piece after another', pieces.every(p => p.built >= 1), `${pieces.filter(p => p.built >= 1).length}/22`);
+  {
+    // Interrupted, it picks the whole wall back up: one tap on an unfinished piece, or Resume walls.
+    g.teams[1].scrap = 5000;
+    const C = k => k * T + T / 2;
+    S.issueCommand(g, 1, { type: 'buildWall', ids: [hb.id], a: { x: C(ox + 3), y: C(oy + 25) }, b: { x: C(ox + 9), y: C(oy + 25) }, facing: Math.PI / 2 });
+    S.issueCommand(g, 1, { type: 'move', ids: [hb.id], x: hb.x - 60, y: hb.y });
+    const left = g.entities.filter(e => e.type === 'wall' && e.built < 1);
+    S.issueCommand(g, 1, { type: 'repair', ids: [hb.id], targetId: left[left.length - 1].id });
+    check('an interrupted Heavy Constructor sent back to one unfinished piece finishes the whole wall', left.length > 1 && 1 + (hb.order.queue || []).length === left.length, `${left.length} unfinished, ${1 + (hb.order.queue || []).length} queued`);
+    S.issueCommand(g, 1, { type: 'stop', ids: [hb.id] });
+    S.issueCommand(g, 1, { type: 'resumeWalls', ids: [hb.id] });
+    check('and Resume walls sends it back to all of them', 1 + (hb.order.queue || []).length >= left.length);
+    for (let k = 0; k < 120 && left.some(e => e.hp > 0 && e.built < 1); k++) run(g, S, 1);
+    check('which it then builds', left.every(e => e.built >= 1));
+  }
   // No gates: leave a gap (between bastions) instead.
   S.issueCommand(g, 1, { type: 'build', ids: [hb.id], building: 'gate', tx: ox + 12, ty: oy + 11, facing: 0 });
   check('gates are gone: leave a gap between bastions instead', S.BUILDING_TYPES.gate.buildable === false && !g.entities.some(e => e.type === 'gate'));

@@ -989,6 +989,7 @@ function drawUnit(ctx, u, selected, time) {
     ctx.beginPath(); ctx.ellipse(u.x, u.y + 2, r + 4, (r + 4) * 0.8, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   }
   if (u.type === 'drone') { drawCustomUnit(ctx, u, time); }
+  else if (u.def.wallBuilder) drawHeavyBuilder(ctx, u, art, id, time);
   else art.drawSprite(ctx, id, {
     x: u.x, y: u.y, heading: u.angle, turret: wrapAngle(u.turret - u.angle), team: u.cmdId ? 'green' : teamName(u.team),   // under a commander: green
     mk: !!u.def.base || !!u.def.wallBuilder, t: time, legE: u.legE || 0, fire: sinceShot(u, time),
@@ -1022,6 +1023,30 @@ function drawUnit(ctx, u, selected, time) {
     ctx.strokeStyle = `rgba(110,224,110,${0.5 + 0.4 * Math.sin(time * 10)})`; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(u.x, u.y, r + 4, 0, Math.PI * 2); ctx.stroke();
   }
+}
+
+// The Heavy Constructor: the Constructor's design stretched long and broad,
+// with a dozer blade on the front and hazard stripes on the back, so it
+// reads as the heavy machine even zoomed out.
+function drawHeavyBuilder(ctx, u, art, id, time) {
+  const R = u.radius;
+  ctx.save(); ctx.translate(u.x, u.y); ctx.rotate(u.angle);
+  ctx.save(); ctx.scale(1.6, 1.15);
+  art.drawSprite(ctx, id, { x: 0, y: 0, heading: 0, turret: wrapAngle(u.turret - u.angle), team: teamName(u.team), mk: true, t: time, thrust: u.movingTick >= game.tick - 1 });
+  ctx.restore();
+  ctx.strokeStyle = '#0d0f0c'; ctx.lineWidth = 1.2;
+  // dozer blade
+  ctx.fillStyle = '#5b5f56'; ctx.fillRect(R * 1.25, -R * 1.0, R * 0.32, R * 2.0); ctx.strokeRect(R * 1.25, -R * 1.0, R * 0.32, R * 2.0);
+  ctx.fillStyle = '#8a8d80'; ctx.fillRect(R * 1.25, -R * 1.0, R * 0.1, R * 2.0);
+  // hazard stripes across the back
+  const x0 = -R * 1.5, w = R * 0.42, h = R * 1.5;
+  ctx.save(); ctx.beginPath(); ctx.rect(x0, -h / 2, w, h); ctx.clip();
+  ctx.fillStyle = '#f0c030'; ctx.fillRect(x0, -h / 2, w, h);
+  ctx.fillStyle = '#1a1a14';
+  for (let k = -h; k < h; k += 7) { ctx.beginPath(); ctx.moveTo(x0, k); ctx.lineTo(x0 + w, k + w); ctx.lineTo(x0 + w, k + w + 3.5); ctx.lineTo(x0, k + 3.5); ctx.closePath(); ctx.fill(); }
+  ctx.restore();
+  ctx.strokeRect(x0, -h / 2, w, h);
+  ctx.restore();
 }
 
 // A commander's gold star.
