@@ -361,6 +361,33 @@ function snapOntoWall(game, team, type, p) {
   const seg = { ax: mx - best.ux * w, ay: my - best.uy * w, bx: mx + best.ux * w, by: my + best.uy * w };
   return { tx, ty, facing: best.facing, seg };
 }
+// Unfinished wall pieces and bastions to build, in an order that walks along
+// them (nearest next each time) from `from`. joined: only those connected to
+// it through other wall pieces; otherwise all within 24 squares.
+function unfinishedWalls(game, team, from, joined) {
+  const T = CONFIG.TILE, W = game.map.W;
+  let pool;
+  if (joined) {
+    const seen = new Set([from.id]), todo = [from], out = [];
+    while (todo.length) {
+      const e = todo.pop(); out.push(e);
+      for (let y = e.ty - 1; y <= e.ty + e.size; y++) for (let x = e.tx - 1; x <= e.tx + e.size; x++) {
+        if (x < 0 || y < 0 || x >= W || y >= game.map.H) continue;
+        const i = y * W + x, o = game.wallGrid[i] === team && game.byId.get(game.wallId[i]);
+        if (o && o.hp > 0 && !seen.has(o.id)) { seen.add(o.id); todo.push(o); }
+      }
+    }
+    pool = out.filter(e => e.built < 1);
+  } else pool = game.entities.filter(e => e.team === team && e.def.wallPiece && e.hp > 0 && e.built < 1 && Math.hypot(e.x - from.x, e.y - from.y) < T * 24);
+  const order = [];
+  let at = from;
+  while (pool.length) {
+    let k = 0, bd = Infinity;
+    pool.forEach((e, i) => { const d = Math.hypot(e.x - at.x, e.y - at.y); if (d < bd) { bd = d; k = i; } });
+    at = pool.splice(k, 1)[0]; order.push(at.id);
+  }
+  return order;
+}
 // Take a wall piece away without a fuss (a gate or bastion is replacing it).
 function dropWallPiece(game, b) {
   setOccupied(game, b, -1); releaseBuilding(game, b);
@@ -678,6 +705,17 @@ function issueCommand(game, team, cmd) {
       pushEvent(game, team, `Upgrading ${n} wall pieces to a Shield Wall`, 'info', anchor.x, anchor.y);
       break;
     }
+    case 'resumeWalls': {
+      // Heavy Constructors go back and finish your unfinished walls and
+      // bastions nearby, nearest first.
+      for (const u of units.filter(x => x.def.wallBuilder)) {
+        const q = unfinishedWalls(game, team, u, false);
+        if (!q.length) { pushEvent(game, team, 'No unfinished walls nearby', 'info'); continue; }
+        u.order = { type: 'build', targetId: q[0], queue: q.slice(1) };
+        planPathNear(game, u, game.byId.get(q[0]));
+      }
+      break;
+    }
     case 'repair': {
       // Drones repair your buildings and vehicles; Constructors only finish
       // construction sites.
@@ -688,7 +726,13 @@ function issueCommand(game, team, cmd) {
       if (b.kind !== 'building') break;
       const able = units.filter(u => u.def.role === 'builder' && b.built < 1);
       if (!able.length && !drones.length && units.some(u => u.def.role === 'builder')) { pushEvent(game, team, 'Repairs need a Repair Drone (built by a Recycler II)', 'warn'); return; }
-      for (const u of able) { u.order = { type: 'build', targetId: b.id }; planPathNear(game, u, b); }
+      for (const u of able) {
+        // A Heavy Constructor sent to an unfinished wall finishes all of it:
+        // every unfinished piece joined to this one, nearest first.
+        if (u.def.wallBuilder && b.def.wallPiece) { const q = unfinishedWalls(game, team, b, true); u.order = { type: 'build', targetId: q[0], queue: q.slice(1) }; }
+        else u.order = { type: 'build', targetId: b.id };
+        planPathNear(game, u, game.byId.get(u.order.targetId));
+      }
       break;
     }
     case 'follow': {

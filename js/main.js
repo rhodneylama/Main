@@ -1327,6 +1327,10 @@ function refreshPanel() {
     if (view.placing && isTouch && view.placeReady) addBtn(view.placing === 'wall' ? 'Build wall' : 'Build here', null, '↵', confirmPlacement, { primary: true });
     if (view.placing === 'wall' && view.wallStart) addBtn('New pivot', null, 'R', () => { view.wallStart = null; view.wallEnd = null; view.placeAt = null; view.placeReady = false; refreshPanel(); }, { title: 'Pick a different starting point' });
     if (view.placing) addBtn(view.placing === 'wall' ? 'Done' : 'Cancel', null, 'Esc', () => { view.placing = null; view.placeReady = false; view.wallStart = null; view.wallEnd = null; view.wallDrag = false; refreshPanel(); });
+    // A Heavy Constructor can go back and finish walls it was taken off.
+    if (!view.placing && builder.def.wallBuilder && game.entities.some(e => e.team === view.team && e.def.wallPiece && e.hp > 0 && e.built < 1 && Math.hypot(e.x - builder.x, e.y - builder.y) < CONFIG.TILE * 24))
+      addBtn('Resume walls', null, 'B', () => { issueCommand(game, view.team, { type: 'resumeWalls', ids: [builder.id] }); sound('ack'); refreshPanel(); },
+        { primary: builder.order.type === 'idle', title: 'Finish the unfinished walls and bastions nearby, one after another. (Or tap an unfinished wall: it finishes all of that wall.)' });
     // A Constructor can go for repairs, and be recycled on a pad, like any vehicle.
     if (!view.placing) {
       if (builder.hp < builder.maxHp && game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1))
