@@ -388,6 +388,21 @@ function unfinishedWalls(game, team, from, joined) {
   }
   return order;
 }
+// A wall section being placed near another snaps flush against it (side by
+// side, lined up), so walls go together neatly. Returns {tx, ty} or null.
+function snapWallSection(game, team, type, tx, ty) {
+  const def = BUILDING_TYPES[type];
+  if (!def || !def.mountable) return null;
+  let best = null, bd = 2.6;
+  for (const e of game.entities) {
+    if (e.team !== team || !e.def.mountable || e.hp <= 0 || Math.abs(e.tx - tx) > 5 || Math.abs(e.ty - ty) > 5) continue;
+    for (const [dx, dy] of [[e.size, 0], [-def.size, 0], [0, e.size], [0, -def.size]]) {
+      const cx = e.tx + dx, cy = e.ty + dy, d = Math.hypot(cx - tx, cy - ty);
+      if (d < bd && canPlaceBuilding(game, team, type, cx, cy).ok) { bd = d; best = { tx: cx, ty: cy }; }
+    }
+  }
+  return best;
+}
 // Take a wall piece away without a fuss (a gate or bastion is replacing it).
 function dropWallPiece(game, b) {
   setOccupied(game, b, -1); releaseBuilding(game, b);
@@ -399,7 +414,8 @@ function dropWallPiece(game, b) {
 function inFrontOfWall(game, team, tx, ty, size) {
   if (!game.wallCount) return false;
   for (const e of game.entities) {
-    if (e.kind !== 'building' || !e.def.wallPiece || e.team !== team || e.hp <= 0) continue;
+    // (Only the older drawn walls have a front; wall sections don't.)
+    if (e.kind !== 'building' || !(e.type === 'wall' || e.def.bastion || e.def.gate) || e.team !== team || e.hp <= 0) continue;
     const ex = e.tx + e.size / 2, ey = e.ty + e.size / 2;
     if (Math.abs(ex - (tx + size / 2)) > WALL.front + size + 3 || Math.abs(ey - (ty + size / 2)) > WALL.front + size + 3) continue;
     const fx = Math.cos(e.facing || 0), fy = Math.sin(e.facing || 0);
@@ -413,7 +429,7 @@ function inFrontOfWall(game, team, tx, ty, size) {
 // A Constructor building a Gun Tower or Radar on top of one of your bastions.
 function bastionAt(game, team, type, tx, ty) {
   if (type !== 'tower' && type !== 'radar' && type !== 'shield') return null;
-  return game.entities.find(e => e.team === team && e.def.bastion && e.hp > 0 && Math.abs(e.tx - tx) <= 1 && Math.abs(e.ty - ty) <= 1) || null;
+  return game.entities.find(e => e.team === team && (e.def.bastion || e.def.mountable) && e.hp > 0 && Math.abs(e.tx - tx) <= 1 && Math.abs(e.ty - ty) <= 1) || null;
 }
 // The weapon a tower had before any bastion bonus: its stock gun or its upgrade's.
 function stockWeaponOf(b) {
@@ -633,6 +649,7 @@ function issueCommand(game, team, cmd) {
       if (def.gate || def.bastion) for (const w of game.entities.filter(e => e.type === 'wall' && e.team === team && e.hp > 0 && e.tx >= cmd.tx && e.tx < cmd.tx + def.size && e.ty >= cmd.ty && e.ty < cmd.ty + def.size)) { dropWallPiece(game, w); tm.scrap += w.built >= 1 ? (w.value ?? w.def.cost) : 0; }
       const b = addBuilding(game, cmd.building, team, cmd.tx, cmd.ty, false);
       if (def.facing) b.facing = typeof cmd.facing === 'number' ? (def.wallPiece ? cmd.facing : snapFacing(cmd.facing)) : snapFacing(b.turret);
+      if (def.mountable) b.facing = ((Math.round((b.facing || 0) / (Math.PI / 2)) % 4) + 4) % 4 * (Math.PI / 2);   // sections square to the map
       if (def.gate && cmd.seg) b.seg = { ax: cmd.seg.ax, ay: cmd.seg.ay, bx: cmd.seg.bx, by: cmd.seg.by };   // its posts, on the wall's line
       if (check.mount) {
         // Up on the bastion, in its middle.

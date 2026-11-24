@@ -90,7 +90,9 @@ function aiUpdate(game, team) {
   // Shield wall: Shield Projectors on its bastions (with Forcefield Tech and a Generator); others: Gun Towers.
   const shieldUp = plan && plan.shield && tm.research.shields && buildings.some(b => b.type === 'generator' && b.built >= 1);
   const onTop = plan ? (shieldUp ? 'shield' : plan.towers ? 'tower' : null) : null, cap = plan ? (plan.towers || 0) + (plan.shield ? 2 : 0) : 0;
-  const freeBastion = onTop && buildings.find(b => b.def.bastion && b.built >= 1 && !b.mountId);
+  // (on the wall sections nearest the gap in its wall, then any)
+  const gapAt = ai.gapAt || hq;
+  const freeBastion = onTop && buildings.filter(b => (b.def.bastion || b.def.mountable) && b.built >= 1 && !b.mountId).sort((a, b) => dist(a, gapAt) - dist(b, gapAt))[0];
   const mounted = buildings.filter(b => b.mountOn).length;
   if (builder && !ai.savingUp && freeBastion && mounted < cap && !buildings.some(b => b.mountOn && b.built < 1) && tm.scrap >= BUILDING_TYPES[onTop].cost + 100) {
     cmd({ type: 'build', ids: [builder.id], building: onTop, tx: freeBastion.tx, ty: freeBastion.ty, facing: snapFacing(toCenter) });
@@ -333,6 +335,7 @@ function aiUplinks(game, team, ai, army, hq, cmd) {
 // `after`: from when (s); `base`: length of the wall across the front of its
 // base (0: none); `towers`: Gun Towers on bastions; `extractors`: wall off its
 // Extractors (Raiders, and anyone on Hard, also wall the ones that get hit).
+// (`base` is in squares: the wall has base / 2 sections.)
 const WALL_PLANS = {
   easy:   { fortress: { after: 900, base: 8 }, shieldwall: { after: 1100, base: 6 }, raider: null, balanced: { after: 1100, base: 6 } },
   normal: { fortress: { after: 420, base: 14, bastions: true, towers: 2 }, shieldwall: { after: 480, base: 12, bastions: true, shield: true },
@@ -346,32 +349,20 @@ function wallPlan(game, ai) {
   const plans = WALL_PLANS[game.difficulty] || WALL_PLANS.normal;
   return plans[ai.persona] || null;
 }
-// A straight wall `len` long, `R` squares out from (cx, cy) toward angle a
-// (snapped to the four main directions), with a 3-square gap in the middle
-// for its own vehicles, guarded by a bastion either side if wanted (and
-// bastions at the ends of a long wall). Returns a list of jobs for the Heavy Constructor.
-function wallJobs(cx, cy, a, R, len, gate, bastions) {
+// A straight wall of `n` sections (2x2 each), `R` squares out from (cx, cy)
+// toward angle a (snapped to the four main directions), with a 2-section gap
+// in the middle for its own vehicles if `gap`. Returns build jobs, and where
+// the gap is.
+function wallJobs(cx, cy, a, R, n, gap) {
   const ax = Math.abs(Math.cos(a)) >= Math.abs(Math.sin(a));
   const d = ax ? Math.sign(Math.cos(a)) || 1 : Math.sign(Math.sin(a)) || 1;
-  const facing = ax ? (d > 0 ? 0 : Math.PI) : (d > 0 ? Math.PI / 2 : -Math.PI / 2);
-  const line = Math.round((ax ? cx : cy) + d * R), start = Math.round((ax ? cy : cx) - len / 2);
-  const at = k => ax ? [line, start + k] : [start + k, line];
-  const jobs = [], mid = Math.floor(len / 2);
-  const skip = new Set();
-  const flank = gate && bastions && len >= 10, ends = bastions && len >= 16;
-  if (gate) { skip.add(mid - 1); skip.add(mid); skip.add(mid + 1); }
-  // Bastions are 3x3, centred on the line: they cover the squares either side.
-  if (flank) for (const k of [mid - 4, mid - 3, mid - 2, mid + 2, mid + 3, mid + 4]) skip.add(k);
-  if (ends) for (const k of [0, 1, 2, len - 3, len - 2, len - 1]) skip.add(k);
-  let run = [];
-  for (let k = 0; k < len; k++) {
-    if (skip.has(k)) { if (run.length) jobs.push({ kind: 'run', tiles: run, facing }); run = []; continue; }
-    run.push(at(k));
-  }
-  if (run.length) jobs.push({ kind: 'run', tiles: run, facing });
-  const bk = [...(flank ? [mid - 3, mid + 3] : []), ...(ends ? [1, len - 2] : [])];
-  for (const k of bk) { const [x, y] = at(k); jobs.push({ kind: 'bastion', tx: x - 1, ty: y - 1, facing }); }
-  return jobs;
+  const facing = ax ? Math.PI / 2 : 0;   // the wall runs across the way to the enemy
+  const line = Math.round((ax ? cx : cy) + d * R) - 1, start = Math.round((ax ? cy : cx) - n);
+  const mid = Math.floor(n / 2), skip = gap ? new Set([mid - 1, mid]) : new Set();
+  const jobs = [];
+  for (let k = 0; k < n; k++) if (!skip.has(k)) jobs.push(ax ? { kind: 'wallblock', tx: line, ty: start + 2 * k, facing } : { kind: 'wallblock', tx: start + 2 * k, ty: line, facing });
+  const g = ax ? { x: (line + 1) * CONFIG.TILE, y: (start + 2 * mid) * CONFIG.TILE } : { x: (start + 2 * mid) * CONFIG.TILE, y: (line + 1) * CONFIG.TILE };
+  return { jobs, gapAt: gap ? g : null };
 }
 function aiWalls(game, team, ai, plan, hq, units, buildings, cmd) {
   if (game.time < plan.after) return;
@@ -382,7 +373,10 @@ function aiWalls(game, team, ai, plan, hq, units, buildings, cmd) {
   // Plan the wall across the front of the base once.
   if (!ai.baseWallPlanned) {
     ai.baseWallPlanned = true;
-    if (plan.base) ai.wallJobs.push(...wallJobs(hq.tx + 1.5, hq.ty + 1.5, angleTo(hq, theirs), 13, plan.base, plan.base >= 8, !!plan.bastions));
+    if (plan.base) {
+      const w = wallJobs(hq.tx + 1.5, hq.ty + 1.5, angleTo(hq, theirs), 13, Math.round(plan.base / 2), plan.base >= 8);
+      ai.wallJobs.push(...w.jobs); ai.gapAt = w.gapAt;
+    }
   }
   // A short wall in front of each Extractor it means to hold, or that got hit.
   for (const ex of buildings.filter(b => b.type === 'extractor' && b.built >= 1)) {
@@ -390,20 +384,19 @@ function aiWalls(game, team, ai, plan, hq, units, buildings, cmd) {
     const hit = ex.lastHitAt > game.time - 20 && game.difficulty !== 'easy';
     if (!plan.extractors && !hit) continue;
     ai.walled[ex.id] = true;
-    ai.wallJobs.push(...wallJobs(ex.tx + 1, ex.ty + 1, angleTo(ex, theirs), 3, 6, false, false));
+    ai.wallJobs.push(...wallJobs(ex.tx + 1, ex.ty + 1, angleTo(ex, theirs), 3, 3, false).jobs);
   }
   // The Heavy Constructor works through the jobs, one at a time.
   const hb = units.find(u => u.def.wallBuilder && u.order.type === 'idle');
   const job = ai.wallJobs[0];
   if (hb && job && !ai.saving && !ai.savingUp) {
-    const def = BUILDING_TYPES[job.kind === 'run' ? 'wall' : job.kind];
-    const cost = job.kind === 'run' ? def.cost * job.tiles.length : def.cost;
+    const def = BUILDING_TYPES[job.kind];
+    const cost = def.cost;
     // Its defence budget: army production pauses until it can afford the next piece.
     if (tm.scrap < cost + 40) ai.savingUp = true;
     else {
       ai.wallJobs.shift();
-      if (job.kind === 'run') cmd({ type: 'buildWall', ids: [hb.id], tiles: job.tiles, facing: job.facing });
-      else if (canPlaceBuilding(game, team, job.kind, job.tx, job.ty).ok) cmd({ type: 'build', ids: [hb.id], building: job.kind, tx: job.tx, ty: job.ty, facing: job.facing });
+      if (canPlaceBuilding(game, team, job.kind, job.tx, job.ty).ok) cmd({ type: 'build', ids: [hb.id], building: job.kind, tx: job.tx, ty: job.ty, facing: job.facing });
     }
   }
 }
