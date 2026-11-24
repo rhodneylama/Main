@@ -1404,22 +1404,53 @@ section('Compound walls');
   const top = g.entities.find(e => e.type === 'tower' && e.mountOn === (bas && bas.id));
   check('a Gun Tower can be built on a bastion, and reaches 15% further from up there', bas && top && top.def.weapon.range === Math.round(S.BUILDING_TYPES.tower.weapon.range * 1.15),);
   run(g, S, 25);
+  // It upgrades like any Gun Tower, and keeps its reach bonus.
+  g.teams[1].scrap = 5000;
+  S.issueCommand(g, 1, { type: 'upgrade', buildingId: top.id, option: 'heavytower' });
+  run(g, S, S.BUILDING_TYPES.tower.upgrades.find(o => o.key === 'heavytower').time + 1);
+  const heavy = S.BUILDING_TYPES.tower.upgrades.find(o => o.key === 'heavytower');
+  check('a Gun Tower on a bastion upgrades like any other, keeping its reach bonus', top.variant === 'heavytower' && top.def.weapon.range === Math.round(heavy.weapon.range * 1.15), `${top.variant} range ${top.def.weapon.range}`);
   if (bas) bas.hp = 0;
   run(g, S, 0.2);
   check('if the bastion falls, the tower on it goes too', top && top.hp <= 0 && !g.entities.includes(top));
-  // Shield Wall: Forcefield Tech and power.
+  // Shield Projectors go on bastions now (no more Shield Walls).
   const live = pieces.filter(p => p.hp > 0);
-  S.issueCommand(g, 1, { type: 'wallShield', buildingId: live[0].id });
-  check('a Shield Wall needs Forcefield Tech', !live.some(p => p.runShield));
   g.teams[1].research.shields = true; g.teams[1].scrap = 5000;
+  S.issueCommand(g, 1, { type: 'wallShield', buildingId: live[0].id });
+  check('Shield Walls are gone', !live.some(p => p.runShield));
   const gen = S.addBuilding(g, 'generator', 1, ox + 2, oy + 20, true);
-  const run2 = live.filter(p => p.runId === live[live.length - 1].runId && p.hp > 0);
-  S.issueCommand(g, 1, { type: 'wallShield', buildingId: run2[0].id });
-  run(g, S, S.WALL.shield.time + 16);
-  const anchor = g.byId.get(run2[0].runShield);
-  check('a Shield Wall puts a forcefield along the whole run, in front of it', anchor && anchor.def.field && anchor.def.field.length >= run2.length * T && anchor.field && anchor.field.state === 'up' && run2.every(p => p.shieldWall),
-    anchor && anchor.field ? `${anchor.def.field.length} px, ${anchor.field.state}` : 'none');
-  check('and draws on your Power Generators', gen.powering > 0);
+  S.issueCommand(g, 1, { type: 'build', ids: [hb.id], building: 'bastion', tx: ox + 2, ty: oy + 2, facing: 0 });
+  const bas2 = g.entities.find(e => e.type === 'bastion' && e.tx === ox + 2);
+  for (let k = 0; k < 90 && bas2 && bas2.built < 1; k++) run(g, S, 1);
+  g.teams[1].scrap = 5000;
+  S.issueCommand(g, 1, { type: 'build', ids: [con.id], building: 'shield', tx: ox + 2, ty: oy + 2, facing: 0 });
+  const sp = g.entities.find(e => e.type === 'shield' && e.mountOn === (bas2 && bas2.id));
+  check('a Shield Projector can be built on a bastion, in its middle', sp && sp.x === bas2.x && sp.y === bas2.y);
+  for (let k = 0; k < 60 && sp && sp.built < 1; k++) run(g, S, 1);
+  run(g, S, 16);
+  check('and it puts up its field, powered by your Generators', sp && sp.field && sp.field.state === 'up' && gen.powering > 0);
+  g.teams[1].scrap = 5000;
+  S.issueCommand(g, 1, { type: 'upgrade', buildingId: sp.id });
+  run(g, S, S.BUILDING_TYPES.shield.upgrade.time + 1);
+  check('and upgrades to Shield Projector II', sp.level === 2 && sp.def.field.length === 280);
+  // Walls stop direct fire; artillery arcs over.
+  const fresh = [];
+  for (let y = oy + 14; y <= oy + 22; y++) { const w = S.addBuilding(g, 'wall', 1, ox + 20, y, true); w.facing = 0; fresh.push(w); }
+  const wl = fresh[4];
+  const hid = S.addUnit(g, 'tank', 1, (ox + 18.5) * T, (oy + 18.5) * T), gun = S.addBuilding(g, 'tower', 2, ox + 23, oy + 18, true);
+  hid.stance = 'stealth';
+  g.teams[2].explored.fill(1); run(g, S, 1);   // let it see first
+  const h0 = hid.hp, w0hp = fresh.reduce((a, w) => a + w.hp, 0);
+  run(g, S, 8);
+  const w1hp = fresh.reduce((a, w) => a + w.hp, 0);
+  check('walls stop direct fire: shots at a vehicle behind an enemy wall hit the wall', hid.hp === h0 && w1hp < w0hp, `vehicle ${Math.round(h0)} -> ${Math.round(hid.hp)}, wall ${Math.round(w0hp)} -> ${Math.round(w1hp)}`);
+  // (the tower stays as the artillery's spotter: its shots still only hit the wall)
+  const arty = S.addUnit(g, 'artillery', 2, (ox + 25.5) * T, (oy + 14.5) * T);
+  arty.stance = 'stealth'; run(g, S, 1);
+  S.issueCommand(g, 2, { type: 'attack', ids: [arty.id], targetId: hid.id });
+  for (let k = 0; k < 40 && hid.hp === h0; k++) run(g, S, 1);
+  check('artillery arcs over walls', hid.hp < h0);
+  arty.hp = 0; hid.hp = 0; gun.hp = 0; S.stepGame(g);
   // Saves keep the walls (and what they block).
   const back = S.loadGame(S.saveGame(g)).game;
   const p0 = live[2], i0 = p0.ty * W + p0.tx;
