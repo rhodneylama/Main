@@ -2498,3 +2498,10 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     bastions, fire over); units don't target what a wall hides. Wall
     placement adds alignment guides, stopping on a wall it reaches, a
     finger offset with a magnifier on phones, and chain building.
+54. **Build wall keeps the wall you drew** (24 November 2026): on phones,
+    tapping Build wall no longer swings the wall toward the button (taps on
+    buttons don't aim the wall, and Build uses the end you dragged out; a
+    finger sliding onto the panel leaves it as it was). The Heavy
+    Constructor reaches a wall piece from about two squares, approaches it
+    from the front or sides when the inside is blocked, and does
+    unreachable pieces last.

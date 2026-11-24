@@ -1040,9 +1040,14 @@ function routeFor(game, u, x, y) {
 }
 
 function planPathNear(game, u, b) {
-  // Wall pieces are reached from behind (inside), not along the wall itself.
-  const a = b.def && b.def.wallPiece && u.team === b.team ? (b.facing || 0) + Math.PI : angleTo(b, u);
   const r = b.radius + u.radius + 12;
+  let a = angleTo(b, u);
+  if (b.def && b.def.wallPiece && u.team === b.team) {
+    // Wall pieces are reached from behind (inside) if there's room there,
+    // otherwise from the front, then either side; not along the wall itself.
+    const f = b.facing || 0;
+    a = [f + Math.PI, f, f + Math.PI / 2, f - Math.PI / 2].find(t => !isBlockedAt(game, b.x + Math.cos(t) * r, b.y + Math.sin(t) * r)) ?? a;
+  }
   planPath(game, u, b.x + Math.cos(a) * r, b.y + Math.sin(a) * r);
 }
 
@@ -2926,9 +2931,17 @@ function updateBuilder(game, u, dt) {
     while (q.length) { const n = game.byId.get(q.shift()); if (n && n.hp > 0 && n.built < 1) { u.order.targetId = n.id; planPathNear(game, u, n); return; } }
     u.order = { type: 'idle', gx: u.x, gy: u.y }; u.path = []; return;
   }
-  const close = edgeDist(u, b) < b.radius * 0.2 + u.radius + 30;
+  // A Heavy Constructor reaches a wall piece from up to two squares away.
+  const close = edgeDist(u, b) < (b.def.wallPiece ? 66 : b.radius * 0.2 + u.radius + 30);
   if (!close) {
-    if (followPath(game, u, dt, 10)) planPathNear(game, u, b);
+    if (followPath(game, u, dt, 10)) {
+      planPathNear(game, u, b);
+      // Can't get near this piece of a run: do the others first, come back to it.
+      const q = u.order.queue;
+      if (b.def.wallPiece && q && q.length && u.lastPlan && u.lastPlan.failed && !u.path.length) {
+        q.push(b.id); u.order.targetId = q.shift(); u.lastPlan = null;
+      }
+    }
     return;
   }
   u.path = [];

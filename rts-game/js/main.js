@@ -268,7 +268,9 @@ window.addEventListener('mousemove', e => {
   input.mouseX = e.clientX - r.left; input.mouseY = e.clientY - r.top;
   input.inside = e.target === canvas;
   view.mouseWorld = toWorld(input.mouseX, input.mouseY);
-  if (view.placing === 'wall' && view.wallStart) wallEndFor(view.mouseWorld);
+  // Only a real mouse over the map moves the wall's end: a tap on a button
+  // (Build wall) also sends a mouse move, at the button, which must not.
+  if (view.placing === 'wall' && view.wallStart && input.inside) wallEndFor(view.mouseWorld);
   if (view.drag) { view.drag.x1 = input.mouseX; view.drag.y1 = input.mouseY; }
   if (input.panning) {
     view.cam.x = input.panning.cx - (input.mouseX - input.panning.x) / view.cam.zoom;
@@ -663,7 +665,13 @@ canvas.addEventListener('touchmove', e => {
   }
   if (pts.length !== 1 || !touch.start) return;
   const p = pts[0];
-  if (touch.mode === 'wall') { view.loupe = { x: p.x, y: p.y - WALL_AIM }; view.placeAt = toWorld(p.x, p.y - WALL_AIM); wallEndFor(view.placeAt); return; }
+  if (touch.mode === 'wall') {
+    // A finger sliding off the map onto the panel (toward Build wall) leaves
+    // the wall as it was.
+    const panelTop = $('panel').getBoundingClientRect().top - canvas.getBoundingClientRect().top;
+    if (p.y > panelTop - 4) { view.loupe = null; return; }
+    view.loupe = { x: p.x, y: p.y - WALL_AIM }; view.placeAt = toWorld(p.x, p.y - WALL_AIM); wallEndFor(view.placeAt); return;
+  }
   if (touch.mode === 'box') { view.drag.x1 = p.x; view.drag.y1 = p.y; return; }
   if (touch.mode === 'pending' && Math.hypot(p.x - touch.start.x, p.y - touch.start.y) > 10) {
     touch.mode = 'pan'; clearTimeout(touch.holdTimer);
@@ -839,7 +847,10 @@ function placeBuilding(w, keepPlacing) {
   if (view.placing === 'wall') {
     // From the pivot to here (snapped onto a wall end, gate post or bastion if close).
     if (!view.wallStart) { view.wallStart = snapWallStart(game, view.team, w); refreshPanel(); return; }
-    const a = view.wallStart, b = wallEndFor(w) || snapWallEnd(game, view.team, a, w);
+    // Build exactly the wall shown: the end set by the drag, not wherever the
+    // pointer is now (on a phone that's the Build wall button).
+    const a = view.wallStart, set = view.wallEnd && view.wallEnd.ax === a.x && view.wallEnd.ay === a.y ? view.wallEnd : null;
+    const b = set || wallEndFor(w) || snapWallEnd(game, view.team, a, w);
     issueCommand(game, view.team, { type: 'buildWall', ids: [builder.id], a, b, facing: wallFacingAB(game, a, b, view.wallFlip) });
     sound('build');
     // Chain building: the next wall starts where this one ended, until you
