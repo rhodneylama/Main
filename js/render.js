@@ -390,7 +390,6 @@ function drawGame(ctx, game, view) {
   const selectedIds = new Set(view.selected.map(e => e.id));
   const buildings = game.entities.filter(e => e.kind === 'building');
   const units = game.entities.filter(e => e.kind === 'unit');
-  if (game.wallCount) drawWallNetwork(ctx, game, team, onScreen, game.time);   // walls first: bastions and gates sit on their ends
   for (const b of buildings) {
     if (!onScreen(b.x, b.y, 120)) continue;
     const seen = view.revealAll || b.team === team || isVisibleTo(game, team, b);
@@ -566,45 +565,10 @@ function drawTerritory(ctx, game, team, placing) {
 }
 
 function drawPlacement(ctx, game, view) {
-  const T = CONFIG.TILE, def = BUILDING_TYPES[view.placing];
+  const T = CONFIG.TILE, def = buildingDef(game.teams[view.team].faction, view.placing);
   const at = view.placeAt || view.mouseWorld;
   if (!at) return;
-  if (view.placing === 'wall') { drawWallPlacement(ctx, game, view, at); return; }
-  let { tx, ty } = placementTile(at, def.size);
-  if (def.mountable) {
-    // A wall section: shown as it will stand, snapped flush to its neighbours.
-    const sn = snapWallSection(game, view.team, view.placing, tx, ty);
-    if (sn) { tx = sn.tx; ty = sn.ty; }
-    const ok = canPlaceBuilding(game, view.team, view.placing, tx, ty).ok;
-    const ghost = { def, type: view.placing, faction: game.teams[view.team].faction, team: view.team, tx, ty, size: def.size,
-      x: (tx + def.size / 2) * T, y: (ty + def.size / 2) * T, facing: view.placeFacing || 0, built: 1, hp: 1, maxHp: 1, id: 0 };
-    ctx.save(); ctx.globalAlpha = ok ? 0.8 : 0.35; drawWallSection(ctx, ghost, false, game.time); ctx.restore();
-    ctx.strokeStyle = ok ? 'rgba(140,255,160,0.8)' : '#ff6a5a'; ctx.lineWidth = 1.5; ctx.strokeRect(tx * T + 0.5, ty * T + 0.5, def.size * T - 1, def.size * T - 1);
-    return;
-  }
-  const bs = bastionAt(game, view.team, view.placing, tx, ty);
-  if (bs) {
-    // A Gun Tower or Radar up on a bastion: in its middle.
-    const ok = canPlaceBuilding(game, view.team, view.placing, bs.tx, bs.ty).ok, h = def.size * T / 2;
-    ctx.fillStyle = ok ? 'rgba(120,255,140,0.25)' : 'rgba(255,90,80,0.3)'; ctx.strokeStyle = ok ? '#8cffa0' : '#ff6a5a'; ctx.lineWidth = 2;
-    ctx.fillRect(bs.x - h, bs.y - h, 2 * h, 2 * h); ctx.strokeRect(bs.x - h, bs.y - h, 2 * h, 2 * h);
-    if (def.weapon) { ctx.setLineDash([4, 6]); ctx.beginPath(); ctx.arc(bs.x, bs.y, def.weapon.range * WALL.mountReach, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
-    if (def.field) {   // a Shield Projector: where its field will stand
-      const g = fieldGeometry({ def, facing: view.placeFacing || 0, x: bs.x, y: bs.y });
-      ctx.strokeStyle = 'rgba(90,184,255,0.9)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(g.ax, g.ay); ctx.lineTo(g.bx, g.by); ctx.stroke();
-    }
-    return;
-  }
-  const onWall = snapOntoWall(game, view.team, view.placing, at);
-  if (onWall) {
-    // Dropped onto a wall: lined up with it, replacing the sections under it.
-    const ok = canPlaceBuilding(game, view.team, view.placing, onWall.tx, onWall.ty).ok;
-    const ghost = { def, type: view.placing, faction: game.teams[view.team].faction, team: view.team, tx: onWall.tx, ty: onWall.ty, size: def.size,
-      x: (onWall.tx + def.size / 2) * T, y: (onWall.ty + def.size / 2) * T, facing: onWall.facing, seg: onWall.seg, built: 1, hp: 1, maxHp: 1, id: 0 };
-    ctx.save(); ctx.globalAlpha = ok ? 0.85 : 0.4; drawWallPiece(ctx, ghost, false, game.time); ctx.restore();
-    if (!ok) { ctx.strokeStyle = '#ff6a5a'; ctx.lineWidth = 2; ctx.strokeRect(onWall.tx * T, onWall.ty * T, def.size * T, def.size * T); }
-    return;
-  }
+  const { tx, ty } = placementTile(at, def.size);
   const ok = canPlaceBuilding(game, view.team, view.placing, tx, ty).ok;
   ctx.fillStyle = ok ? 'rgba(120,255,140,0.25)' : 'rgba(255,90,80,0.3)';
   ctx.strokeStyle = ok ? '#8cffa0' : '#ff6a5a'; ctx.lineWidth = 2;
@@ -615,15 +579,8 @@ function drawPlacement(ctx, game, view) {
     ctx.beginPath(); ctx.arc((tx + def.size / 2) * T, (ty + def.size / 2) * T, def.weapon.range, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
   }
-  if (def.wallPiece) {
-    // Which way the gate or bastion faces (its front, the outside).
-    const step = Math.PI / 2, f = Math.round((view.placeFacing || 0) / step) * step, fx = Math.cos(f), fy = Math.sin(f);
-    const cx = (tx + def.size / 2) * T + fx * (def.size * T / 2 + 10), cy = (ty + def.size / 2) * T + fy * (def.size * T / 2 + 10);
-    ctx.fillStyle = 'rgba(255,210,90,0.95)';
-    ctx.beginPath(); ctx.moveTo(cx + fx * 10, cy + fy * 10); ctx.lineTo(cx - fy * 8, cy + fx * 8); ctx.lineTo(cx + fy * 8, cy - fx * 8); ctx.closePath(); ctx.fill();
-  }
   if (def.field) {
-    // Where its wall of force will stand, and which way it faces.
+    // Where its forcefield will stand, and which way it faces.
     const g = fieldGeometry({ def, facing: view.placeFacing || 0, x: (tx + def.size / 2) * T, y: (ty + def.size / 2) * T });
     ctx.strokeStyle = 'rgba(90,184,255,0.9)'; ctx.lineWidth = 5;
     ctx.beginPath(); ctx.moveTo(g.ax, g.ay); ctx.lineTo(g.bx, g.by); ctx.stroke();
@@ -632,61 +589,6 @@ function drawPlacement(ctx, game, view) {
     ctx.beginPath(); ctx.moveTo(ax + g.dx * 8, ay + g.dy * 8); ctx.lineTo(ax - g.dy * 7, ay + g.dx * 7); ctx.lineTo(ax + g.dy * 7, ay - g.dx * 7); ctx.closePath();
     ctx.fillStyle = 'rgba(90,184,255,0.9)'; ctx.fill();
   }
-}
-
-// A wall being dragged out from its pivot: the wall itself, any square where
-// it can't go in red, its front, how many sections and what they cost.
-function drawWallPlacement(ctx, game, view, at) {
-  const T = CONFIG.TILE, team = view.team;
-  // Snap points nearby: the ends of your walls, gate posts and bastions.
-  for (const q of wallSnapPoints(game, team)) if (Math.hypot(q.x - at.x, q.y - at.y) < T * 4) {
-    ctx.strokeStyle = 'rgba(255,210,90,0.6)'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
-    ctx.beginPath(); ctx.arc(q.x, q.y, WALL_W / 2 + 6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
-  }
-  const a = view.wallStart || snapWallStart(game, team, at);
-  const guide = (from, to) => {   // a dashed line showing what it lines up with
-    ctx.save(); ctx.strokeStyle = 'rgba(255,210,90,0.85)'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 6]);
-    ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke(); ctx.restore();
-  };
-  if (!view.wallStart) for (const g of a.guides || []) guide(g, a);
-  // The square the pivot is locked to.
-  ctx.strokeStyle = 'rgba(255,210,90,0.9)'; ctx.lineWidth = 2;
-  ctx.strokeRect(Math.floor(a.x / T) * T + 1, Math.floor(a.y / T) * T + 1, T - 2, T - 2);
-  ctx.fillStyle = '#ffd25a'; ctx.strokeStyle = '#000';
-  ctx.beginPath(); ctx.arc(a.x, a.y, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();   // the pivot
-  if (!view.wallStart) return;
-  const e = view.wallEnd, b = e && e.ax === a.x && e.ay === a.y ? e : snapWallEnd(game, team, a, at);
-  if (Math.hypot(b.x - a.x, b.y - a.y) < 4) return;
-  for (const g of b.guides || []) guide(g, b);
-  if (b.meets) { ctx.strokeStyle = 'rgba(255,210,90,0.95)'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(b.x, b.y, WALL_W / 2 + 7, 0, Math.PI * 2); ctx.stroke(); }
-  const facing = wallFacingAB(game, a, b, view.wallFlip), nx = Math.cos(facing), ny = Math.sin(facing);
-  const tiles = wallTiles(a.x, a.y, b.x, b.y);
-  // The squares it will stand on: outlined, red where it can't go.
-  for (const [x, y] of tiles) {
-    const i = y * game.map.W + x, mine = game.wallGrid && game.wallGrid[i] === team;
-    if (mine) continue;   // already wall there: joins it
-    const good = canPlaceBuilding(game, team, 'wall', x, y).ok;
-    ctx.fillStyle = good ? 'rgba(120,255,140,0.12)' : 'rgba(255,90,80,0.35)'; ctx.strokeStyle = good ? 'rgba(140,255,160,0.7)' : '#ff6a5a'; ctx.lineWidth = 1.5;
-    ctx.fillRect(x * T, y * T, T, T); ctx.strokeRect(x * T + 0.5, y * T + 0.5, T - 1, T - 1);
-  }
-  ctx.save(); ctx.globalAlpha = 0.7;
-  drawWallBand(ctx, [a, b], nx, ny, { faction: game.teams[team].faction, team }, 1, false, game.time);
-  ctx.restore();
-  drawWallPillar(ctx, a.x, a.y, { faction: game.teams[team].faction, team }, 0.7);
-  drawWallPillar(ctx, b.x, b.y, { faction: game.teams[team].faction, team }, 0.7);
-  // The front: arrows on the outside.
-  ctx.fillStyle = 'rgba(255,210,90,0.95)';
-  const L = Math.hypot(b.x - a.x, b.y - a.y);
-  for (let d = 24; d < L - 8; d += 64) {
-    const cx = a.x + (b.x - a.x) * d / L + nx * 32, cy = a.y + (b.y - a.y) * d / L + ny * 32;
-    ctx.beginPath(); ctx.moveTo(cx + nx * 9, cy + ny * 9); ctx.lineTo(cx - ny * 6, cy + nx * 6); ctx.lineTo(cx + ny * 6, cy - nx * 6); ctx.closePath(); ctx.fill();
-  }
-  ctx.font = 'bold 14px system-ui, sans-serif'; ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.lineWidth = 3.5;
-  const cost = BUILDING_TYPES.wall.cost, n = wallSections({ ax: a.x, ay: a.y, bx: b.x, by: b.y });
-  const deg = ((Math.round(Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI) % 360) + 360) % 360;
-  const label = `${n} section${n === 1 ? '' : 's'} × ${cost} = ${n * cost} scrap · ${deg}°`;
-  const lx = b.x, ly = b.y - 34;
-  ctx.textAlign = 'center'; ctx.strokeText(label, lx, ly); ctx.fillText(label, lx, ly); ctx.textAlign = 'left';
 }
 
 function placementTile(world, size) {
@@ -735,19 +637,22 @@ function drawScrap(ctx, s) {
 // Which design from the unit sheet (js/sprites.js) each game type uses.
 // No prototype, so a type like "constructor" isn't mistaken for a built-in.
 // Power Generators and Shield Projectors are drawn here (drawPowerBuilding); they borrow the Silo's explosion and crater.
-const SPRITE_ID = Object.assign(Object.create(null), { mobileRecycler: 'recyclerV', repairpad: 'repair', basesilo: 'silo', outsilo: 'exsilo', arttower: 'towerArt', heavytower: 'towerHeavy', generator: 'silo', shield: 'silo', armory: 'lab', drone: 'scout', heavy: 'juggernaut', heavyBuilder: 'constructor', wall: 'silo', gate: 'silo', bastion: 'silo' });
+const SPRITE_ID = Object.assign(Object.create(null), { mobileRecycler: 'recyclerV', repairpad: 'repair', basesilo: 'silo', outsilo: 'exsilo', arttower: 'towerArt', heavytower: 'towerHeavy', generator: 'silo', shield: 'silo', armory: 'lab', drone: 'scout', heavy: 'juggernaut' });
 const spriteId = type => SPRITE_ID[type] || type;
 // The Kethra Concord's designs (js/sprites_kethra.js). Its towers have one
 // design; upgraded ones are drawn with its gold markings.
 const KETHRA_ID = Object.assign(Object.create(null), {
   mobileRecycler: 'monad', recycler: 'nexus', scavenger: 'skimmer', constructor: 'loom', scout: 'shard', tank: 'bulwark',
   artillery: 'spire', hornet: 'talon', sentry: 'pylon', factory: 'assembler', repairpad: 'lattice', extractor: 'siphon',
-  basesilo: 'vault', tower: 'prism', arttower: 'prism', heavytower: 'prism', lab: 'archive', radar: 'array', generator: 'vault', shield: 'vault', armory: 'archive', drone: 'shard', heavy: 'colossus', heavyBuilder: 'loom', wall: 'vault', gate: 'vault', bastion: 'vault',
+  basesilo: 'vault', tower: 'prism', arttower: 'prism', heavytower: 'prism', lab: 'archive', radar: 'array', generator: 'vault', shield: 'vault', armory: 'archive', drone: 'shard', heavy: 'colossus',
 });
-// Which set of designs, and which design in it, draws a thing of a given faction.
-const artFor = faction => (faction === 'kethra' && window.KethraSprites ? KethraSprites : UnitSprites);
+// Which set of designs, and which design in it, draws a thing of a given
+// faction. The Iron Dominion's and Vex Swarm's designs (js/sprites_factions.js)
+// use the same design names as Scrapline's.
+const ART = () => ({ kethra: window.KethraSprites, dominion: window.DominionSprites, vex: window.VexSprites });
+const artFor = faction => ART()[faction] || UnitSprites;
 const artId = (faction, type) => (faction === 'kethra' && window.KethraSprites ? KETHRA_ID[type] || type : spriteId(type));
-const teamName = t => (t === 1 ? 'blue' : 'red');
+const teamName = t => (TEAMS[t] && TEAMS[t].art) || 'blue';
 // Seconds since a gun last fired, while its recoil and muzzle flash still show.
 const sinceShot = (e, now) => (e.lastShot !== undefined && now - e.lastShot < 0.5 ? now - e.lastShot : null);
 
@@ -758,7 +663,6 @@ function flashOver(ctx, x, y, r) {
 }
 
 function drawBuilding(ctx, b, selected, ghost, time) {
-  if (b.def.wallPiece) { drawWallPiece(ctx, b, ghost, time); if (selected) drawSelection(ctx, b); return; }
   if (b.type === 'generator' || b.type === 'shield') { drawPowerBuilding(ctx, b, ghost, time); if (selected) drawSelection(ctx, b); return; }
   if (b.type === 'armory') { drawArmory(ctx, b, ghost, time); if (selected) drawSelection(ctx, b); return; }
   const T = CONFIG.TILE, s = b.size * T, art = artFor(b.faction), id = artId(b.faction, b.variant || b.type), team = teamName(b.team);
@@ -782,281 +686,6 @@ function drawBuilding(ctx, b, selected, ghost, time) {
   if (b.hitFlash > 0) flashOver(ctx, b.x, b.y, s * 0.45);
   ctx.restore();
   if (selected) drawSelection(ctx, b);
-}
-
-// Compound walls: concrete (Scrapline) or dark crystal-bound stone (Kethra).
-// Each wall run is drawn as one smooth, thick band along its true line (the
-// squares underneath are only where it blocks), joined smoothly to the runs,
-// gates and bastions it touches. The front (outside) has a darker face and a
-// row of spikes.
-const WALL_W = 34;   // band width: a little more than a square
-function wallColours(faction) {
-  const k = faction === 'kethra';
-  return { base: k ? '#2a2f3d' : '#5a5c51', top: k ? '#434b60' : '#8d8f80', hi: k ? '#56607a' : '#a3a593', dark: k ? '#171a23' : '#34362e',
-           edge: '#0d0f0c', spike: k ? '#8a6fd0' : '#706d5e' };
-}
-function drawWallNetwork(ctx, game, team, onScreen, time) {
-  const T = CONFIG.TILE;
-  const shown = new Map();   // piece -> drawn faded (seen before, not in sight now)
-  for (const e of game.entities) {
-    if (e.kind !== 'building' || e.type !== 'wall' || !onScreen(e.x, e.y, 300)) continue;
-    const vis = view.revealAll || e.team === team || isVisibleTo(game, team, e);
-    if (vis || e.seen[team]) shown.set(e, !vis);
-  }
-  const runs = new Map();
-  for (const [e] of shown) { const k = e.team + ':' + (e.runId || 'x' + e.id); if (!runs.has(k)) runs.set(k, []); runs.get(k).push(e); }
-  const pillars = [];
-  for (const list of runs.values()) {
-    const g = wallSeg(game, list[0]), vx = g.bx - g.ax, vy = g.by - g.ay, L = Math.hypot(vx, vy);
-    const f = list[0].facing || 0, nx = Math.cos(f), ny = Math.sin(f);
-    if (L < 1) { pillars.push({ x: g.ax, y: g.ay, e: list[0], faded: shown.get(list[0]) }); continue; }
-    const ux = vx / L, uy = vy / L;
-    // Where each piece's square cuts the line: those stretches are drawn.
-    const spans = [];
-    for (const e of list) {
-      const x0 = e.tx * T - 0.5, x1 = (e.tx + 1) * T + 0.5, y0 = e.ty * T - 0.5, y1 = (e.ty + 1) * T + 0.5;
-      let t0 = 0, t1 = L;
-      for (const [d, o, lo, hi] of [[ux, g.ax, x0, x1], [uy, g.ay, y0, y1]]) {
-        if (Math.abs(d) < 1e-9) { if (o < lo || o > hi) { t0 = 1; t1 = 0; } continue; }
-        let a = (lo - o) / d, b = (hi - o) / d; if (a > b) [a, b] = [b, a];
-        t0 = Math.max(t0, a); t1 = Math.min(t1, b);
-      }
-      if (t1 > t0) spans.push({ t0, t1, e });
-    }
-    spans.sort((a, b) => a.t0 - b.t0);
-    // Join neighbouring stretches with the same state into one band.
-    const bands = [];
-    for (const sp of spans) {
-      const st = sp.e.built >= 1 ? 1 : 0, last = bands[bands.length - 1];
-      if (last && last.st === st && sp.t0 <= last.t1 + 2) { last.t1 = Math.max(last.t1, sp.t1); last.n++; last.built += sp.e.built; last.faded = last.faded || shown.get(sp.e); }
-      else bands.push({ t0: sp.t0, t1: sp.t1, st, n: 1, built: sp.e.built, faded: shown.get(sp.e) });
-    }
-    // Where the run starts or ends on another wall's square (a joint), carry
-    // the band on to the shared pillar.
-    const ownAt = (x, y) => { const i = Math.floor(y / T) * game.map.W + Math.floor(x / T); return game.wallGrid[i] === list[0].team && !list.some(e => e.id === game.wallId[i]); };
-    if (bands.length && bands[0].t0 > 2 && bands[0].t0 < T * 1.6 && ownAt(g.ax, g.ay)) bands[0].t0 = 0;
-    const lb = bands[bands.length - 1];
-    if (lb && lb.t1 < L - 2 && lb.t1 > L - T * 1.6 && ownAt(g.bx, g.by)) lb.t1 = L;
-    for (const bd of bands) {
-      const p0 = { x: g.ax + ux * bd.t0, y: g.ay + uy * bd.t0 }, p1 = { x: g.ax + ux * bd.t1, y: g.ay + uy * bd.t1 };
-      drawWallBand(ctx, [p0, p1], nx, ny, list[0], bd.st ? (bd.faded ? 0.5 : 1) : 0.2 + 0.55 * bd.built / bd.n, !bd.st, time);
-      // A pillar at each end of the run; a broken end where it was breached.
-      for (const [t, p] of [[bd.t0, p0], [bd.t1, p1]]) {
-        const end = t < 2 ? { x: g.ax, y: g.ay } : t > L - 2 ? { x: g.bx, y: g.by } : null;
-        if (end) pillars.push({ x: end.x, y: end.y, e: list[0], faded: bd.faded, alpha: bd.st ? 1 : 0.2 + 0.55 * bd.built / bd.n });
-        else if (!game.entities.some(o => (o.def.gate || o.def.bastion) && o.team === list[0].team && o.hp > 0 && Math.hypot(o.x - p.x, o.y - p.y) < T * 1.8)) drawRubbleEnd(ctx, p, ux, uy, t === bd.t0 ? -1 : 1, list[0]);   // a real breach, not a gate
-      }
-    }
-  }
-  // Pillars last, so joins between runs sit under one round post.
-  const done = [];
-  for (const pl of pillars) {
-    if (done.some(q => Math.hypot(q.x - pl.x, q.y - pl.y) < 4)) continue;
-    done.push(pl);
-    drawWallPillar(ctx, pl.x, pl.y, pl.e, pl.faded ? 0.5 : (pl.alpha || 1));
-  }
-}
-function drawWallBand(ctx, pts, nx, ny, piece, alpha, building, time) {
-  const C = wallColours(piece.faction), path = (off, k = 0) => {
-    ctx.beginPath();
-    pts.forEach((p, i) => { const x = p.x + nx * off, y = p.y + ny * off; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-  };
-  ctx.save(); ctx.globalAlpha *= alpha; ctx.lineJoin = 'round'; ctx.lineCap = 'butt';
-  ctx.strokeStyle = 'rgba(0,0,0,0.28)'; ctx.lineWidth = WALL_W + 2; ctx.save(); ctx.translate(3, 4); path(0); ctx.stroke(); ctx.restore();   // shadow
-  ctx.strokeStyle = C.edge; ctx.lineWidth = WALL_W; path(0); ctx.stroke();
-  ctx.strokeStyle = C.base; ctx.lineWidth = WALL_W - 3; path(0); ctx.stroke();
-  ctx.strokeStyle = C.dark; ctx.lineWidth = 9; path(WALL_W / 2 - 7); ctx.stroke();             // the front face
-  ctx.strokeStyle = C.top; ctx.lineWidth = WALL_W - 16; path(-2); ctx.stroke();              // the walkway on top
-  ctx.strokeStyle = C.hi; ctx.lineWidth = 2; path(-WALL_W / 2 + 9); ctx.stroke();            // a lit edge at the back
-  // The side's colour: a solid stripe along the top (and round it while it's being built).
-  ctx.strokeStyle = TEAMS[piece.team].color; ctx.lineWidth = 2; path(-2); ctx.stroke();
-  if (building) { ctx.lineWidth = 1.5; path(WALL_W / 2 - 1); ctx.stroke(); path(-WALL_W / 2 + 1); ctx.stroke(); }
-  // Spikes along the front, the side's colour along the top, Shield Wall emitters.
-  let total = 0;
-  for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-  const along = d => { for (let i = 1; i < pts.length; i++) { const L = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); if (d <= L || i === pts.length - 1) { const k = L ? Math.min(1, d / L) : 0; return { x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * k, y: pts[i - 1].y + (pts[i].y - pts[i - 1].y) * k }; } d -= L; } return pts[0]; };
-  ctx.fillStyle = C.spike; ctx.strokeStyle = C.edge; ctx.lineWidth = 1;
-  const tx = -ny, ty = nx;
-  for (let d = 9; d < total - 4; d += 16) {
-    const p = along(d), bx = p.x + nx * (WALL_W / 2 - 1), by = p.y + ny * (WALL_W / 2 - 1);
-    ctx.beginPath(); ctx.moveTo(bx + nx * 7, by + ny * 7); ctx.lineTo(bx + tx * 4.5, by + ty * 4.5); ctx.lineTo(bx - tx * 4.5, by - ty * 4.5); ctx.closePath(); ctx.fill(); ctx.stroke();
-  }
-  ctx.restore();
-}
-function drawWallPillar(ctx, x, y, piece, alpha = 1) {
-  const C = wallColours(piece.faction), r = WALL_W / 2 + 3;
-  ctx.save(); ctx.globalAlpha *= alpha;
-  ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.arc(x + 3, y + 4, r, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = C.base; ctx.strokeStyle = C.edge; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = C.top; ctx.beginPath(); ctx.arc(x, y, r - 5, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = C.hi; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, r - 5, Math.PI * 0.9, Math.PI * 1.6); ctx.stroke();
-  ctx.fillStyle = TEAMS[piece.team].color; ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fill();
-  ctx.restore();
-}
-function drawRubbleEnd(ctx, p, ux, uy, dir, piece) {
-  const C = wallColours(piece.faction);
-  ctx.save(); ctx.fillStyle = C.base; ctx.strokeStyle = C.edge; ctx.lineWidth = 1;
-  for (let k = 0; k < 4; k++) {
-    const o = (k - 1.5) * 8, x = p.x - uy * o + ux * dir * (3 + (k % 2) * 4), y = p.y + ux * o + uy * dir * (3 + (k % 2) * 4);
-    ctx.beginPath(); ctx.arc(x, y, 3 + (k % 2), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  }
-  ctx.restore();
-}
-// A wall section (2x2, the size of a Gun Tower): a thick slab across or up
-// and down, or an L-shaped corner. Its arms reach the edge of its square
-// where another section touches, so a row of sections reads as one wall;
-// a free end gets a cap.
-const SECTION_W = 62;   // the full width of its square, the same as a Gun Tower's pad
-function sectionArms(b) {
-  // Which sides (0 right, 1 down, 2 left, 3 up) this section reaches.
-  const r = ((Math.round((b.facing || 0) / (Math.PI / 2)) % 4) + 4) % 4;
-  return b.def.corner ? [r, (r + 1) % 4] : (r % 2 ? [1, 3] : [0, 2]);
-}
-function sectionTouches(b, side) {
-  // Another wall piece of the same side against this edge?
-  if (!game || !game.wallGrid) return false;
-  const W = game.map.W, s = b.size, [dx, dy] = [[1, 0], [0, 1], [-1, 0], [0, -1]][side];
-  for (let k = 0; k < s; k++) {
-    const x = dx > 0 ? b.tx + s : dx < 0 ? b.tx - 1 : b.tx + k, y = dy > 0 ? b.ty + s : dy < 0 ? b.ty - 1 : b.ty + k;
-    if (x < 0 || y < 0 || x >= W || y >= game.map.H) continue;
-    if (game.wallGrid[y * W + x] === b.team) return true;
-  }
-  return false;
-}
-function drawWallSection(ctx, b, ghost, time) {
-  const T = CONFIG.TILE, s = b.size * T, C = wallColours(b.faction), cx = b.x, cy = b.y, h = SECTION_W / 2;
-  const arms = sectionArms(b), dirs = [[1, 0], [0, 1], [-1, 0], [0, -1]];
-  ctx.save();
-  if (ghost) ctx.globalAlpha = 0.5;
-  if (b.built < 1) ctx.globalAlpha *= 0.3 + 0.6 * b.built;
-  // The shape: each arm from the middle to the edge (to the very edge if
-  // another section touches, else stopping short with a cap).
-  const reach = side => (sectionTouches(b, side) ? s / 2 : s / 2 - 1);
-  const shape = off => {
-    ctx.beginPath();
-    for (const side of arms) {
-      const [dx, dy] = dirs[side], L = reach(side) - (sectionTouches(b, side) ? 0 : off), w = h - off;
-      ctx.rect(Math.min(cx, cx + dx * L) - (dy ? w : 0), Math.min(cy, cy + dy * L) - (dx ? w : 0), dx ? L : 2 * w, dy ? L : 2 * w);
-    }
-    ctx.rect(cx - h + off, cy - h + off, 2 * (h - off), 2 * (h - off));   // the middle
-  };
-  ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.save(); ctx.translate(3, 4); shape(0); ctx.fill(); ctx.restore();
-  ctx.fillStyle = C.edge; shape(0); ctx.fill();
-  ctx.fillStyle = C.base; shape(1.5); ctx.fill();
-  ctx.fillStyle = C.top; shape(8); ctx.fill();
-  // Battlements along the outer faces: every side of the square the wall
-  // doesn't run out of (both long faces of a straight section; the two outside
-  // faces of a corner, which is one solid block the same width as a section).
-  ctx.fillStyle = C.dark;
-  for (let side = 0; side < 4; side++) if (!arms.includes(side)) {
-    const [dx, dy] = dirs[side];
-    const a = arms.includes((side + 1) % 4) ? reach((side + 1) % 4) : h, b2 = arms.includes((side + 3) % 4) ? reach((side + 3) % 4) : h;
-    // along the face: t runs perpendicular to the side's normal
-    for (let t = -b2 + 3; t < a - 3; t += 9) {
-      const x = cx + dx * (h - 3.5) - dy * t, y = cy + dy * (h - 3.5) + dx * t;
-      ctx.fillRect(x - 2.5, y - 2.5, 5, 5);
-    }
-  }
-  // A seam where it meets the next section, and the side's colour along the top.
-  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1.5;
-  for (const side of arms) if (sectionTouches(b, side)) {
-    const [dx, dy] = dirs[side], e = s / 2 - 0.75;
-    ctx.beginPath(); ctx.moveTo(cx + dx * e - dy * (h - 7), cy + dy * e - dx * (h - 7)); ctx.lineTo(cx + dx * e + dy * (h - 7), cy + dy * e + dx * (h - 7)); ctx.stroke();
-  }
-  ctx.strokeStyle = TEAMS[b.team].color; ctx.lineWidth = 2; ctx.beginPath();
-  for (const side of arms) { const [dx, dy] = dirs[side], L = reach(side) - 6; ctx.moveTo(cx, cy); ctx.lineTo(cx + dx * L, cy + dy * L); }
-  ctx.stroke();
-  // A cap on each free end.
-  for (const side of arms) if (!sectionTouches(b, side)) {
-    const [dx, dy] = dirs[side], L = reach(side);
-    ctx.fillStyle = C.dark; ctx.fillRect(cx + dx * (L - 5) - (dy ? h : 2.5), cy + dy * (L - 5) - (dx ? h : 2.5), dy ? 2 * h : 5, dx ? 2 * h : 5);
-  }
-  ctx.restore();
-  if (b.built < 1 && !ghost) { ctx.strokeStyle = TEAMS[b.team].color; ctx.lineWidth = 1.5; ctx.strokeRect(b.tx * T + 1.5, b.ty * T + 1.5, s - 3, s - 3); }
-  else if (b.built >= 1) {
-    if (b.hp < b.maxHp * 0.5) {
-      ctx.strokeStyle = 'rgba(10,10,8,0.7)'; ctx.lineWidth = 1.4; ctx.beginPath();
-      ctx.moveTo(cx - h * 0.7, cy - h * 0.6); ctx.lineTo(cx, cy - 2); ctx.lineTo(cx + h * 0.5, cy + h * 0.7);
-      if (b.hp < b.maxHp * 0.25) { ctx.moveTo(cx - h * 0.8, cy + h * 0.3); ctx.lineTo(cx, cy - 2); }
-      ctx.stroke();
-    }
-    if (b.hitFlash > 0) flashOver(ctx, cx, cy, s * 0.45);
-  }
-}
-
-function drawWallPiece(ctx, b, ghost, time) {
-  if (b.def.mountable) { drawWallSection(ctx, b, ghost, time); return; }
-  const T = CONFIG.TILE, s = b.size * T, x0 = b.tx * T, y0 = b.ty * T;
-  const C = wallColours(b.faction), accent = TEAMS[b.team].color;
-  const fx = Math.cos(b.facing || 0), fy = Math.sin(b.facing || 0);
-  ctx.save();
-  if (ghost) ctx.globalAlpha = 0.5;
-  if (b.built < 1) ctx.globalAlpha *= 0.25 + 0.6 * b.built;
-  ctx.strokeStyle = C.edge; ctx.lineWidth = 1.2;
-  if (b.type === 'wall') {
-    // The band itself is drawn by drawWallNetwork; here, only a Shield Wall
-    // emitter on its front.
-    if (b.shieldWall && b.built >= 1) {
-      const on = 0.6 + 0.4 * Math.sin(time * 5 + b.id);
-      ctx.fillStyle = `rgba(110,200,255,${on})`;
-      ctx.beginPath(); ctx.arc(b.x + fx * 11, b.y + fy * 11, 3, 0, Math.PI * 2); ctx.fill();
-    }
-  } else if (b.def.gate) {
-    // Two pillars on the wall's line, doors sliding between them.
-    const g = b.seg || (() => { const ux = -fy, uy = fx, w = T * (b.size / 2 + 0.6); return { ax: b.x - ux * w, ay: b.y - uy * w, bx: b.x + ux * w, by: b.y + uy * w }; })();
-    const cx = (g.ax + g.bx) / 2, cy = (g.ay + g.by) / 2, half = Math.hypot(g.bx - g.ax, g.by - g.ay) / 2, a = Math.atan2(g.by - g.ay, g.bx - g.ax);
-    let open = 0;
-    forUnitsNear(game, cx, cy, 80, u => { if (u.team === b.team && u.hp > 0 && Math.hypot(u.x - cx, u.y - cy) < 75) open = 1; });
-    b.openK = (b.openK || 0) + ((open ? 1 : 0) - (b.openK || 0)) * 0.15;
-    ctx.save(); ctx.translate(cx, cy); ctx.rotate(a);
-    const H = WALL_W / 2 - 5, gap = half - (WALL_W / 2 + 1);
-    ctx.fillStyle = 'rgba(20,18,14,0.45)'; ctx.fillRect(-gap, -H, 2 * gap, 2 * H);   // the opening
-    const d = gap * (1 - b.openK * 0.92);
-    for (const k of [-1, 1]) {
-      ctx.save(); ctx.translate(k * (gap - d / 2), 0);
-      ctx.fillStyle = C.top; ctx.fillRect(-d / 2, -H + 3, d, 2 * H - 6); ctx.strokeRect(-d / 2, -H + 3, d, 2 * H - 6);
-      ctx.fillStyle = '#e0b030';
-      for (let q = -d / 2 + 2; q < d / 2 - 4; q += 7) { ctx.beginPath(); ctx.moveTo(q, -H + 3); ctx.lineTo(q + 3.5, -H + 3); ctx.lineTo(q + 7, H - 3); ctx.lineTo(q + 3.5, H - 3); ctx.closePath(); ctx.fill(); }
-      ctx.restore();
-    }
-    ctx.restore();
-    ctx.restore(); ctx.save();
-    drawWallPillar(ctx, g.ax, g.ay, b, ghost ? 0.5 : b.built < 1 ? 0.25 + 0.6 * b.built : 1);
-    drawWallPillar(ctx, g.bx, g.by, b, ghost ? 0.5 : b.built < 1 ? 0.25 + 0.6 * b.built : 1);
-  } else {
-    // Bastion: a heavy square keep the wall runs into, round towers on its
-    // corners, battlements, a ring where a gun or radar can stand.
-    const m = 4, x = x0 - m, y = y0 - m, w = s + 2 * m;
-    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(x + 4, y + 5, w, w);
-    ctx.fillStyle = C.base; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, w, 6) : ctx.rect(x, y, w, w); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = C.top; ctx.fillRect(x + 8, y + 8, w - 16, w - 16);
-    ctx.fillStyle = C.dark;
-    for (let q = 0; q < 5; q++) {
-      const t = 12 + q * (w - 24) / 4 - 3;
-      ctx.fillRect(x + t, y + 2, 6, 5); ctx.fillRect(x + t, y + w - 7, 6, 5); ctx.fillRect(x + 2, y + t, 5, 6); ctx.fillRect(x + w - 7, y + t, 5, 6);
-    }
-    for (const [cx, cy] of [[x + 5, y + 5], [x + w - 5, y + 5], [x + 5, y + w - 5], [x + w - 5, y + w - 5]]) {
-      ctx.fillStyle = C.base; ctx.beginPath(); ctx.arc(cx, cy, 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = C.hi; ctx.beginPath(); ctx.arc(cx - 1.5, cy - 1.5, 5, 0, Math.PI * 2); ctx.fill();
-    }
-    ctx.fillStyle = C.dark; ctx.fillRect(x + w / 2 - 10 + fx * (w / 2 - 6), y + w / 2 - 10 + fy * (w / 2 - 6), 20, 20);   // front parapet
-    if (!b.mountId) { ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(b.x, b.y, s * 0.2, 0, Math.PI * 2); ctx.stroke(); }
-  }
-  ctx.restore();
-  if (b.built < 1 && b.type !== 'wall') {
-    ctx.strokeStyle = TEAMS[b.team].color; ctx.lineWidth = 1.5;
-    ctx.strokeRect(x0 + 1.5, y0 + 1.5, s - 3, s - 3);
-  } else if (b.built >= 1) {
-    if (b.hp < b.maxHp * 0.5) {   // cracks
-      ctx.strokeStyle = 'rgba(10,10,8,0.7)'; ctx.lineWidth = 1.2; ctx.beginPath();
-      const r = (b.id * 9301 + 49297) % 233280 / 233280, k = Math.min(s, 30) / 2;
-      ctx.moveTo(b.x - k * (0.6 - r * 0.5), b.y - k * 0.8); ctx.lineTo(b.x, b.y - k * 0.1); ctx.lineTo(b.x + k * (0.5 - r * 0.3), b.y + k * 0.8);
-      if (b.hp < b.maxHp * 0.25) { ctx.moveTo(b.x - k * 0.9, b.y + k * 0.2); ctx.lineTo(b.x, b.y - k * 0.1); }
-      ctx.stroke();
-    }
-    if (b.hitFlash > 0) flashOver(ctx, b.x, b.y, Math.min(s, 34) * 0.45);
-  }
 }
 
 function drawSelection(ctx, e) {
@@ -1083,10 +712,9 @@ function drawUnit(ctx, u, selected, time) {
     ctx.beginPath(); ctx.ellipse(u.x, u.y + 2, r + 4, (r + 4) * 0.8, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   }
   if (u.type === 'drone') { drawCustomUnit(ctx, u, time); }
-  else if (u.def.wallBuilder) drawHeavyBuilder(ctx, u, art, id, time);
   else art.drawSprite(ctx, id, {
     x: u.x, y: u.y, heading: u.angle, turret: wrapAngle(u.turret - u.angle), team: u.cmdId ? 'green' : teamName(u.team),   // under a commander: green
-    mk: !!u.def.base || !!u.def.wallBuilder, t: time, legE: u.legE || 0, fire: sinceShot(u, time),
+    mk: !!u.def.base, t: time, legE: u.legE || 0, fire: sinceShot(u, time),
     turret2: u.turret2 !== undefined ? wrapAngle(u.turret2 - u.angle) : undefined,
     fire2: u.lastShot2 !== undefined && time - u.lastShot2 < 0.5 ? time - u.lastShot2 : null,
     thrust: u.movingTick >= game.tick - 1,   // Kethra exhaust glow while moving
@@ -1119,30 +747,6 @@ function drawUnit(ctx, u, selected, time) {
   }
 }
 
-// The Heavy Constructor: the Constructor's design stretched long and broad,
-// with a dozer blade on the front and hazard stripes on the back, so it
-// reads as the heavy machine even zoomed out.
-function drawHeavyBuilder(ctx, u, art, id, time) {
-  const R = u.radius;
-  ctx.save(); ctx.translate(u.x, u.y); ctx.rotate(u.angle);
-  ctx.save(); ctx.scale(1.6, 1.15);
-  art.drawSprite(ctx, id, { x: 0, y: 0, heading: 0, turret: wrapAngle(u.turret - u.angle), team: teamName(u.team), mk: true, t: time, thrust: u.movingTick >= game.tick - 1 });
-  ctx.restore();
-  ctx.strokeStyle = '#0d0f0c'; ctx.lineWidth = 1.2;
-  // dozer blade
-  ctx.fillStyle = '#5b5f56'; ctx.fillRect(R * 1.25, -R * 1.0, R * 0.32, R * 2.0); ctx.strokeRect(R * 1.25, -R * 1.0, R * 0.32, R * 2.0);
-  ctx.fillStyle = '#8a8d80'; ctx.fillRect(R * 1.25, -R * 1.0, R * 0.1, R * 2.0);
-  // hazard stripes across the back
-  const x0 = -R * 1.5, w = R * 0.42, h = R * 1.5;
-  ctx.save(); ctx.beginPath(); ctx.rect(x0, -h / 2, w, h); ctx.clip();
-  ctx.fillStyle = '#f0c030'; ctx.fillRect(x0, -h / 2, w, h);
-  ctx.fillStyle = '#1a1a14';
-  for (let k = -h; k < h; k += 7) { ctx.beginPath(); ctx.moveTo(x0, k); ctx.lineTo(x0 + w, k + w); ctx.lineTo(x0 + w, k + w + 3.5); ctx.lineTo(x0, k + 3.5); ctx.closePath(); ctx.fill(); }
-  ctx.restore();
-  ctx.strokeRect(x0, -h / 2, w, h);
-  ctx.restore();
-}
-
 // A commander's gold star.
 function drawStar(ctx, x, y, R) {
   ctx.beginPath();
@@ -1150,11 +754,22 @@ function drawStar(ctx, x, y, R) {
   ctx.closePath(); ctx.fillStyle = '#ffd34d'; ctx.strokeStyle = '#3a2a00'; ctx.lineWidth = 1.2; ctx.fill(); ctx.stroke();
 }
 
-// Repair Drone: a small hovering rotor craft with a green repair light.
-// Kethra version has cyan rotor light. (The Juggernaut is a proper sprite.)
+// Each faction's colours for the things drawn by hand below (Repair Drone,
+// Power Generator, Shield Projector, Armory): round or square shapes, body,
+// plating, the glow of its power, and an accent.
+const LOOK = {
+  scrapline: { round: false, body: '#4a5446', plate: '#6b7866', glow: '#ffd25a', accent: '#e0b030', roof: '#5a6156', roof2: '#6f7869' },
+  kethra:    { round: true,  body: '#2a2e3a', plate: '#3c4254', glow: '#6ff0ff', accent: '#8a5cff' },
+  dominion:  { round: false, body: '#3b3730', plate: '#6a6150', glow: '#ff9a3a', accent: '#c9963b', roof: '#4a453b', roof2: '#625a4a' },
+  vex:       { round: true,  body: '#3e3524', plate: '#6e5f3e', glow: '#b8ff4a', accent: '#e0d070' },
+};
+const lookOf = f => LOOK[f] || LOOK.scrapline;
+
+// Repair Drone: a small hovering rotor craft with a green repair light, in
+// its faction's colours. (The Juggernaut is a proper sprite.)
 function drawCustomUnit(ctx, u, time) {
-  const kethra = u.faction === 'kethra', col = TEAMS[u.team].color, r = u.radius;
-  const body = kethra ? '#2a2e3a' : '#4a5446', plate = kethra ? '#3c4254' : '#6b7866', glow = kethra ? '#6ff0ff' : '#ffd25a';
+  const L = lookOf(u.faction), col = TEAMS[u.team].color, r = u.radius;
+  const body = L.body, plate = L.plate;
   ctx.save(); ctx.translate(u.x, u.y);
   ctx.strokeStyle = '#0d0f0c'; ctx.lineWidth = 1.5;
   if (u.type === 'drone') {
@@ -1190,30 +805,31 @@ function drawCustomUnit(ctx, u, time) {
 // (Scrapline), or a rounded forge with a glowing core (Kethra). Sparks fly
 // from it while it researches.
 function drawArmory(ctx, b, ghost, time) {
-  const T = CONFIG.TILE, s = b.size * T, h = s / 2, col = TEAMS[b.team].color, kethra = b.faction === 'kethra';
+  const T = CONFIG.TILE, s = b.size * T, h = s / 2, col = TEAMS[b.team].color, L = lookOf(b.faction), kethra = L.round;
   ctx.save(); ctx.translate(b.x, b.y);
   ctx.globalAlpha = ghost ? 0.5 : b.built < 1 ? 0.25 + 0.6 * b.built : 1;
   ctx.strokeStyle = '#0d0f0c'; ctx.lineWidth = 2;
   if (kethra) {
-    ctx.fillStyle = '#3c4254'; ctx.beginPath();
+    ctx.fillStyle = L.plate; ctx.beginPath();
     for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 + Math.PI / 8; ctx[i ? 'lineTo' : 'moveTo'](Math.cos(a) * (h - 3), Math.sin(a) * (h - 3)); }
     ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#2a2e3a'; ctx.beginPath(); ctx.arc(0, 0, h * 0.55, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = L.body; ctx.beginPath(); ctx.arc(0, 0, h * 0.55, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     const live = b.researching && b.built >= 1;
-    ctx.fillStyle = live ? `rgba(111,240,255,${0.6 + 0.4 * Math.sin(time * 8)})` : '#6ff0ff';
+    ctx.fillStyle = L.glow; if (live) ctx.globalAlpha *= 0.6 + 0.4 * Math.sin(time * 8);
     ctx.beginPath(); ctx.arc(0, 0, h * 0.22, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#8a5cff'; ctx.lineWidth = 2;
+    ctx.globalAlpha = ghost ? 0.5 : b.built < 1 ? 0.25 + 0.6 * b.built : 1;
+    ctx.strokeStyle = L.accent; ctx.lineWidth = 2;
     for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + (live ? time : 0); ctx.beginPath(); ctx.moveTo(Math.cos(a) * h * 0.3, Math.sin(a) * h * 0.3); ctx.lineTo(Math.cos(a) * h * 0.52, Math.sin(a) * h * 0.52); ctx.stroke(); }
     ctx.fillStyle = col; ctx.fillRect(-h * 0.5, h - 9, h, 4);
   } else {
-    ctx.fillStyle = '#5a6156'; ctx.beginPath(); ctx.rect(-h + 3, -h + 3, s - 6, s - 6); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#6f7869'; ctx.fillRect(-h + 7, -h + 7, s - 14, s * 0.42);
+    ctx.fillStyle = L.roof; ctx.beginPath(); ctx.rect(-h + 3, -h + 3, s - 6, s - 6); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = L.roof2; ctx.fillRect(-h + 7, -h + 7, s - 14, s * 0.42);
     // Gun rack on the roof: three barrels.
     ctx.fillStyle = '#2f332d';
     for (let i = 0; i < 3; i++) ctx.fillRect(-h + 12, -h + 11 + i * 7, s - 30, 3.5);
     ctx.fillStyle = '#c9ced4'; for (let i = 0; i < 3; i++) ctx.fillRect(h - 18, -h + 10 + i * 7, 5, 5.5);
     // Blast door with hazard stripes.
-    ctx.fillStyle = '#e0b030'; ctx.fillRect(-h * 0.55, h * 0.12, h * 1.1, h * 0.62);
+    ctx.fillStyle = L.accent; ctx.fillRect(-h * 0.55, h * 0.12, h * 1.1, h * 0.62);
     ctx.fillStyle = '#1b1d21';
     for (let i = 0; i < 5; i++) { ctx.beginPath(); const x0 = -h * 0.55 + i * h * 0.24; ctx.moveTo(x0, h * 0.74); ctx.lineTo(x0 + h * 0.12, h * 0.74); ctx.lineTo(x0 + h * 0.24, h * 0.12); ctx.lineTo(x0 + h * 0.12, h * 0.12); ctx.closePath(); ctx.fill(); }
     ctx.strokeStyle = '#0d0f0c'; ctx.lineWidth = 1.5; ctx.strokeRect(-h * 0.55, h * 0.12, h * 1.1, h * 0.62);
@@ -1231,8 +847,8 @@ function drawArmory(ctx, b, ghost, time) {
 }
 
 function drawPowerBuilding(ctx, b, ghost, time) {
-  const T = CONFIG.TILE, s = b.size * T, h = s / 2, col = TEAMS[b.team].color, kethra = b.faction === 'kethra';
-  const glow = kethra ? '#6ff0ff' : '#ffd25a', body = kethra ? '#2a2e3a' : '#4a5446', plate = kethra ? '#3c4254' : '#6b7866';
+  const T = CONFIG.TILE, s = b.size * T, h = s / 2, col = TEAMS[b.team].color, L = lookOf(b.faction), kethra = L.round;
+  const glow = L.glow, body = L.body, plate = L.plate;
   ctx.save();
   ctx.translate(b.x, b.y);
   ctx.globalAlpha = ghost ? 0.5 : b.built < 1 ? 0.25 + 0.6 * b.built : 1;
@@ -1328,7 +944,7 @@ function drawHealthBar(ctx, e, selected) {
     ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(e.x - w / 2 - 1, y + 5, w + 2, 5);
     ctx.fillStyle = '#f0a040'; ctx.fillRect(e.x - w / 2, y + 6, w * Math.min(1, work), 3);
   } else if (e.kind === 'building' && e.queue && e.queue.length && e.built >= 1) {
-    const def = UNIT_TYPES[e.queue[0]];
+    const def = unitDef(e.faction, e.queue[0]);
     ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(e.x - w / 2 - 1, y + 5, w + 2, 5);
     ctx.fillStyle = '#8cc8ff'; ctx.fillRect(e.x - w / 2, y + 6, w * e.prodTime / def.buildTime, 3);
   }
@@ -1400,7 +1016,9 @@ function drawUplink(ctx, u, time) {
   ctx.beginPath(); ctx.arc(u.x, u.y, R, 0, Math.PI * 2); ctx.stroke();
   ctx.setLineDash([]); ctx.globalAlpha = 1;
   if (Math.abs(u.p) > 0.01) {
-    ctx.strokeStyle = TEAMS[u.p > 0 ? 1 : 2].color; ctx.lineWidth = 5;
+    // How far the side in `by` has got (older saves: + for Blue, - for Red).
+    const by = u.by !== undefined ? u.by : u.p > 0 ? 1 : 2;
+    ctx.strokeStyle = (TEAMS[by] || TEAMS[1]).color; ctx.lineWidth = 5;
     ctx.beginPath(); ctx.arc(u.x, u.y, 34, -Math.PI / 2, -Math.PI / 2 + Math.abs(u.p) * Math.PI * 2); ctx.stroke();
   }
   // The mast: a plinth, a lattice tower and a dish.

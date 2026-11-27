@@ -1,10 +1,10 @@
 // Scrapline Command: offline support. Keeps a copy of the game on the device
 // so it opens without an internet connection. Online, it always fetches the
 // newest version (and refreshes the copy); offline, it uses the copy.
-const CACHE = 'scrapline-v3';
+const CACHE = 'scrapline-v4';
 const FILES = [
   './', './index.html', './manifest.webmanifest', './icon.svg', './icon-180.png', './icon-192.png', './icon-512.png',
-  './js/config.js', './js/map.js', './js/sim.js', './js/ai.js', './js/campaign.js', './js/sprites.js', './js/sprites_kethra.js',
+  './js/config.js', './js/map.js', './js/sim.js', './js/ai.js', './js/campaign.js', './js/sprites.js', './js/sprites_kethra.js', './js/sprites_factions.js',
   './js/render.js', './js/saves.js', './js/music.js', './js/main.js', './js/war.js',
 ];
 

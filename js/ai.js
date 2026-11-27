@@ -23,7 +23,6 @@ function aiUpdate(game, team) {
   const units = mine.filter(e => e.kind === 'unit');
   const buildings = mine.filter(e => e.kind === 'building');
   const tm = game.teams[team];
-  const enemy = 3 - team;
   const tac = diff.tactics || {};
   const hq = buildings.find(b => b.type === 'recycler');
   if (!hq) {
@@ -35,6 +34,9 @@ function aiUpdate(game, team) {
     }
     return;
   }
+  // The side it is fighting: with more than two, the nearest one still in
+  // the game (re-picked now and then). It defends against everyone.
+  const enemy = aiRival(game, team, ai, hq);
   // Counts by basic kind, so a Tank Mk II counts as a tank.
   const count = type => units.filter(u => baseType(u) === type).length +
     buildings.reduce((n, b) => n + b.queue.filter(q => (UNIT_TYPES[q].base || q) === type).length, 0);
@@ -59,14 +61,12 @@ function aiUpdate(game, team) {
   const deployers = units.filter(u => u.def.canDeploy && u.order.type !== 'deploy');
   const wantsGeyser = upgraded && has('extractor') < diff.maxExtractors && expansionTarget(game, team, hq);
   if (!hq.queue.length && hq.upgrading === null) {
-    if (count('constructor') < 1 && tm.scrap >= UNIT_TYPES[conType].cost) cmd({ type: 'produce', buildingId: hq.id, unit: conType });
-    // A Heavy Constructor, once its personality wants walls.
-    else if (upgraded && wallPlan(game, ai) && game.time > wallPlan(game, ai).after - 60 && count('heavyBuilder') < 1 && tm.scrap >= UNIT_TYPES.heavyBuilder.cost + 100) cmd({ type: 'produce', buildingId: hq.id, unit: 'heavyBuilder' });
+    if (count('constructor') < 1 && tm.scrap >= unitDef(tm.faction, conType).cost) cmd({ type: 'produce', buildingId: hq.id, unit: conType });
     // Repair Drones (on Auto repair) keep the base and army patched up.
     else if (upgraded && count('drone') < (game.difficulty === 'hard' ? 2 : 1) && tm.scrap >= UNIT_TYPES.drone.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'drone' });
     // A Scavenger II to claim the next geyser.
     else if (wantsGeyser && !deployers.length && tm.scrap >= UNIT_TYPES.scavenger2.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'scavenger2' });
-    else if (count('scavenger') < scavWanted && tm.scrap >= UNIT_TYPES[scavType].cost) cmd({ type: 'produce', buildingId: hq.id, unit: scavType });
+    else if (count('scavenger') < scavWanted && tm.scrap >= unitDef(tm.faction, scavType).cost) cmd({ type: 'produce', buildingId: hq.id, unit: scavType });
   }
 
   // --- Expansion: turn a Scavenger into an Extractor on a free geyser --------
@@ -83,21 +83,10 @@ function aiUpdate(game, team) {
 
   // --- Construction --------------------------------------------------------
   // Prefer a Constructor II, since only it can repair.
-  const idleBuilders = units.filter(u => u.def.role === 'builder' && !u.def.wallBuilder && u.order.type === 'idle');
+  const idleBuilders = units.filter(u => u.def.role === 'builder' && u.order.type === 'idle');
   const builder = idleBuilders[0];
-  // A Gun Tower or Radar up on one of its bastions (Fortress and Balanced).
-  const plan = wallPlan(game, ai);
-  // Shield wall: Shield Projectors on its bastions (with Forcefield Tech and a Generator); others: Gun Towers.
-  const shieldUp = plan && plan.shield && tm.research.shields && buildings.some(b => b.type === 'generator' && b.built >= 1);
-  const onTop = plan ? (shieldUp ? 'shield' : plan.towers ? 'tower' : null) : null, cap = plan ? (plan.towers || 0) + (plan.shield ? 2 : 0) : 0;
-  // (on the wall sections nearest the gap in its wall, then any)
-  const gapAt = ai.gapAt || hq;
-  const freeBastion = onTop && buildings.filter(b => (b.def.bastion || b.def.mountable) && b.built >= 1 && !b.mountId).sort((a, b) => dist(a, gapAt) - dist(b, gapAt))[0];
-  const mounted = buildings.filter(b => b.mountOn).length;
-  if (builder && !ai.savingUp && freeBastion && mounted < cap && !buildings.some(b => b.mountOn && b.built < 1) && tm.scrap >= BUILDING_TYPES[onTop].cost + 100) {
-    cmd({ type: 'build', ids: [builder.id], building: onTop, tx: freeBastion.tx, ty: freeBastion.ty, facing: snapFacing(toCenter) });
-  } else if (builder && !ai.savingUp) {
-    const unfinished = buildings.find(b => b.built < 1 && !b.def.wallPiece);
+  if (builder && !ai.savingUp) {
+    const unfinished = buildings.find(b => b.built < 1);
     let want = null, near = null;
     if (unfinished) cmd({ type: 'repair', ids: [builder.id], targetId: unfinished.id });
     else if (!has('factory')) want = 'factory';
@@ -122,15 +111,12 @@ function aiUpdate(game, team) {
       near = outposts.find(s => !buildings.some(t => t.type === 'tower' && dist(t, s) < 260)) || null;
     }
     if (want === 'factory' || want === 'basesilo' || want === 'lab' || want === 'radar' || want === 'repairpad' || want === 'generator' || want === 'armory') near = null;  // these go around the Recycler
-    ai.saving = want === 'basesilo' && tm.scrap < BUILDING_TYPES[want].cost;
-    if (want && tm.scrap >= BUILDING_TYPES[want].cost) {
+    ai.saving = want === 'basesilo' && tm.scrap < buildingDef(tm.faction, want).cost;
+    if (want && tm.scrap >= buildingDef(tm.faction, want).cost) {
       const spot = findBuildSpot(game, team, want, hq, toCenter, near);
       if (spot) cmd({ type: 'build', ids: [builder.id], building: want, tx: spot.x, ty: spot.y, facing: snapFacing(toCenter) });
     }
   }
-
-  // --- Walls ------------------------------------------------------------------
-  if (plan) aiWalls(game, team, ai, plan, hq, units, buildings, cmd);
 
   // --- Research and Factory upgrades ------------------------------------------
   for (const lab of buildings.filter(b => b.type === 'lab' && b.built >= 1 && !b.researching)) {
@@ -224,7 +210,7 @@ function aiUpdate(game, team) {
   for (const f of buildings.filter(b => b.type === 'factory' && b.built >= 1)) {
     const scouts = count('scout'), tanks = count('tank'), arty = count('artillery'), hornets = count('hornet'), sentries = count('sentry');
     if (f.queue.length >= 2 || scouts + tanks + arty + hornets + sentries >= armyCap) continue;
-    if (units.length >= CONFIG.UNIT_CAP - 2) continue;
+    if (units.length >= unitCap(game, team) - 2) continue;
     let pick = 'tank';
     // A Sentry for each defensive post (Normal and Hard).
     if (posts.length > sentries && game.time > tac.sentriesAfter) pick = 'sentry';
@@ -237,7 +223,7 @@ function aiUpdate(game, team) {
     if (ai.saving || ai.savingUp || f.upgrading !== null) continue;
     // Build the Mk II version when researched and this Factory is upgraded.
     if (f.level > 1 && tm.research[pick + '2']) pick = pick + '2';
-    if (tm.scrap >= UNIT_TYPES[pick].cost + (builder ? 60 : 0)) cmd({ type: 'produce', buildingId: f.id, unit: pick });
+    if (tm.scrap >= unitDef(tm.faction, pick).cost + (builder ? 60 : 0)) cmd({ type: 'produce', buildingId: f.id, unit: pick });
     if (!f.rally) cmd({ type: 'rally', buildingId: f.id, x: rally.x, y: rally.y });
   }
 
@@ -260,7 +246,7 @@ function aiUpdate(game, team) {
   if (diff.tactics) { runTactics(game, team, ai, diff, { hq, army, buildings, rally, cmd, enemy }); return; }
 
   // --- Defence -------------------------------------------------------------
-  const intruder = game.entities.find(e => e.team === enemy && e.kind === 'unit' && e.def.role === 'combat' &&
+  const intruder = game.entities.find(e => e.team !== team && e.kind === 'unit' && e.def.role === 'combat' &&
     buildings.some(b => dist(b, e) < 380) && isVisibleTo(game, team, e));
   if (intruder) {
     const defenders = army.filter(u => dist(u, hq) < 1400 && u.order.type !== 'attack');
@@ -272,7 +258,7 @@ function aiUpdate(game, team) {
   const idle = army.filter(u => u.order.type === 'idle' && !u.target);
   const atHome = idle.filter(u => dist(u, rally) < 300);
   const inField = idle.filter(u => dist(u, rally) >= 300);
-  const objective = pickObjective(game, team, hq);
+  const objective = pickObjective(game, team, hq, enemy);
 
   // Units already out attacking keep pushing to the next target.
   if (inField.length && objective && game.time >= diff.firstAttack) {
@@ -288,7 +274,7 @@ function aiUpdate(game, team) {
     const wave = atHome.sort((a, b) => dist(a, objective) - dist(b, objective)).slice(0, waveSize);
     cmd({ type: 'move', ids: wave.map(u => u.id), x: objective.x, y: objective.y, attackMove: true });
     ai.nextWave = game.time + diff.waveEvery;
-    pushEvent(game, enemy, 'Enemy attack force spotted, heading your way!', 'bad');
+    pushEvent(game, objective.team, 'Enemy attack force spotted, heading your way!', 'bad');
   }
 }
 
@@ -298,9 +284,9 @@ function aiUpdate(game, team) {
 // holds two (and is counting down to a win), everything goes to retake the
 // nearest of them. Returns the vehicles left for the usual tactics.
 function aiUplinks(game, team, ai, army, hq, cmd) {
-  const enemy = 3 - team, links = game.uplinks, duty = ai.duty || (ai.duty = {});
+  const links = game.uplinks, duty = ai.duty || (ai.duty = {}), enemy = game.uplinkHold.team;
   for (const id of Object.keys(duty)) { const u = game.byId.get(+id); if (!u || u.hp <= 0) delete duty[id]; }
-  if (game.uplinkHold.team === enemy) {
+  if (enemy && enemy !== team) {
     const target = links.filter(l => l.owner === enemy).sort((a, b) => dist(a, hq) - dist(b, hq))[0];
     if (target && game.time - (ai.uplinkPush || -99) > 6) {
       ai.uplinkPush = game.time;
@@ -325,86 +311,33 @@ function aiUplinks(game, team, ai, army, hq, cmd) {
   return army.filter(u => !duty[u.id]);
 }
 
-// --- Walls and personalities ---------------------------------------------------
-// Each computer opponent gets a hidden personality for the game, which decides
-// how it uses walls (difficulty decides how much and how early):
-//   fortress   walls with bastions and Gun Towers on them, artillery
-//   shieldwall walls with Shield Projectors on the bastions (Forcefield Tech + power)
-//   raider     few walls: short walls at the Extractors it has to defend
-//   balanced   some of everything
-// `after`: from when (s); `base`: length of the wall across the front of its
-// base (0: none); `towers`: Gun Towers on bastions; `extractors`: wall off its
-// Extractors (Raiders, and anyone on Hard, also wall the ones that get hit).
-// (`base` is in squares: the wall has base / 2 sections.)
-const WALL_PLANS = {
-  easy:   { fortress: { after: 900, base: 8 }, shieldwall: { after: 1100, base: 6 }, raider: null, balanced: { after: 1100, base: 6 } },
-  normal: { fortress: { after: 420, base: 14, bastions: true, towers: 2 }, shieldwall: { after: 480, base: 12, bastions: true, shield: true },
-            raider: { after: 600, base: 0, extractors: true }, balanced: { after: 480, base: 10, bastions: true, towers: 1 } },
-  hard:   { fortress: { after: 360, base: 18, bastions: true, towers: 2, extractors: true }, shieldwall: { after: 420, base: 16, bastions: true, shield: true, extractors: true },
-            raider: { after: 480, base: 8, extractors: true }, balanced: { after: 420, base: 14, bastions: true, towers: 1, extractors: true } },
-};
-const PERSONAS = ['fortress', 'shieldwall', 'raider', 'balanced'];
-function wallPlan(game, ai) {
-  if (!ai.persona) ai.persona = PERSONAS[Math.floor(game.rng() * PERSONAS.length)];
-  const plans = WALL_PLANS[game.difficulty] || WALL_PLANS.normal;
-  return plans[ai.persona] || null;
-}
-// A straight wall of `n` sections (2x2 each), `R` squares out from (cx, cy)
-// toward angle a (snapped to the four main directions), with a 2-section gap
-// in the middle for its own vehicles if `gap`. Returns build jobs, and where
-// the gap is.
-function wallJobs(cx, cy, a, R, n, gap) {
-  const ax = Math.abs(Math.cos(a)) >= Math.abs(Math.sin(a));
-  const d = ax ? Math.sign(Math.cos(a)) || 1 : Math.sign(Math.sin(a)) || 1;
-  const facing = ax ? Math.PI / 2 : 0;   // the wall runs across the way to the enemy
-  const line = Math.round((ax ? cx : cy) + d * R) - 1, start = Math.round((ax ? cy : cx) - n);
-  const mid = Math.floor(n / 2), skip = gap ? new Set([mid - 1, mid]) : new Set();
-  const jobs = [];
-  for (let k = 0; k < n; k++) if (!skip.has(k)) jobs.push(ax ? { kind: 'wallblock', tx: line, ty: start + 2 * k, facing } : { kind: 'wallblock', tx: start + 2 * k, ty: line, facing });
-  const g = ax ? { x: (line + 1) * CONFIG.TILE, y: (start + 2 * mid) * CONFIG.TILE } : { x: (start + 2 * mid) * CONFIG.TILE, y: (line + 1) * CONFIG.TILE };
-  return { jobs, gapAt: gap ? g : null };
-}
-function aiWalls(game, team, ai, plan, hq, units, buildings, cmd) {
-  if (game.time < plan.after) return;
-  const tm = game.teams[team], T = CONFIG.TILE;
-  const theirs = { x: game.map.W * T - hq.x, y: game.map.H * T - hq.y };   // the enemy base, mirrored from ours
-  ai.wallJobs = ai.wallJobs || [];
-  ai.walled = ai.walled || {};
-  // Plan the wall across the front of the base once.
-  if (!ai.baseWallPlanned) {
-    ai.baseWallPlanned = true;
-    if (plan.base) {
-      const w = wallJobs(hq.tx + 1.5, hq.ty + 1.5, angleTo(hq, theirs), 13, Math.round(plan.base / 2), plan.base >= 8);
-      ai.wallJobs.push(...w.jobs); ai.gapAt = w.gapAt;
-    }
+// The side this computer opponent is fighting. With two sides, the other one;
+// with more, the nearest still in the game (by its Recycler), re-picked every
+// minute or so as sides fall.
+function aiRival(game, team, ai, hq) {
+  const live = (game.sides || [1, 2]).filter(t => t !== team && !(game.out && game.out[t]));
+  if (live.length <= 1) return live[0] || (team === 1 ? 2 : 1);
+  if (ai.rival && live.includes(ai.rival) && game.time - (ai.rivalAt || 0) < 60) return ai.rival;
+  let best = live[0], bd = Infinity;
+  for (const t of live) {
+    const r = game.entities.find(e => e.team === t && (e.type === 'recycler' || e.type === 'mobileRecycler') && e.hp > 0);
+    const d = r ? dist(r, hq) : Infinity;
+    if (d < bd) { bd = d; best = t; }
   }
-  // A short wall in front of each Extractor it means to hold, or that got hit.
-  for (const ex of buildings.filter(b => b.type === 'extractor' && b.built >= 1)) {
-    if (ai.walled[ex.id]) continue;
-    const hit = ex.lastHitAt > game.time - 20 && game.difficulty !== 'easy';
-    if (!plan.extractors && !hit) continue;
-    ai.walled[ex.id] = true;
-    ai.wallJobs.push(...wallJobs(ex.tx + 1, ex.ty + 1, angleTo(ex, theirs), 3, 3, false).jobs);
-  }
-  // The Heavy Constructor works through the jobs, one at a time.
-  const hb = units.find(u => u.def.wallBuilder && u.order.type === 'idle');
-  const job = ai.wallJobs[0];
-  if (hb && job && !ai.saving && !ai.savingUp) {
-    const def = BUILDING_TYPES[job.kind];
-    const cost = def.cost;
-    // Its defence budget: army production pauses until it can afford the next piece.
-    if (tm.scrap < cost + 40) ai.savingUp = true;
-    else {
-      ai.wallJobs.shift();
-      if (canPlaceBuilding(game, team, job.kind, job.tx, job.ty).ok) cmd({ type: 'build', ids: [hb.id], building: job.kind, tx: job.tx, ty: job.ty, facing: job.facing });
-    }
-  }
+  ai.rival = best; ai.rivalAt = game.time;
+  return best;
 }
 
-function pickObjective(game, team, hq) {
+// Attack the enemy building closest to our base: outposts first, then the HQ.
+// With more than two sides, the side it is fighting first (if it knows where
+// any of it is), otherwise whoever is nearest.
+function pickObjective(game, team, hq, rival) {
+  return pickObjectiveOf(game, team, hq, rival) || pickObjectiveOf(game, team, hq, 0);
+}
+function pickObjectiveOf(game, team, hq, only) {
   let best = null, bd = Infinity;
   for (const b of game.entities) {
-    if (b.team === team) continue;
+    if (b.team === team || (only && b.team !== only)) continue;
     // Everyone knows where the enemy HQ is, deployed or still on wheels.
     const hqTarget = b.type === 'recycler' || b.type === 'mobileRecycler';
     if (!hqTarget && (b.kind !== 'building' || !b.seen[team])) continue;
@@ -416,11 +349,11 @@ function pickObjective(game, team, hq) {
 
 // The nearest free scrap geyser on our side of the map.
 function expansionTarget(game, team, hq) {
-  const foe = game.entities.find(e => e.team !== team && e.type === 'recycler');
+  const foes = game.entities.filter(e => e.team !== team && e.type === 'recycler');
   let best = null, bd = Infinity;
   for (const g of game.geysers) {
     if (geyserTaken(game, g)) continue;
-    if (foe && dist(foe, g) < dist(hq, g)) continue;
+    if (foes.some(f => dist(f, g) < dist(hq, g))) continue;
     const d = dist(hq, g);
     if (d < bd) { bd = d; best = g; }
   }
@@ -429,13 +362,13 @@ function expansionTarget(game, team, hq) {
 
 // Find a legal spot for a building. With `near`, try to get as close to that
 // point as the rules allow; otherwise place it around the base.
-// The search runs as if we were Blue, bottom-left, and the answer is mirrored
-// for Red, so both sides place buildings in exactly the same way.
+// The search runs as if we were in the bottom-left corner, and the answer is
+// mirrored for the other corners, so every side places buildings the same way.
 function findBuildSpot(game, team, type, hq, towardAngle, near) {
   const T = CONFIG.TILE, size = BUILDING_TYPES[type].size, W = game.map.W, H = game.map.H;
-  const flip = !inMirroredHalf(game, hq.x, hq.y);  // based in the top-right corner
-  const local = p => flip ? { x: W * T - p.x, y: H * T - p.y } : { x: p.x, y: p.y };
-  const world = (tx, ty) => flip ? { x: W - size - tx, y: H - size - ty } : { x: tx, y: ty };
+  const side = cornerSide(game, hq.x, hq.y), fx = !side.left, fy = !side.bottom;
+  const local = p => ({ x: fx ? W * T - p.x : p.x, y: fy ? H * T - p.y : p.y });
+  const world = (tx, ty) => ({ x: fx ? W - size - tx : tx, y: fy ? H - size - ty : ty });
   const ok = (tx, ty) => { const w = world(tx, ty); return canPlaceBuilding(game, team, type, w.x, w.y).ok; };
   // Leave a gap around buildings so units can drive between them.
   const fits = BUILDING_TYPES[type].adjacent ? ok : (tx, ty) => ok(tx - 1, ty - 1) && ok(tx, ty) && ok(tx + 1, ty + 1);
@@ -632,7 +565,7 @@ function runTactics(game, team, ai, diff, c) {
   const mainArmy = army.filter(u => !busy.has(u.id));
 
   // --- Defence (as before): everyone near home meets an intruder.
-  const intruder = game.entities.find(e => e.team === enemy && e.kind === 'unit' && e.def.role === 'combat' &&
+  const intruder = game.entities.find(e => e.team !== team && e.kind === 'unit' && e.def.role === 'combat' &&
     buildings.some(b => dist(b, e) < 380) && isVisibleTo(game, team, e));
   if (intruder) {
     const defenders = mainArmy.filter(u => dist(u, hq) < 1400 && u.order.type !== 'attack' && u.order.type !== 'guard');
@@ -656,7 +589,7 @@ function runTactics(game, team, ai, diff, c) {
   const idle = mainArmy.filter(u => u.order.type === 'idle' && !u.target);
   const atHome = idle.filter(u => dist(u, rally) < 300 || (pad && dist(u, pad) < 200));
   const inField = idle.filter(u => !atHome.includes(u));
-  const objective = pickObjective(game, team, hq);
+  const objective = pickObjective(game, team, hq, enemy);
 
   // --- Retreat: a fighting group badly outnumbered by enemy vehicles falls back.
   if (tac.retreatAt && now - (ai.lastRetreatCheck || 0) > 1.5) {
@@ -710,7 +643,7 @@ function runTactics(game, team, ai, diff, c) {
     } else startAssault(wave, objective, first !== objective ? first : null);
     ai.nextWave = now + diff.waveEvery;
     if (tac.raidWithWave) ai.nextRaid = Math.min(ai.nextRaid || 0, now);
-    pushEvent(game, enemy, 'Enemy attack force spotted, heading your way!', 'bad');
+    pushEvent(game, objective.team, 'Enemy attack force spotted, heading your way!', 'bad');
   }
 
   // --- Raids: spare fast vehicles hit enemy workers and outposts.
@@ -736,7 +669,7 @@ function runTactics(game, team, ai, diff, c) {
     const m = s.ids.map(byId), ctr = centroidOf(m), age = now - s.t;
     if (s.kind === 'retreat') { if (dist(ctr, rally) < 500 || age > 60) s.done = true; continue; }
     if (s.kind === 'bait') {
-      const contact = game.entities.some(e => e.team === enemy && e.kind === 'unit' && e.def.weapon && dist(e, ctr) < 420 && isVisibleTo(game, team, e));
+      const contact = game.entities.some(e => e.team !== team && e.kind === 'unit' && e.def.weapon && dist(e, ctr) < 420 && isVisibleTo(game, team, e));
       if (s.state === 'poke' && (contact || m.some(u => u.hp < u.maxHp * 0.8))) { s.state = 'lure'; s.t = now; move(m, s.ambush, false); }
       else if (s.state === 'poke' && age > 50) s.done = true;
       else if (s.state === 'lure' && (dist(ctr, s.ambush) < 260 || age > 35)) s.done = true;
@@ -762,7 +695,7 @@ function runTactics(game, team, ai, diff, c) {
       if (s.wpi >= s.route.length || dist(ctr, s.route[s.route.length - 1]) < 700) {
         let prey = null, pd = Infinity;
         for (const e of game.entities) {
-          if (e.team !== enemy || e.kind !== 'unit' || e.def.weapon || e.hp <= 0 || !isVisibleTo(game, team, e)) continue;
+          if (e.team === team || e.kind !== 'unit' || e.def.weapon || e.hp <= 0 || !isVisibleTo(game, team, e)) continue;
           const d = dist(e, ctr); if (d < 650 && d < pd) { pd = d; prey = e; }
         }
         if (prey && now - (s.hitAt || 0) > 2) { s.hitAt = now; cmd({ type: 'attack', ids: m.map(u => u.id), targetId: prey.id }); }
@@ -845,7 +778,7 @@ function runAssault(game, team, ai, tac, s, m, c) {
     if (strikers.length) {
       let arty = null, ad = Infinity;
       for (const e of game.entities) {
-        if (e.team !== enemy || e.kind !== 'unit' || baseType(e) !== 'artillery' || e.hp <= 0 || !isVisibleTo(game, team, e)) continue;
+        if (e.team === team || e.kind !== 'unit' || baseType(e) !== 'artillery' || e.hp <= 0 || !isVisibleTo(game, team, e)) continue;
         const d = dist(e, target); if (d < 900 && d < ad) { ad = d; arty = e; }
       }
       const soft = arty ? null : softTarget(game, team, target);

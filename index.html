@@ -146,7 +146,7 @@
   .card h2 { margin: 18px 0 6px; font-size: 15px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); }
   .card p, .card li { color: #c6d1c1; }
   .card ul { margin: 4px 0; padding-left: 20px; }
-  /* Start screen: the two faction cards side by side. */
+  /* Start screen: the four faction cards, two by two. */
   .card.menu { max-width: 640px; }
   /* Save / load: a row per slot. */
   .card.saves { max-width: 560px; }
@@ -156,6 +156,8 @@
   .slot .info b { font-size: 15px; }
   .slot button { min-height: 38px; }
   .factions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .foesel { display: contents; }
+  .foesel label i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
   .faction { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 8px 10px 10px; text-align: left; }
   .faction canvas { width: 100%; height: auto; aspect-ratio: 300 / 110; border-radius: 5px; background: #0d120d; }
   .faction b { font-size: 16px; }
@@ -374,7 +376,7 @@
     <div class="stat"><span class="label" style="color:var(--blue)"><span class="wide">Your </span>base</span><b id="hq-me">100%</b></div>
     <div class="tbar"><div id="hq-me-bar" style="background:var(--blue)"></div></div>
     <div class="tbar"><div id="hq-foe-bar" style="background:var(--red)"></div></div>
-    <div class="stat"><span class="label" style="color:var(--red)">Enemy<span class="wide"> base</span></span><b id="hq-foe">?</b></div>
+    <div class="stat"><span class="label" id="hq-foe-label" style="color:var(--red)">Enemy<span class="wide"> base</span></span><b id="hq-foe">?</b></div>
   </div>
   <div class="stat hidden" id="uplink-stat"></div>
   <div class="spacer"></div>
@@ -437,6 +439,20 @@
         <canvas width="300" height="110"></canvas>
         <b>Kethra Concord</b><span class="dim small">Hovering alien constructs on gravity rings</span>
       </button>
+      <button class="faction" data-faction="dominion">
+        <canvas width="300" height="110"></canvas>
+        <b>Iron Dominion</b><span class="dim small">Slow, tough siege engines: +35% health, +10% range, brace when still</span>
+      </button>
+      <button class="faction" data-faction="vex">
+        <canvas width="300" height="110"></canvas>
+        <b>Vex Swarm</b><span class="dim small">Cheap, fast, frail beasts that heal and hunt in packs; up to 140</span>
+      </button>
+    </div>
+    <h2>The battle</h2>
+    <div class="row opts">
+      <label>Sides <select id="sidessel" title="How many sides fight: every side against every other">
+        <option value="2">2: one against one</option><option value="3">3: free-for-all</option><option value="4">4: free-for-all</option></select></label>
+      <span id="foesel" class="foesel"></span>
     </div>
     <div class="row opts">
       <label>Battle <select id="modesel" title="How a single battle is won">
@@ -546,7 +562,6 @@
         press <b>Deploy base</b>. It becomes your headquarters and slowly pumps that geyser.</li>
       <li><b>Collect scrap.</b> Scavengers gather loose scrap automatically. Scrap pays for everything.</li>
       <li><b>Upgrade your Recycler</b> to Recycler II. Only its <b>Scavenger IIs</b> can deploy on geysers, and it builds <b>Repair Drones</b>, fast flyers that fix your buildings and vehicles (on <b>Auto repair</b> they find the work themselves; <b>Follow</b> keeps them with one vehicle).</li>
-      <li><b>Walls:</b> a <b>Heavy Constructor</b> (Recycler II) builds them one section at a time (75 scrap each, the size of a Gun Tower): <b>Wall</b> for a straight section, <b>Wall Corner</b> to turn; <b>Rotate</b> turns it, and it snaps flush against your other sections. Leave a gap for your own vehicles. A Constructor can put a Gun Tower, Radar or Shield Projector on any section. Walls stop direct fire from both sides; only artillery (and guns up on the wall) fire over. Artillery, HE and Bunker Busters break walls fastest.</li>
       <li><b>Armory:</b> research 31 weapons for five kinds of hardpoint (Cannons, Guns, Rockets &amp; Missiles, Artillery, Specials such as Cloak, Shield and Point Defence). Choose each vehicle's weapons with <b>Loadouts ▾</b> on a Factory (each Factory has its own); new vehicles from it are built with them. Mk II vehicles have extra hardpoints, and pick the right weapon for each target. A tower's weapon is chosen once with <b>Fit weapon ▾</b>.</li>
       <li><b>Workers</b> now back away from enemy fighters, get themselves repaired when badly hurt, and leave scrap where there's been fighting. A mixed group you move together travels at the pace of its slowest vehicle.</li>
       <li><b>Tidal Flats map:</b> the tide floods the sand between the islands every few minutes (get off it when warned!), leaving only the stone causeways; low tide washes up fresh scrap.</li>
@@ -556,6 +571,8 @@
         Build <b>Base Silos</b> next to your Recycler to hold more.</li>
       <li><b>Protect your Recycler</b> at all costs. If it falls, you lose.
         <b>Destroy the enemy Recycler</b> to win.</li>
+      <li><b>Three or four sides</b> (Sides, on the start screen): a free-for-all, every side against every other, from the four corners.
+        A side that loses its Recycler is out; the last side standing wins.</li>
     </ul>
     <h2>Factions</h2>
     <p class="small">This manual uses Scrapline names. The <b>Kethra Concord</b> fights by exactly the same rules under its own names:
@@ -563,6 +580,13 @@
       Hornet = <b>Talon</b>, Tank = <b>Bulwark</b>, Sentry = <b>Pylon</b>, Artillery = <b>Spire</b>, Factory = <b>Assembler</b>,
       Extractor = <b>Siphon</b>, Base Silo = <b>Vault Orb</b>, Gun Tower = <b>Prism Tower</b>, Research Lab = <b>Archive</b>,
       Radar = <b>Sensor Array</b>, Repair Pad = <b>Mending Lattice</b>.</p>
+    <p class="small">The <b>Iron Dominion</b> plays differently: every fighting vehicle has 35% more health and 10% more range but is 15% slower and
+      costs 20% more; buildings are 40% tougher and their guns reach 15% further. A vehicle that stands still for 2 s <b>braces</b> and takes
+      25% less damage. Only 80 vehicles at once. (Recycler = <b>Citadel</b>, Scavenger = <b>Hauler</b>, Tank = <b>Warden</b>, Gun Tower = <b>Battery</b>.)</p>
+    <p class="small">So does the <b>Vex Swarm</b>: every fighting beast costs 25% less, grows 30% faster and runs 30% faster, but has 40% less health and
+      bites 15% softer. In a <b>pack</b> of 3 or more they attack about 18% faster, and anything not hit for 6 s slowly <b>heals itself</b>. Up to 140 at once.
+      (Recycler = <b>Hive</b>, Scavenger = <b>Gatherer</b>, Tank = <b>Ravager</b>, Gun Tower = <b>Spine Tower</b>.)
+      For both, workers (and the Recycler and Repair Drones) only get the health change, so every faction earns scrap at the same pace.</p>
     <h2>Vehicles</h2>
     <ul>
       <li><b>Scout</b>: fast, sees far, light gun. <b>Hornet</b>: light rocket tank between a Scout and a Tank: much faster and cheaper than a Tank, less armour, hard-hitting rockets.</li>
@@ -636,7 +660,7 @@
       <li><b>Shots can miss</b>: fast movers are hard to hit, and so is anything far away. Vehicles keep moving while they fight, which makes them harder to hit.</li>
       <li><b>Radar</b>: can be built anywhere you've explored, and you can build around it, so a lone Radar can anchor Gun Towers far from home. Upgrade it to ping every 15 s and reach farther (Radar II), then to a constant feed reaching farther still (Radar III).</li>
       <li><b>Extractor II</b>: upgrade an Extractor to pump 40% faster with far more health.</li>
-      <li><b>Shields</b>: research <b>Forcefield Tech</b> at a Research Lab, build a <b>Power Generator</b>, then <b>Shield Projectors</b> (one Generator powers 4; each costs a little scrap to run). Press <b>Rotate</b> (F) while placing to point the forcefield at the threat; build them side by side for a longer wall. The field stops enemy fire from the front only, goes blue → orange → red as it weakens, and when it collapses it takes 13.5 s to reboot.</li>
+      <li><b>Shields</b>: research <b>Forcefield Tech</b> at a Research Lab, build a <b>Power Generator</b>, then <b>Shield Projectors</b> (one Generator powers 4; each costs a little scrap to run). Press <b>Rotate</b> (F) while placing to point the forcefield at the threat; build them side by side for a longer barrier. The field stops enemy fire from the front only, goes blue → orange → red as it weakens, and when it collapses it takes 13.5 s to reboot.</li>
       <li><b>Call-in</b> (top bar): a <b>Supply drop</b> (300 scrap at your Recycler) or <b>Reinforcements</b> (2 Tanks and 2 Hornets where you tap). You get one per battle; every uplink you hold earns another every 2 minutes.</li>
       <li><b>Uplinks</b> (capture and hold battles): park combat vehicles by an uplink mast to capture it. Once they're online (5:00), hold two of the three for 3 minutes to win.</li>
       <li><b>Campaign landings</b>: whoever holds a battlefield has a base there. Attacking, pick a landing zone: an unclaimed geyser, or one of theirs to liberate (destroy the Extractor, then deploy on its geyser). Supply crates come down with you.</li>
@@ -653,7 +677,7 @@
     <h1 id="end-title">Victory</h1>
     <div id="end-reason" class="dim"></div>
     <table id="end-stats"></table>
-    <div class="row" style="margin-top:20px"><button id="again" class="big">Play again</button></div>
+    <div class="row" style="margin-top:20px"><button id="watchrest" class="big hidden">Watch the rest</button><button id="again" class="big">Play again</button></div>
   </div>
 </div>
 
@@ -665,6 +689,7 @@
 <script src="js/campaign.js"></script>
 <script src="js/sprites.js"></script>
 <script src="js/sprites_kethra.js"></script>
+<script src="js/sprites_factions.js"></script>
 <script src="js/render.js"></script>
 <script src="js/saves.js"></script>
 <script src="js/music.js"></script>

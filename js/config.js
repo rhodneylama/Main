@@ -69,14 +69,21 @@ const CONFIG = {
   SCRAP_NODE_AMOUNT: 400,    // scrap in each fresh scrap pile
 };
 
+// Up to four sides. `art` is the colour name the sprite sets use.
 const TEAMS = {
-  1: { name: 'Blue Command', color: '#4aa3ff', dark: '#1b4a78', light: '#a9d4ff' },
-  2: { name: 'Red Legion',   color: '#ff5a4a', dark: '#7a2018', light: '#ffb0a6' },
+  1: { name: 'Blue Command', color: '#4aa3ff', dark: '#1b4a78', light: '#a9d4ff', art: 'blue', short: 'Blue' },
+  2: { name: 'Red Legion',   color: '#ff5a4a', dark: '#7a2018', light: '#ffb0a6', art: 'red', short: 'Red' },
+  3: { name: 'Amber Host',   color: '#ffb22e', dark: '#7a4d08', light: '#ffdc9a', art: 'amber', short: 'Amber' },
+  4: { name: 'Violet Order', color: '#c77dff', dark: '#5a2580', light: '#e6c4ff', art: 'violet', short: 'Violet' },
 };
 
-// The two playable factions. They play by exactly the same rules (every unit
-// and building has the same numbers); only the look and the names differ.
-// `names` maps the Scrapline name of anything to the faction's own name.
+// The playable factions. Scrapline and the Kethra Concord play by exactly the
+// same rules (only the look and the names differ). The Iron Dominion and the
+// Vex Swarm play differently: their `traits` change their vehicles and
+// buildings (multipliers on the standard numbers) and give each its own
+// special rules (see sim.js: unitDef, buildingDef, damage, aimAndFire).
+// `names` maps the Scrapline name of anything to the faction's own name (a
+// name inside a longer one is swapped too: "Tank Mk II" becomes "Warden Mk II").
 const FACTIONS = {
   scrapline: {
     name: 'Scrapline', tagline: 'Salvage crews in tracked steel',
@@ -100,6 +107,54 @@ const FACTIONS = {
       'Advanced Hornets': 'Advanced Talons', 'Advanced Sentries': 'Advanced Pylons', 'Advanced Juggernauts': 'Advanced Colossi',
     },
   },
+  // Heavy, slow and tough: fewer, stronger machines that out-range and
+  // out-last the enemy, and dig in when they stop.
+  //   unit / building: multipliers on hp, speed, cost, buildTime, weapon
+  //   range and damage. cap: most vehicles at once.
+  //   brace: a vehicle that has stood still for brace.after seconds takes
+  //   brace.cut less damage.
+  dominion: {
+    name: 'Iron Dominion', tagline: 'Armoured siege engines',
+    desc: 'Riveted iron and brass. Every fighting vehicle is much tougher (+35% health) and reaches further (+10% range), but slower (-15%), dearer (+20%) and slower to build. Buildings +40% health; guns on towers reach 15% further. Vehicles that stand still for 2 s brace and take 25% less damage. Only 80 vehicles at once.',
+    traits: {
+      unit: { hp: 1.35, speed: 0.85, cost: 1.2, buildTime: 1.15, range: 1.1 },
+      building: { hp: 1.4, range: 1.15 },
+      cap: 80, brace: { after: 2, cut: 0.25 },
+    },
+    names: {
+      'Recycler (mobile)': 'Citadel Crawler', 'Recycler': 'Citadel', 'Scavenger': 'Hauler', 'Constructor': 'Foreman',
+      'Scout': 'Lancer', 'Tank': 'Warden', 'Artillery': 'Bombard', 'Hornet': 'Striker', 'Sentry': 'Redoubt',
+      'Repair Drone': 'Tender', 'Juggernaut': 'Behemoth', 'Juggernauts': 'Behemoths',
+      'Factory': 'Foundry', 'Extractor': 'Derrick', 'Base Silo': 'Strongbox', 'Extractor Silo': 'Derrick Tank',
+      'Gun Tower': 'Battery', 'Artillery Tower': 'Siege Battery', 'Heavy Gun Tower': 'Heavy Battery',
+      'Research Lab': 'War College', 'Armory': 'Arsenal', 'Radar': 'Watchpost', 'Repair Pad': 'Dry Dock',
+      'Power Generator': 'Boiler House', 'Shield Projector': 'Aegis Engine',
+    },
+  },
+  // Fast, cheap and fragile living war-beasts that breed quickly, heal
+  // themselves and fight best in packs.
+  //   pack: a vehicle with at least pack.n of its own vehicles within pack.r
+  //   reloads pack.reload as long.
+  //   regen: anything not hit for regen.delay seconds heals regen.rate of its
+  //   health a second.
+  vex: {
+    name: 'Vex Swarm', tagline: 'Fast-breeding living war-beasts',
+    desc: 'Chitin and acid. Every fighting beast is cheap (-25%), quick to grow (-30% build time) and fast (+30%), but frail (-40% health) and bites softer (-15% damage). Up to 140 at once. In a pack of 3 or more they attack about 18% faster, and anything not hit for 6 s slowly heals itself.',
+    traits: {
+      unit: { hp: 0.6, speed: 1.3, cost: 0.75, buildTime: 0.7, damage: 0.85 },
+      building: { hp: 0.8, cost: 0.85, buildTime: 0.8 },
+      cap: 140, pack: { r: 170, n: 3, reload: 0.85 }, regen: { delay: 6, rate: 0.015 },
+    },
+    names: {
+      'Recycler (mobile)': 'Brood Mother', 'Recycler': 'Hive', 'Scavenger': 'Gatherer', 'Constructor': 'Shaper',
+      'Scout': 'Skitter', 'Tank': 'Ravager', 'Artillery': 'Spitter', 'Hornet': 'Stinger', 'Sentry': 'Burrower',
+      'Repair Drone': 'Mender Mite', 'Juggernaut': 'Leviathan', 'Juggernauts': 'Leviathans',
+      'Factory': 'Spawning Pool', 'Extractor': 'Taproot', 'Base Silo': 'Larder', 'Extractor Silo': 'Root Larder',
+      'Gun Tower': 'Spine Tower', 'Artillery Tower': 'Spore Tower', 'Heavy Gun Tower': 'Thorn Tower',
+      'Research Lab': 'Gene Vat', 'Armory': 'Mutation Pit', 'Radar': 'Eye Stalk', 'Repair Pad': 'Healing Pool',
+      'Power Generator': 'Bio-Reactor', 'Shield Projector': 'Membrane',
+    },
+  },
 };
 // A name as a faction calls it.
 const factionName = (faction, name) => (FACTIONS[faction] && FACTIONS[faction].names[name]) || name;
@@ -112,7 +167,10 @@ const factionText = (() => {
     if (!f || !Object.keys(f.names).length) return text;
     const re = cache[faction] || (cache[faction] = new RegExp('\\b(' + Object.keys(f.names).sort((a, b) => b.length - a.length)
       .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')(s?)(?![\\w])', 'g'));
-    return text.replace(re, (m, n, pl) => f.names[n] + pl);
+    // ...and "a"/"an" put right in front of a swapped name ("an Extractor" → "a Derrick").
+    return text.replace(re, (m, n, pl) => '\u0001' + f.names[n] + pl)
+      .replace(/\b(a|an|A|An) \u0001([A-Za-z])/g, (m, art, c) => (/[AEIOUaeiou]/.test(c) ? (art[0] === 'A' ? 'An' : 'an') : art[0]) + ' ' + c)
+      .replace(/\u0001/g, '');
   };
 })();
 
@@ -145,13 +203,6 @@ const UNIT_TYPES = {
     name: 'Constructor', role: 'builder', cost: 80, buildTime: 8,
     hp: 160, speed: 43, radius: 13, sight: 220,
     desc: 'Builds structures. Repairs are the Repair Drone\'s job.',
-  },
-  // Built by a Recycler II. Slow and armoured; builds only walls and
-  // bastions (see WALL).
-  heavyBuilder: {
-    name: 'Heavy Constructor', role: 'builder', wallBuilder: true, art: 'constructor', cost: 130, buildTime: 10,
-    hp: 420, speed: 34, radius: 15, sight: 220,
-    desc: 'Builds wall sections and corners, one at a time (built by a Recycler II). Slow and armoured.',
   },
   // No longer built (repairs moved to the Repair Drone); kept so old saves load.
   constructor2: {
@@ -318,9 +369,9 @@ const WEAPONS = {
   // Cannons
   sabot:    { slot: 'cannon', name: 'Sabot Cannon', cost: 150, note: 'Armour-piercing: +50% against heavy vehicles, less against light ones.', mod: { damage: 1.1, vsHeavy: 1.5, vsLight: 0.75 } },
   railgun:  { slot: 'cannon', name: 'Railgun', cost: 250, note: 'Long range, huge hits against armour, slow to reload. Wasted on fast light vehicles.', mod: { projectile: 'rail', rangeAdd: 70, damage: 2.4, cooldown: 2.1, vsHeavy: 1.2, vsLight: 0.55, acc: 1.05 } },
-  he:       { slot: 'cannon', name: 'HE Cannon', cost: 175, note: 'High-explosive shells with a small blast: good against groups and buildings, and tears into walls.', mod: { vsWall: 1.7, damage: 1.0, splash: 40, vsLight: 1.25, vsHeavy: 0.8, vsBuilding: 1.3 } },
+  he:       { slot: 'cannon', name: 'HE Cannon', cost: 175, note: 'High-explosive shells with a small blast: good against groups and buildings.', mod: { damage: 1.0, splash: 40, vsLight: 1.25, vsHeavy: 0.8, vsBuilding: 1.3 } },
   autocannon: { slot: 'cannon', name: 'Autocannon', cost: 150, note: 'A smaller cannon that fires fast: between a gun and a cannon.', mod: { damage: 0.38, cooldown: 0.36, acc: 1.05, vsLight: 1.15 } },
-  plasma:   { slot: 'cannon', name: 'Plasma Cannon', cost: 375, researchTime: 150, buildMul: 1.2, note: 'High-end: a slow glowing shot with a big blast that passes straight through shields. Vehicles carrying it cost 20% more to build. Walls shrug it off (half damage).', mod: { vsWall: 0.5, projectile: 'plasma', damage: 1.5, cooldown: 1.6, splash: 40, pierceShield: true, vsBuilding: 1.2 } },
+  plasma:   { slot: 'cannon', name: 'Plasma Cannon', cost: 375, researchTime: 150, buildMul: 1.2, note: 'High-end: a slow glowing shot with a big blast that passes straight through shields. Vehicles carrying it cost 20% more to build.', mod: { projectile: 'plasma', damage: 1.5, cooldown: 1.6, splash: 40, pierceShield: true, vsBuilding: 1.2 } },
   // Rockets and missiles (rockets fly straight; missiles home in)
   battery:  { slot: 'rocket', name: 'Rocket Battery', cost: 200, note: 'Three unguided rockets in quick succession: a big hit, a long reload.', mod: { projectile: 'rocket', unguided: true, homing: false, salvo: 3, salvoGap: 0.12, damage: 0.66, cooldown: 1.9, vsHeavy: 1.1, vsBuilding: 1.3 } },
   swarm:    { slot: 'rocket', name: 'Swarm Missiles', cost: 150, note: 'Paired homing missiles, good against armour (+30%).', mod: { projectile: 'missile', homing: true, salvo: 2, damage: 0.65, cooldown: 1.15, vsHeavy: 1.3 } },
@@ -331,7 +382,7 @@ const WEAPONS = {
   // Artillery
   mortar:   { slot: 'artillery', name: 'Mortar', cost: 150, note: 'Shorter range, fast lobs, splash: chews up light units and Sentries.', mod: { rangeMul: 0.6, minRangeMul: 0.6, damage: 0.7, cooldown: 0.55, splashMul: 0.8, vsLight: 1.4 } },
   clusterA: { slot: 'artillery', name: 'Cluster Shells', cost: 200, note: 'Scatters bomblets over a wide area: hits many targets at once.', mod: { damage: 0.6, splashMul: 1.6, vsLight: 1.3 } },
-  bunker:   { slot: 'artillery', name: 'Bunker Buster', cost: 225, note: 'A very slow, very heavy shell that wrecks buildings and walls.', mod: { vsWall: 1.8, damage: 2.5, cooldown: 2.0, splashMul: 0.5, vsBuilding: 2.4, vsLight: 0.6 } },
+  bunker:   { slot: 'artillery', name: 'Bunker Buster', cost: 225, note: 'A very slow, very heavy shell that wrecks buildings.', mod: { damage: 2.5, cooldown: 2.0, splashMul: 0.5, vsBuilding: 2.4, vsLight: 0.6 } },
   guidedA:  { slot: 'artillery', name: 'Guided Shell', cost: 200, note: 'Longer range and pinpoint accuracy, little splash: picks off one target.', mod: { rangeAdd: 60, spreadMul: 0.2, splashMul: 0.5, damage: 1.4, vsHeavy: 1.2 } },
   empShell: { slot: 'artillery', name: 'EMP Shell', cost: 250, note: 'Knocks out shields and stalls every vehicle where it lands, yours too. Slow to reload.', mod: { damage: 0.3, cooldown: 1.6, emp: 85, empTime: 2.5 } },
   smoke:    { slot: 'artillery', name: 'Smoke Shell', cost: 125, note: 'A cloud nobody can see into for 12 seconds: cover an advance or a retreat.', mod: { damage: 0, cooldown: 1.4, smoke: 95, smokeTime: 12 } },
@@ -358,17 +409,6 @@ const SPECIALS = {
   mines:     { carry: 3, recharge: 20, damage: 140, splash: 45, arm: 1.5 },
 };
 const HEAVY_KINDS = ['tank', 'heavy', 'sentry', 'artillery', 'mobileRecycler'];
-// Compound walls. `maxRun`: longest wall drawn in one go (tiles). `front`:
-// how many squares in front of your wall nothing can be built. A Shield Wall
-// (Forcefield Tech) costs `shield.cost` a tile, takes `shield.time` seconds,
-// and its field has `shield.hp` a tile; it draws one Generator share per
-// `shield.tilesPerPower` tiles. `mountReach`: a tower or radar on a bastion
-// sees and shoots this much further. `vsArtillery`: shells hurt walls more.
-// Walls snap to square centres and run in one of 8 directions (straight or
-// 45°), a whole section (square to square) at a time; `snapReach`: how close
-// (in squares) a wall end or bastion pulls the pivot or end onto it.
-const WALL = { maxRun: 16, front: 4, angleStep: 45, snapReach: 1.5, mountReach: 1.15, vsArtillery: 1.25,
-  shield: { cost: 30, time: 25, hp: 330, tilesPerPower: 6 } };
 // Commanders: up to `max` per side (after Field Command research), each
 // leading up to `size` vehicles (the commander included). A commander's
 // rank lifts the whole group: aim ×(1 + acc × (rank + 1)), reload
@@ -400,7 +440,7 @@ const BUILDING_TYPES = {
     produces: ['scavenger', 'constructor'], dropoff: true, capacity: 300, buildRadius: 14,
     // Upgrading (production pauses meanwhile) swaps in the better workers.
     upgrade: { name: 'Recycler II', cost: 250, time: 40, hp: 5000,
-               produces: ['scavenger2', 'constructor', 'heavyBuilder', 'drone'] },
+               produces: ['scavenger2', 'constructor', 'drone'] },
     weapon: { range: 210, damage: 24, cooldown: 0.8, projectile: 'bullet', vsBuilding: 1 },
     desc: 'Your headquarters, with a light defence gun. Lose it and you lose the battle.',
   },
@@ -478,41 +518,6 @@ const BUILDING_TYPES = {
         desc: 'A tougher bunker with a fast twin heavy cannon and a little more reach (range 280). Its weapon becomes a Cannon hardpoint.' },
     ],
   },
-  // --- Compound walls (built by a Heavy Constructor; see WALL) ---------------
-  // A wall is drawn as a run of 1x1 pieces with a front (the outside). Nothing
-  // can be built in front of your own wall. A gate lets your vehicles through
-  // and keeps the enemy out. A bastion carries a Gun Tower or a Radar, which
-  // goes down with it.
-  // Wall sections (24 November 2026): a Gun-Tower-sized block, built one at a
-  // time by a Heavy Constructor. A straight section runs across or up and
-  // down (Rotate); a corner turns the wall (Rotate for each of the four
-  // corners). Touching sections join into one wall. A Constructor can put a
-  // Gun Tower, Radar or Shield Projector on a section (15% more reach; it
-  // falls with the section).
-  wallblock: {
-    name: 'Wall', cost: 75, buildTime: 8, hp: 4000, size: 2, sight: 110, wallPiece: true, mountable: true, anywhere: true, facing: true,
-    desc: 'A heavy wall section, the size of a Gun Tower. Build them one by one (Rotate turns it). Blocks vehicles and direct fire (only artillery arcs over); enemies must break through, best with artillery, HE or Bunker Busters. A Constructor can build a Gun Tower, Radar or Shield Projector on top.',
-  },
-  wallcorner: {
-    name: 'Wall Corner', cost: 75, buildTime: 8, hp: 4000, size: 2, sight: 110, wallPiece: true, mountable: true, corner: true, anywhere: true, facing: true,
-    desc: 'A corner section: turns the wall 90°. Rotate it to fit the corner. A Constructor can build a Gun Tower, Radar or Shield Projector on top.',
-  },
-  // Older wall pieces (drawn walls, bastions): no longer built, kept so older
-  // saved games load.
-  wall: {
-    buildable: false, name: 'Wall', cost: 35, buildTime: 3, hp: 1500, size: 1, sight: 100, wallPiece: true, anywhere: true, facing: true,
-    desc: 'A compound wall: drag it out in a line (a run). Blocks vehicles; enemies must break through it, best with artillery, HE or Bunker Busters (Plasma does half). Nothing can be built in front of it. Upgrade a run to a Shield Wall once you have Forcefield Tech.',
-  },
-  // No longer built: leave a gap between two bastions instead. Kept so
-  // older saved games load.
-  gate: {
-    buildable: false, name: 'Gate', cost: 110, buildTime: 9, hp: 2600, size: 3, sight: 120, wallPiece: true, gate: true, anywhere: true, facing: true,
-    desc: 'Opens for your vehicles and stays shut to the enemy. Put one in your wall so your own vehicles can get out.',
-  },
-  bastion: {
-    buildable: false, name: 'Bastion', cost: 170, buildTime: 14, hp: 4500, size: 3, sight: 160, wallPiece: true, bastion: true, anywhere: true, facing: true,
-    desc: 'A thick 3x3 wall tower, centred on a wall (or on its own). A Constructor can build a Gun Tower or a Radar on top (15% more reach from up there); if the bastion falls, so does what is on it.',
-  },
   // Powers Shield Projectors: each Generator powers up to `powers` of them,
   // and every powered projector burns `upkeep` scrap a second while its
   // field is up or rebooting.
@@ -531,7 +536,7 @@ const BUILDING_TYPES = {
     upgrade: { name: 'Shield Projector II', cost: 200, time: 35, hp: 600, power: 4 / 3,
       field: { length: 280, offset: 58, hp: 2780, regen: 35, regenDelay: 4, reboot: 9, rebootHp: 0.35, vsArtillery: 1.5 },
       desc: 'A field 40% wider (280) and 40% tougher (2,780), back up 9 s after it falls. Draws more power: one Generator runs 3.' },
-    desc: 'Needs Forcefield Tech (Research Lab). Projects a forcefield wall that stops enemy fire from the front. Turn it to face the threat while placing it. Build them side by side for a longer wall. Needs a Power Generator (one powers 4). The field can be shot down, then reboots after 13.5 s. Upgrade to Shield Projector II for a wider, tougher field.',
+    desc: 'Needs Forcefield Tech (Research Lab). Projects a forcefield barrier that stops enemy fire from the front. Turn it to face the threat while placing it. Build them side by side for a longer barrier. Needs a Power Generator (one powers 4). The field can be shot down, then reboots after 13.5 s. Upgrade to Shield Projector II for a wider, tougher field.',
   },
 };
 

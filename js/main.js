@@ -27,15 +27,27 @@ let paused = false, speed = 1, accumulator = 0, lastFrame = 0, spectating = fals
 function startGame(difficulty, watch = false) {
   view.war = null;
   const seed = Number(new URLSearchParams(location.search).get('seed')) || Math.floor(Math.random() * 99999);
-  // You play the faction you picked; the enemy fields the other one.
-  const other = chosenFaction === 'kethra' ? 'scrapline' : 'kethra';
-  game = createGame({ seed, difficulty, aiTeams: watch ? [1, 2] : [2], factions: { 1: chosenFaction, 2: other }, uplinks: chosenMode === 'uplinks', mapType: chosenMap });
+  // You play the faction you picked (side 1); each enemy fields the faction
+  // picked for it, or a random one (a different faction from everyone else's
+  // while there are enough to go round).
+  const n = chosenSides, factions = { 1: chosenFaction }, used = new Set([chosenFaction]), rnd = makeRng(seed * 13 + 5);
+  for (let t = 2; t <= n; t++) {
+    let f = chosenFoes[t];
+    if (!FACTIONS[f]) {
+      const fresh = Object.keys(FACTIONS).filter(k => !used.has(k)), pool = fresh.length ? fresh : Object.keys(FACTIONS);
+      f = pool[Math.floor(rnd() * pool.length)];
+    }
+    factions[t] = f; used.add(f);
+  }
+  const all = Array.from({ length: n }, (_, i) => i + 1);
+  game = createGame({ seed, difficulty, aiTeams: watch ? all : all.slice(1), factions, uplinks: chosenMode === 'uplinks', mapType: chosenMap, sides: n });
   enterBattle(watch);
   input.groups = {}; view.groupOf = new Map();
   // Small screens start zoomed out so more of the battlefield fits.
   view.cam.zoom = Math.max(0.55, Math.min(1, Math.min(view.screenW, view.screenH) / 700));
   const hq0 = findHQ(watch ? 1 : view.team); centerOn(hq0); if (!watch) select([hq0]);
-  logMessage(watch ? 'Spectating: two AI commanders fight it out.' : 'Drive your Recycler onto the glowing geyser and deploy it to set up your base.', 'info');
+  logMessage(watch ? `Spectating: ${n === 2 ? 'two' : n === 3 ? 'three' : 'four'} AI commanders fight it out.` : 'Drive your Recycler onto the glowing geyser and deploy it to set up your base.', 'info');
+  if (!watch && n > 2) logMessage(`A free-for-all: ${all.slice(1).map(t => sideName(game, t)).join(', ')} are all against you, and against each other. Last side standing wins.`, 'warn');
   refreshPanel();
 }
 
@@ -51,7 +63,7 @@ function enterBattle(watch, war = null) {
   const mine_ = game.teams[watch ? 1 : view.team].faction;
   buildTerrain(game);
   minimapBase = null;
-  view.selected = []; view.placing = null; view.revealAll = watch; view.pings = []; view.alerts = [];
+  view.selected = []; view.placing = null; view.revealAll = watch; view.pings = []; view.alerts = []; view.outShown = false;
   view.lastAutosave = game.time;
   resize();
   for (const id of ['menu', 'end', 'saves', 'paused', 'help', 'war', 'warnew', 'lz', 'wardrop']) $(id).classList.add('hidden');
@@ -137,24 +149,36 @@ function describeSave(m) {
   return `${m.spectating ? 'Watching AI vs AI' : f} · ${d} · ${t} into the battle · saved ${when}`;
 }
 
+// The end of the battle, or (with three or four sides) the moment you are
+// knocked out while the others fight on: then you can watch the rest.
 function showEnd() {
+  const knockedOut = !game.winner;
   const won = game.winner === view.team;
   $('again').textContent = view.war ? 'Back to the war map' : 'Play again';
-  $('end-title').textContent = spectating ? `${sideName(game, game.winner)} wins` : won ? 'Victory' : 'Defeat';
-  $('end-title').className = won || spectating ? 'win' : 'lose';
-  Music.sting(won || spectating);
-  $('end-reason').textContent = game.endReason;
-  if (view.war) $('end-reason').textContent += ' ' + War.battleOver(won);
-  const s1 = game.teams[1].stats, s2 = game.teams[2].stats;
+  $('end-title').textContent = knockedOut ? 'Knocked out' : spectating ? `${sideName(game, game.winner)} wins` : won ? 'Victory' : 'Defeat';
+  $('end-title').className = won || (spectating && !knockedOut) ? 'win' : 'lose';
+  Music.sting(won || (spectating && !knockedOut));
+  $('end-reason').textContent = knockedOut ? `You lost your ${factionName(game.teams[view.team].faction, 'Recycler')}. ${game.sides.filter(t => !game.out[t]).length} sides fight on.` : game.endReason;
+  if (view.war && !knockedOut) $('end-reason').textContent += ' ' + War.battleOver(won);
+  const sides = game.sides || [1, 2], cell = f => sides.map(t => `<td>${f(game.teams[t].stats, t)}</td>`).join('');
   const mins = Math.floor(game.time / 60), secs = Math.floor(game.time % 60);
   $('end-stats').innerHTML = `
-    <tr><th></th><th style="color:${TEAMS[1].color}">${sideName(game, 1)}</th><th style="color:${TEAMS[2].color}">${sideName(game, 2)}</th></tr>
-    <tr><td>Vehicles built</td><td>${s1.built}</td><td>${s2.built}</td></tr>
-    <tr><td>Enemies destroyed</td><td>${s1.killed}</td><td>${s2.killed}</td></tr>
-    <tr><td>Vehicles lost</td><td>${s1.lost}</td><td>${s2.lost}</td></tr>
-    <tr><td>Scrap gathered</td><td>${Math.round(s1.scrapGathered)}</td><td>${Math.round(s2.scrapGathered)}</td></tr>
-    <tr><td colspan="3" class="dim">Battle length ${mins}:${String(secs).padStart(2, '0')}</td></tr>`;
+    <tr><th></th>${sides.map(t => `<th style="color:${TEAMS[t].color}">${sideName(game, t)}</th>`).join('')}</tr>
+    <tr><td>Vehicles built</td>${cell(s => s.built)}</tr>
+    <tr><td>Enemies destroyed</td>${cell(s => s.killed)}</tr>
+    <tr><td>Vehicles lost</td>${cell(s => s.lost)}</tr>
+    <tr><td>Scrap gathered</td>${cell(s => Math.round(s.scrapGathered))}</tr>
+    ${sides.length > 2 ? `<tr><td>Knocked out</td>${cell((s, t) => game.out[t] ? `${Math.floor(game.out[t] / 60)}:${String(Math.floor(game.out[t] % 60)).padStart(2, '0')}` : '—')}</tr>` : ''}
+    <tr><td colspan="${sides.length + 1}" class="dim">Battle length ${mins}:${String(secs).padStart(2, '0')}</td></tr>`;
+  $('watchrest').classList.toggle('hidden', !knockedOut);
   $('end').classList.remove('hidden');
+}
+// Knocked out of a free-for-all: watch the others fight it out.
+function watchTheRest() {
+  $('end').classList.add('hidden');
+  spectating = true; view.revealAll = true; view.selected = [];
+  logMessage('Watching the rest of the battle.', 'info');
+  refreshPanel();
 }
 
 // -----------------------------------------------------------------------------
@@ -221,11 +245,8 @@ function entityAt(wx, wy, pad = 0, allow = null) {
     if (allow && !allow(e)) continue;
     if (e.team !== view.team && !view.revealAll && !isVisibleTo(game, view.team, e)) continue;
     const d = Math.hypot(e.x - wx, e.y - wy);
-    // What stands on a bastion (a tower, radar or shield) wins a tap on its
-    // middle; the bastion's rim still picks the bastion.
-    const r = (e.kind === 'building' ? (e.mountOn ? CONFIG.TILE : e.radius) : e.radius + 6) + pad;
-    const score = d - (e.mountOn ? 1000 : 0);
-    if (d < r && score < bd) { bd = score; best = e; }
+    const r = (e.kind === 'building' ? e.radius : e.radius + 6) + pad;
+    if (d < r && d < bd) { bd = d; best = e; }
   }
   return best;
 }
@@ -250,12 +271,6 @@ canvas.addEventListener('mousedown', e => {
     return;
   }
   if (e.button !== 0) return;
-  if (view.placing === 'wall') {
-    // Walls: press on the pivot, drag out the length and angle, let go to build
-    // (or click the pivot, then click the end).
-    if (!view.wallStart) { view.wallStart = snapWallStart(game, view.team, w); view.wallDrag = true; refreshPanel(); return; }
-    view.wallDrag = true; wallEndFor(w); return;   // from the pivot (or where the last wall ended): let go to build
-  }
   if (view.placing) { placeBuilding(w, e.shiftKey); return; }
   if (view.attackMode) { attackMoveAt(w); return; }
   if (view.aim) { aimAt(w, 0); return; }
@@ -268,9 +283,6 @@ window.addEventListener('mousemove', e => {
   input.mouseX = e.clientX - r.left; input.mouseY = e.clientY - r.top;
   input.inside = e.target === canvas;
   view.mouseWorld = toWorld(input.mouseX, input.mouseY);
-  // Only a real mouse over the map moves the wall's end: a tap on a button
-  // (Build wall) also sends a mouse move, at the button, which must not.
-  if (view.placing === 'wall' && view.wallStart && input.inside) wallEndFor(view.mouseWorld);
   if (view.drag) { view.drag.x1 = input.mouseX; view.drag.y1 = input.mouseY; }
   if (input.panning) {
     view.cam.x = input.panning.cx - (input.mouseX - input.panning.x) / view.cam.zoom;
@@ -282,12 +294,6 @@ window.addEventListener('mousemove', e => {
 
 window.addEventListener('mouseup', e => {
   if (e.button === 1) input.panning = null;
-  if (e.button === 0 && view.wallDrag && game) {
-    view.wallDrag = false;
-    const w = view.mouseWorld;
-    if (view.wallStart && w && Math.hypot(w.x - view.wallStart.x, w.y - view.wallStart.y) > CONFIG.TILE * 0.6) placeBuilding(w, e.shiftKey);
-    return;
-  }
   if (e.button !== 0 || !view.drag || !game) return;
   const d = view.drag; view.drag = null;
   if (Math.abs(d.x1 - d.x0) < 5 && Math.abs(d.y1 - d.y0) < 5) {
@@ -329,7 +335,7 @@ function attackMoveAt(w, pad = 0) {
 }
 
 function cancelModes() {
-  view.placing = null; view.placeReady = false; view.wallStart = null; view.wallEnd = null; view.loupe = null; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
+  view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
   refreshPanel();
 }
 
@@ -602,7 +608,6 @@ function selectArmy() {
 
 const touch = { points: new Map(), mode: null, start: null, pinch: null, holdTimer: null };
 const TOUCH_PAD = 14;  // fingers are less precise than a mouse pointer
-const WALL_AIM = 64;   // placing walls by touch: the point aimed at is this far above the finger
 
 function touchPos(t) {
   const r = canvas.getBoundingClientRect();
@@ -616,19 +621,6 @@ canvas.addEventListener('touchstart', e => {
   for (const t of e.changedTouches) touch.points.set(t.identifier, touchPos(t));
   clearTimeout(touch.holdTimer);
   const pts = [...touch.points.values()];
-  if (pts.length === 1 && view.placing === 'wall') {
-    // Walls: the first touch sets the pivot; dragging (now or later) sets the
-    // length and angle. Two fingers still move and zoom the map. The point
-    // aimed at sits a little above the finger (shown in a magnifier), so the
-    // finger doesn't hide it.
-    const p = pts[0], w = toWorld(p.x, p.y - WALL_AIM);
-    view.loupe = { x: p.x, y: p.y - WALL_AIM };
-    touch.start = { x: p.x, y: p.y, cx: view.cam.x, cy: view.cam.y };
-    touch.mode = 'wall';
-    if (!view.wallStart) { view.wallStart = snapWallStart(game, view.team, w); view.wallEnd = null; view.placeAt = null; view.placeReady = false; refreshPanel(); }
-    else { view.placeAt = w; wallEndFor(w); }
-    return;
-  }
   if (pts.length === 1) {
     const p = pts[0];
     touch.start = { x: p.x, y: p.y, cx: view.cam.x, cy: view.cam.y };
@@ -665,13 +657,6 @@ canvas.addEventListener('touchmove', e => {
   }
   if (pts.length !== 1 || !touch.start) return;
   const p = pts[0];
-  if (touch.mode === 'wall') {
-    // A finger sliding off the map onto the panel (toward Build wall) leaves
-    // the wall as it was.
-    const panelTop = $('panel').getBoundingClientRect().top - canvas.getBoundingClientRect().top;
-    if (p.y > panelTop - 4) { view.loupe = null; return; }
-    view.loupe = { x: p.x, y: p.y - WALL_AIM }; view.placeAt = toWorld(p.x, p.y - WALL_AIM); wallEndFor(view.placeAt); return;
-  }
   if (touch.mode === 'box') { view.drag.x1 = p.x; view.drag.y1 = p.y; return; }
   if (touch.mode === 'pending' && Math.hypot(p.x - touch.start.x, p.y - touch.start.y) > 10) {
     touch.mode = 'pan'; clearTimeout(touch.holdTimer);
@@ -695,11 +680,6 @@ function touchEnd(e) {
     return;
   }
   if (e.type === 'touchend' && touch.mode === 'pending' && ended.length) handleTap(ended[0]);
-  view.loupe = null;
-  if (touch.mode === 'wall' && view.wallStart) {
-    const ready = view.placeAt && Math.hypot(view.placeAt.x - view.wallStart.x, view.placeAt.y - view.wallStart.y) > CONFIG.TILE * 0.6;
-    if (ready !== view.placeReady) { view.placeReady = ready; refreshPanel(); }
-  }
   if (touch.mode === 'box' && view.drag) {
     const d = view.drag; view.drag = null;
     if (Math.abs(d.x1 - d.x0) > 12 || Math.abs(d.y1 - d.y0) > 12) boxSelect(d, false);
@@ -712,7 +692,6 @@ canvas.addEventListener('touchcancel', touchEnd, { passive: false });
 function handleTap(p) {
   const w = toWorld(p.x, p.y);
   if (view.placing) {
-    // A wall: the first tap is where it starts, the second where it ends.
     // First tap positions the building; the "Build here" button confirms it.
     view.placeAt = w; view.placeReady = true; refreshPanel();
     return;
@@ -820,68 +799,21 @@ function startPlacing(type) {
   }
 }
 function rotatePlacement() {
-  if (view.placing === 'wall') { view.wallFlip = !view.wallFlip; return; }   // a wall: swap which side is the front
-  const def = BUILDING_TYPES[view.placing], step = def && (def.gate || def.bastion || def.mountable) ? Math.PI / 2 : Math.PI / 4;
+  const step = Math.PI / 4;
   view.placeFacing = snapFacing(Math.round((view.placeFacing || 0) / step) * step + step);
 }
 
-// The end of the wall being dragged out, in notches: it stays put until the
-// pointer is clearly nearer the next notch, then clicks over (a tick, and a
-// tiny buzz on phones).
-function wallEndFor(w) {
-  const a = view.wallStart;
-  if (!a || !w) return null;
-  const cand = snapWallEnd(game, view.team, a, w), cur = view.wallEnd;
-  const same = cur && cur.ax === a.x && cur.ay === a.y;
-  if (same && cand.x === cur.x && cand.y === cur.y) return cur;
-  if (same && Math.hypot(w.x - cur.x, w.y - cur.y) - Math.hypot(w.x - cand.x, w.y - cand.y) < CONFIG.TILE * 0.35) return cur;
-  if (same) { sound('tick', 0.7); try { navigator.vibrate && navigator.vibrate(6); } catch (err) { /* optional */ } }
-  view.wallEnd = Object.assign({ ax: a.x, ay: a.y }, cand);
-  return view.wallEnd;
-}
-
 function placeBuilding(w, keepPlacing) {
-  const def = BUILDING_TYPES[view.placing];
-  const builder = def && mine(view.selected).find(u => u.kind === 'unit' && u.def.role === 'builder' && !!u.def.wallBuilder === !!def.wallPiece);
+  const def = view.placing && buildingDef(game.teams[view.team].faction, view.placing);
+  const builder = def && mine(view.selected).find(u => u.kind === 'unit' && u.def.role === 'builder');
   if (!builder || !def) { view.placing = null; return; }
-  if (view.placing === 'wall') {
-    // From the pivot to here (snapped onto a wall end, gate post or bastion if close).
-    if (!view.wallStart) { view.wallStart = snapWallStart(game, view.team, w); refreshPanel(); return; }
-    // Build exactly the wall shown: the end set by the drag, not wherever the
-    // pointer is now (on a phone that's the Build wall button).
-    const a = view.wallStart, set = view.wallEnd && view.wallEnd.ax === a.x && view.wallEnd.ay === a.y ? view.wallEnd : null;
-    const b = set || wallEndFor(w) || snapWallEnd(game, view.team, a, w);
-    issueCommand(game, view.team, { type: 'buildWall', ids: [builder.id], a, b, facing: wallFacingAB(game, a, b, view.wallFlip) });
-    sound('build');
-    // Chain building: the next wall starts where this one ended, until you
-    // press Done (or New pivot to start somewhere else).
-    view.wallStart = { x: b.x, y: b.y }; view.wallEnd = null; view.placeReady = false; view.placeAt = null;
-    refreshPanel();
-    return;
-  }
-  let { tx, ty } = placementTile(w, def.size);
-  if (def.mountable) { const sn = snapWallSection(game, view.team, view.placing, tx, ty); if (sn) { tx = sn.tx; ty = sn.ty; } }
-  const bs = bastionAt(game, view.team, view.placing, tx, ty);
-  if (bs) { tx = bs.tx; ty = bs.ty; }
-  const onWall = snapOntoWall(game, view.team, view.placing, w);
-  if (onWall) {
-    // A gate or bastion dropped onto your wall: lined up with it.
-    const check = canPlaceBuilding(game, view.team, view.placing, onWall.tx, onWall.ty);
-    if (!check.ok) { logMessage(check.why, 'warn'); sound('error'); return; }
-    issueCommand(game, view.team, { type: 'build', ids: [builder.id], building: view.placing, tx: onWall.tx, ty: onWall.ty, facing: onWall.facing, seg: onWall.seg });
-    sound('build');
-    if (!keepPlacing) { view.placing = null; view.placeReady = false; view.placeAt = null; }
-    refreshPanel();
-    return;
-  }
+  const { tx, ty } = placementTile(w, def.size);
   const check = canPlaceBuilding(game, view.team, view.placing, tx, ty);
   if (!check.ok) { logMessage(check.why, 'warn'); sound('error'); return; }
   if (game.teams[view.team].scrap < def.cost) { logMessage('Not enough scrap', 'warn'); sound('error'); return; }
   issueCommand(game, view.team, { type: 'build', ids: [builder.id], building: view.placing, tx, ty, facing: def.facing ? view.placeFacing : undefined });
   sound('build');
-  // Wall sections: keep placing them one after another until Done.
-  if (def.mountable) { view.placeReady = false; view.placeAt = null; }
-  else if (!keepPlacing) { view.placing = null; view.placeReady = false; view.placeAt = null; }
+  if (!keepPlacing) { view.placing = null; view.placeReady = false; view.placeAt = null; }
   refreshPanel();
 }
 
@@ -982,7 +914,7 @@ function select(list) {
   // Buildings can only be selected one at a time.
   const units = list.filter(e => e.kind === 'unit');
   view.selected = units.length ? units : list.slice(0, 1);
-  view.placing = null; view.placeReady = false; view.wallStart = null; view.wallEnd = null; view.loupe = null; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
+  view.placing = null; view.placeReady = false; view.attackMode = false; view.aim = null; view.confirmDemolish = null; view.confirmRecycle = null;
   closePop();
   if (view.selected.length && isMine(view.selected[0])) sound('select');
   refreshPanel();
@@ -1038,7 +970,7 @@ function refreshPanel() {
   const info = $('selinfo'), cmds = $('commands');
   const sel = view.selected.filter(e => e.hp > 0);
   // Only rebuild the buttons when something about them actually changed.
-  const key = game ? JSON.stringify([sel.map(e => e.id), view.placing, view.placeReady, !!view.wallStart, !!view.wallFlip, sel.map(e => [e.runShield || 0, !!e.shieldWall, e.mountId || 0]), view.attackMode, view.aim, view.confirmDemolish, spectating,
+  const key = game ? JSON.stringify([sel.map(e => e.id), view.placing, view.placeReady, view.attackMode, view.aim, view.confirmDemolish, spectating,
     view.confirmRecycle, recycleCandidates(sel).map(u => u.id),
     sel.map(e => !!e.rally), sel.map(e => !!e.deployed), sel.map(e => e.stance), sel.map(e => e.order && e.order.type),
     sel.map(e => [e.level, e.upgrading !== null && e.upgrading !== undefined ? Math.floor(e.upgrading) : -1, e.researching ? e.researching.key + Math.floor(e.researching.t) : 0, e.hp < e.maxHp]),
@@ -1060,7 +992,7 @@ function refreshPanel() {
     let extra = '';
     if (e.kind === 'unit' && e.def.role === 'harvester') extra = `Carrying ${Math.floor(e.carry)} / ${d.carryMax} scrap` +
       (d.canDeploy ? ' · can deploy on geysers' : ' · cannot deploy (needs Scavenger II)');
-    if (e.kind === 'unit' && e.def.role === 'builder') extra = e.def.wallBuilder ? 'Builds walls and bastions.' : 'Builds and finishes construction. Repairs are a Repair Drone\'s job.';
+    if (e.kind === 'unit' && e.def.role === 'builder') extra = 'Builds and finishes construction. Repairs are a Repair Drone\'s job.';
     if (e.kind === 'unit' && e.def.role === 'repairer') {
       const tgt = e.order.targetId && game.byId.get(e.order.targetId);
       extra = e.order.type === 'follow' ? `Following${tgt ? ` ${nameOf(tgt)}` : ''} and keeping it repaired`
@@ -1115,7 +1047,7 @@ function refreshPanel() {
   // rebuilding the panel.
   if (own && !rebuild && sel[0].queue && sel[0].queue.length) {
     const bar = cmds.querySelector('.prog');
-    if (bar) bar.style.width = `${Math.min(100, sel[0].prodTime / UNIT_TYPES[sel[0].queue[0]].buildTime * 100)}%`;
+    if (bar) bar.style.width = `${Math.min(100, sel[0].prodTime / unitDef(sel[0].faction, sel[0].queue[0]).buildTime * 100)}%`;
   }
   if (!own || !rebuild) return;
 
@@ -1179,9 +1111,6 @@ function refreshPanel() {
       else addBtn(`Upgrade to ${up.name}`, up.cost, keys.shift(), () => issueCommand(game, view.team, { type: 'upgrade', buildingId: first.id }),
         { title: `${up.cost} scrap, ${up.time}s. Production pauses while upgrading.` });
     }
-    if (first.type === 'wall' && first.built >= 1) tip.textContent = `A wall ${wallSections(wallSeg(game, first))} sections long${first.shieldWall ? ', with a Shield Wall' : ''}. The spiked side is its front: nothing can be built in front of it.`;
-    if (first.def.bastion && first.built >= 1) tip.textContent = first.mountId ? `Carries a ${nameOf(game.byId.get(first.mountId) || first)} (tap it in the middle to select it and upgrade it): it shoots and sees 15% further from up here, and falls with the bastion.` : 'Select a Constructor and build a Gun Tower, Radar or Shield Projector on it: 15% more reach from up here, and it upgrades as usual.';
-    if (first.def.gate && first.built >= 1) tip.textContent = 'Opens for your vehicles; the enemy has to break it down.';
     // Radar: a chain of upgrades (Radar II, Radar III).
     if (first.built >= 1 && first.def.levels) {
       const up = first.def.levels[first.level - 1];
@@ -1265,9 +1194,9 @@ function refreshPanel() {
       view.tier = view.tier || {};
       for (const { base, types } of groups) {
         const type = types.includes(view.tier[base]) ? view.tier[base] : types[types.length - 1];
-        const d = UNIT_TYPES[type];
+        const d = unitDef(first.faction, type);
         const queued = types.reduce((n, t) => n + (counts[t] || 0), 0);
-        const building = types.includes(now) ? UNIT_TYPES[now] : null;
+        const building = types.includes(now) ? unitDef(first.faction, now) : null;
         const note = building && first.waiting ? 'Needs scrap' : building && first.blocked ? 'Unit limit' : null;
         const cancelType = counts[type] ? type : types.find(t => counts[t]);
         addBtn(d.name, buildCost(first, type), keys.shift(), () => issueCommand(game, view.team, { type: 'produce', buildingId: first.id, unit: type, count: input.keys.has('Shift') ? 5 : 1 }),
@@ -1275,7 +1204,7 @@ function refreshPanel() {
             progress: building && !first.waiting && !first.blocked ? first.prodTime / building.buildTime : null,
             onCancel: cancelType ? () => { issueCommand(game, view.team, { type: 'cancel', buildingId: first.id, unit: cancelType }); refreshPanel(); } : null,
             pickLabel: types.length > 1 ? (d.base ? 'Mk II' : 'Mk I') : null,
-            onPick: types.length > 1 ? chip => openPop(chip, types.map(t => ({ label: own_(UNIT_TYPES[t].name), note: `${UNIT_TYPES[t].cost} scrap · ${UNIT_TYPES[t].base ? 'upgraded' : 'standard'}`,
+            onPick: types.length > 1 ? chip => openPop(chip, types.map(t => ({ label: own_(UNIT_TYPES[t].name), note: `${buildCost(first, t)} scrap · ${UNIT_TYPES[t].base ? 'upgraded' : 'standard'}`,
               active: t === type, onClick: () => { view.tier[base] = t; panelKey = ''; refreshPanel(); } }))) : null });
       }
       // Waypoint: where every new vehicle from this building drives to.
@@ -1314,26 +1243,19 @@ function refreshPanel() {
   }
   const builder = sel.find(e => e.kind === 'unit' && e.def.role === 'builder');
   if (builder && sel.length === 1) {
-    // A Heavy Constructor builds walls, gates and bastions; a Constructor everything else.
-    const types = Object.keys(BUILDING_TYPES).filter(t => BUILDING_TYPES[t].buildable !== false && !!BUILDING_TYPES[t].wallPiece === !!builder.def.wallBuilder);
+    const types = Object.keys(BUILDING_TYPES).filter(t => BUILDING_TYPES[t].buildable !== false);
     types.forEach((type, i) => {
-      const d = BUILDING_TYPES[type];
+      const d = buildingDef(game.teams[view.team].faction, type);
       const locked = d.requires && !game.teams[view.team].research[d.requires];
       if (locked) addBtn(d.name, null, HOTKEYS[i], () => logMessage(`Research ${RESEARCH[d.requires].name} at a Research Lab first`, 'warn'),
         { note: 'Research first', locked: true, title: `${d.name}: research ${RESEARCH[d.requires].name} at a Research Lab first.\n${d.desc}` });
-      else addBtn(d.name, type === 'wall' ? null : d.cost, HOTKEYS[i], () => { startPlacing(type); refreshPanel(); },
-        { active: view.placing === type, note: type === 'wall' ? `${d.cost} a section` : undefined, title: `${d.name} — ${d.cost} scrap${type === 'wall' ? ' a section' : ''}\n${d.desc}` });
+      else addBtn(d.name, d.cost, HOTKEYS[i], () => { startPlacing(type); refreshPanel(); },
+        { active: view.placing === type, title: `${d.name} — ${d.cost} scrap\n${d.desc}` });
     });
     // Shield Projectors: turn the field to face the threat (F) before building.
-    if (view.placing === 'wall') addBtn('Flip front ⇅', null, 'F', () => { rotatePlacement(); refreshPanel(); }, { active: !!view.wallFlip, title: 'Swap which side of the wall is its front (the outside, with spikes) (F)' });
-    else if (view.placing && BUILDING_TYPES[view.placing].facing) addBtn('Rotate ↻', null, 'F', () => { rotatePlacement(); refreshPanel(); }, { title: BUILDING_TYPES[view.placing].mountable ? (BUILDING_TYPES[view.placing].corner ? 'Turn the corner 90° to fit (F)' : 'Turn the section across or up and down (F)') : 'Turn the forcefield 45° (F)' });
-    if (view.placing && isTouch && view.placeReady) addBtn(view.placing === 'wall' ? 'Build wall' : 'Build here', null, '↵', confirmPlacement, { primary: true });
-    if (view.placing === 'wall' && view.wallStart) addBtn('New pivot', null, 'R', () => { view.wallStart = null; view.wallEnd = null; view.placeAt = null; view.placeReady = false; refreshPanel(); }, { title: 'Pick a different starting point' });
-    if (view.placing) addBtn(view.placing === 'wall' || BUILDING_TYPES[view.placing].mountable ? 'Done' : 'Cancel', null, 'Esc', () => { view.placing = null; view.placeReady = false; view.wallStart = null; view.wallEnd = null; view.wallDrag = false; refreshPanel(); });
-    // A Heavy Constructor can go back and finish walls it was taken off.
-    if (!view.placing && builder.def.wallBuilder && game.entities.some(e => e.team === view.team && e.def.wallPiece && e.hp > 0 && e.built < 1 && Math.hypot(e.x - builder.x, e.y - builder.y) < CONFIG.TILE * 24))
-      addBtn('Resume walls', null, 'B', () => { issueCommand(game, view.team, { type: 'resumeWalls', ids: [builder.id] }); sound('ack'); refreshPanel(); },
-        { primary: builder.order.type === 'idle', title: 'Finish the unfinished walls and bastions nearby, one after another. (Or tap an unfinished wall: it finishes all of that wall.)' });
+    if (view.placing && BUILDING_TYPES[view.placing].facing) addBtn('Rotate ↻', null, 'F', () => { rotatePlacement(); refreshPanel(); }, { title: 'Turn the forcefield 45° (F)' });
+    if (view.placing && isTouch && view.placeReady) addBtn('Build here', null, '↵', confirmPlacement, { primary: true });
+    if (view.placing) addBtn('Cancel', null, 'Esc', () => { view.placing = null; view.placeReady = false; refreshPanel(); });
     // A Constructor can go for repairs, and be recycled on a pad, like any vehicle.
     if (!view.placing) {
       if (builder.hp < builder.maxHp && game.entities.some(b => b.team === view.team && b.type === 'repairpad' && b.built >= 1))
@@ -1342,10 +1264,7 @@ function refreshPanel() {
       if (parked.length) { const rt = document.createElement('div'); rt.className = 'dim small tip'; addRecycleButtons(addBtn, parked, rt, ['Z']); if (rt.textContent) cmds.appendChild(rt); }
     }
     const tip = document.createElement('div'); tip.className = 'dim small tip';
-    tip.textContent = view.placing === 'wall' ? (!view.wallStart ? `${isTouch ? 'Touch' : 'Press'} where the wall starts (its pivot). It snaps onto the end of a wall or a bastion nearby.`
-        : `${isTouch ? 'Drag to set the length and angle (the point aimed at is just above your finger), then press Build wall' : 'Drag out the length and angle, and let go (or click where it ends)'}. It goes square to square, straight or at 45°, lines up with nearby walls (dashed guides) and stops on a wall it reaches. The next wall carries on from its end: press Done when finished. ${BUILDING_TYPES.wall.cost} scrap a section, up to 16.`)
-      : view.placing && BUILDING_TYPES[view.placing].mountable ? `${isTouch ? 'Tap where it goes, then Build here' : 'Click where it goes'}: it snaps flush against your other wall sections. Rotate turns it. Keep placing sections one by one; press Done when finished.`
-      : !view.placing ? (builder.def.wallBuilder ? `Build walls one section at a time (${BUILDING_TYPES.wallblock.cost} scrap each): Wall for a straight section, Wall Corner to turn. Leave a gap for your own vehicles. A Constructor can put a Gun Tower, Radar or Shield Projector on any section.` : `Pick a building, then ${isTouch ? 'tap' : 'click'} where it should go.`)
+    tip.textContent = !view.placing ? `Pick a building, then ${isTouch ? 'tap' : 'click'} where it should go.`
       : isTouch ? 'Tap inside the green zone to position it, then press Build here.'
       : 'Click inside the green zone to build. Shift-click to place several. Right-click cancels.';
     tip.textContent = own_(tip.textContent);
@@ -1514,16 +1433,28 @@ function updateHud() {
   const cap = scrapCapacity(game, view.team);
   $('scrap').textContent = `${Math.floor(me.scrap)} / ${cap}`;
   $('scrap').classList.toggle('full', me.scrap >= cap - 1);
-  $('units').textContent = `${units} / ${CONFIG.UNIT_CAP}`;
+  $('units').textContent = `${units} / ${unitCap(game, view.team)}`;
   // Base health bars. You only know the enemy's once you have seen it.
   const hq = findHQ;
-  const myHq = hq(view.team), theirs = hq(3 - view.team);
   const pct = e => e ? Math.max(0, e.hp / e.maxHp * 100) : 0;
+  const myHq = hq(view.team);
   $('hq-me').textContent = `${Math.round(pct(myHq))}%`;
   $('hq-me-bar').style.width = `${pct(myHq)}%`;
-  const known = theirs && (spectating || (theirs.seen && theirs.seen[view.team]));
-  $('hq-foe').textContent = known ? `${Math.round(pct(theirs))}%` : '?';
-  $('hq-foe-bar').style.width = known ? `${pct(theirs)}%` : '0%';
+  const foes = (game.sides || [1, 2]).filter(t => t !== view.team);
+  const knownHq = t => { const e = hq(t); return e && (spectating || (e.seen && e.seen[view.team])) ? e : null; };
+  if (foes.length === 1) {
+    const theirs = knownHq(foes[0]);
+    $('hq-foe-label').innerHTML = 'Enemy<span class="wide"> base</span>';
+    $('hq-foe').textContent = theirs ? `${Math.round(pct(theirs))}%` : '?';
+    $('hq-foe-bar').style.width = theirs ? `${pct(theirs)}%` : '0%';
+  } else {
+    // Several enemies: each one's base, in its colour (✕ once it is out).
+    const left = foes.filter(t => !game.out[t]).length;
+    $('hq-foe-label').innerHTML = `Enemies<span class="wide"> (${left} left)</span>`;
+    $('hq-foe').innerHTML = foes.map(t => `<span style="color:${TEAMS[t].color}">${game.out[t] ? '✕' : knownHq(t) ? Math.round(pct(knownHq(t))) + '%' : '?'}</span>`).join(' ');
+    const weakest = foes.filter(t => !game.out[t]).map(knownHq).filter(Boolean).sort((a, b) => pct(a) - pct(b))[0];
+    $('hq-foe-bar').style.width = weakest ? `${pct(weakest)}%` : '0%';
+  }
   // Call-ins in hand (and progress toward the next, from uplinks).
   const tmc = game.teams[view.team];
   $('callin-n').textContent = tmc.callins;
@@ -1534,7 +1465,7 @@ function updateHud() {
     const pips = game.uplinks.map(u => `<i style="background:${u.owner ? TEAMS[u.owner].color : '#555'}${u.contested ? ';outline:2px solid #ffd25a' : ''}"></i>`).join('');
     const h = game.uplinkHold, clock = sec => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
     const txt = game.time < CONFIG.UPLINK_ONLINE ? `online in ${clock(CONFIG.UPLINK_ONLINE - game.time)}`
-      : h.team ? `${h.team === view.team ? 'win' : 'loss'} in ${clock(CONFIG.UPLINK_WIN - (game.time - h.since))}` : 'hold two';
+      : h.team ? `${h.team === view.team ? 'win' : 'loss'} in ${clock(CONFIG.UPLINK_WIN - (game.time - h.since))}` : `hold ${NUMBER_WORDS[uplinkNeed(game)]}`;
     $('uplink-stat').innerHTML = `<span class="label">Uplinks</span><b><span class="pips">${pips}</span> <span class="${h.team && h.team !== view.team ? 'warn' : ''}">${txt}</span></b>`;
   }
   const m = Math.floor(game.time / 60), s = Math.floor(game.time % 60);
@@ -1635,23 +1566,6 @@ function handleEvents() {
 // -----------------------------------------------------------------------------
 
 let panelTimer = 0;
-// A magnifier over the point being aimed at (placing walls by touch).
-function drawLoupe(c, p) {
-  // Up and off to the side (away from the screen edge), so it never covers what you're joining.
-  const R = 54, k = 2.2, left = p.x > c.canvas.width / 2, cx = left ? Math.max(R + 8, p.x - R - 56) : Math.min(c.canvas.width - R - 8, p.x + R + 56), cy = Math.max(R + 8, p.y - R - 24);
-  c.save(); c.setTransform(1, 0, 0, 1, 0, 0);
-  c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.save(); c.clip();
-  c.fillStyle = '#000'; c.fillRect(cx - R, cy - R, 2 * R, 2 * R);
-  c.drawImage(c.canvas, p.x - R / k, p.y - R / k, 2 * R / k, 2 * R / k, cx - R, cy - R, 2 * R, 2 * R);
-  c.restore();
-  c.strokeStyle = '#ffd25a'; c.lineWidth = 3; c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.stroke();
-  c.strokeStyle = 'rgba(255,255,255,0.8)'; c.lineWidth = 1;
-  c.beginPath(); c.moveTo(cx - 8, cy); c.lineTo(cx + 8, cy); c.moveTo(cx, cy - 8); c.lineTo(cx, cy + 8); c.stroke();
-  // and a small mark where it is aimed
-  c.fillStyle = '#ffd25a'; c.beginPath(); c.arc(p.x, p.y, 3, 0, Math.PI * 2); c.fill();
-  c.restore();
-}
-
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - (lastFrame || now)) / 1000);
@@ -1671,13 +1585,13 @@ function frame(now) {
       stepGame(game); accumulator -= step; n++;
     }
     if (game.winner) setTimeout(showEnd, 1200);
+    else if (!spectating && game.out && game.out[view.team] && !view.outShown) { view.outShown = true; setTimeout(showEnd, 1200); }
   }
   view.selected = view.selected.filter(e => e.hp > 0);
   for (const p of view.pings) p.t += dt;
   view.pings = view.pings.filter(p => p.t < 0.5);
   handleEvents();
   drawGame(ctx, game, view);
-  if (view.loupe && view.placing === 'wall') drawLoupe(ctx, view.loupe);
   if (!minimapCollapsed) drawMinimap(miniCtx, game, view);
   panelTimer += dt;
   if (panelTimer > 0.25) { panelTimer = 0; updateHud(); refreshPanel(); }
@@ -1687,7 +1601,26 @@ function frame(now) {
 // Menu buttons
 // -----------------------------------------------------------------------------
 
-let chosenDifficulty = 'normal', chosenFaction = 'scrapline', chosenMode = 'recycler', chosenMap = 'wasteland';
+let chosenDifficulty = 'normal', chosenFaction = 'scrapline', chosenMode = 'recycler', chosenMap = 'wasteland', chosenSides = 2;
+const chosenFoes = {};   // side -> faction key, or 'random'
+// One "Enemy" choice per opposing side, in that side's colour.
+function buildFoeChoices() {
+  const box = $('foesel'); box.innerHTML = '';
+  for (let t = 2; t <= chosenSides; t++) {
+    const label = document.createElement('label');
+    label.innerHTML = `<i style="background:${TEAMS[t].color}"></i>${chosenSides > 2 ? `Enemy ${t - 1}` : 'Enemy'} `;
+    const sel = document.createElement('select');
+    sel.title = `The faction ${TEAMS[t].short} fights as`;
+    sel.innerHTML = '<option value="random">Random</option>' + Object.entries(FACTIONS).map(([k, f]) => `<option value="${k}">${f.name}</option>`).join('');
+    sel.value = chosenFoes[t] || 'random';
+    sel.addEventListener('change', () => { chosenFoes[t] = sel.value; try { localStorage.setItem('scrapline.foes', JSON.stringify(chosenFoes)); } catch (err) { /* optional */ } });
+    label.appendChild(sel); box.appendChild(label);
+  }
+}
+try { Object.assign(chosenFoes, JSON.parse(localStorage.getItem('scrapline.foes') || '{}')); const n = +localStorage.getItem('scrapline.sides'); if (n >= 2 && n <= 4) chosenSides = n; } catch (err) { /* optional */ }
+$('sidessel').value = String(chosenSides);
+$('sidessel').addEventListener('change', e => { chosenSides = +e.target.value; buildFoeChoices(); try { localStorage.setItem('scrapline.sides', String(chosenSides)); } catch (err) { /* optional */ } });
+buildFoeChoices();
 $('modesel').addEventListener('change', e => { chosenMode = e.target.value; });
 $('mapsel').addEventListener('change', e => { chosenMap = e.target.value; });
 try { if (FACTIONS[localStorage.getItem('scrapline.faction')]) chosenFaction = localStorage.getItem('scrapline.faction'); } catch (err) { /* optional */ }
@@ -1753,8 +1686,10 @@ $('quitbtn').onclick = () => {
   for (const id of ['paused', 'help', 'end']) $(id).classList.add('hidden');
   $('menu').classList.remove('hidden'); Music.play('menu', chosenFaction); Music.duck(false);
 };
+$('watchrest').onclick = watchTheRest;
 $('again').onclick = () => {
   $('end').classList.add('hidden');
+  if (game && !game.winner) { game = null; updateGroupBar(true); }   // knocked out: leave the battle
   if (view.war) { game = null; updateGroupBar(true); War.open(); return; }
   $('menu').classList.remove('hidden'); Music.play('menu', chosenFaction);
 };
