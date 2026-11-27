@@ -114,7 +114,7 @@ On the start screen you pick your faction, then each enemy's (or **Random**).
 - **Kethra Concord:** hovering alien constructs on glowing gravity rings.
   Same rules as Scrapline; only the look and the names differ.
 - **Iron Dominion:** riveted iron siege engines on wide treads. Every fighting
-  vehicle has 45% more health and 10% more range but is 15% slower and costs
+  vehicle has 35% more health and 10% more range but is 15% slower and costs
   20% more; buildings are 40% tougher and their guns reach 15% further. A vehicle
   that stands still for 2 seconds **braces** and takes 25% less damage. Only
   80 vehicles at once: fewer, stronger machines.

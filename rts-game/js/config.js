@@ -115,9 +115,9 @@ const FACTIONS = {
   //   brace.cut less damage.
   dominion: {
     name: 'Iron Dominion', tagline: 'Armoured siege engines',
-    desc: 'Riveted iron and brass. Every fighting vehicle is much tougher (+45% health) and reaches further (+10% range), but slower (-15%), dearer (+20%) and slower to build. Buildings +40% health; guns on towers reach 15% further. Vehicles that stand still for 2 s brace and take 25% less damage. Only 80 vehicles at once.',
+    desc: 'Riveted iron and brass. Every fighting vehicle is much tougher (+35% health) and reaches further (+10% range), but slower (-15%), dearer (+20%) and slower to build. Buildings +40% health; guns on towers reach 15% further. Vehicles that stand still for 2 s brace and take 25% less damage. Only 80 vehicles at once.',
     traits: {
-      unit: { hp: 1.45, speed: 0.85, cost: 1.2, buildTime: 1.15, range: 1.1 },
+      unit: { hp: 1.35, speed: 0.85, cost: 1.2, buildTime: 1.15, range: 1.1 },
       building: { hp: 1.4, range: 1.15 },
       cap: 80, brace: { after: 2, cut: 0.25 },
     },

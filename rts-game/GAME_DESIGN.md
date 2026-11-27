@@ -464,8 +464,8 @@ and messages (`FACTIONS` in `js/config.js`; "a" and "an" are put right).
 
 | Trait | Effect |
 | --- | --- |
-| Fighting vehicles | health ×1.45, speed ×0.85, cost ×1.2, build time ×1.15, weapon range ×1.1 |
-| Workers, Recycler, Repair Drones | health ×1.45 only (so the economy runs at the standard pace) |
+| Fighting vehicles | health ×1.35, speed ×0.85, cost ×1.2, build time ×1.15, weapon range ×1.1 |
+| Workers, Recycler, Repair Drones | health ×1.35 only (so the economy runs at the standard pace) |
 | Buildings | health ×1.4; tower guns reach ×1.15 (kept through the Gun Tower's upgrades) |
 | Brace | a vehicle that has stood still for 2 s takes 25% less damage |
 | Unit cap | 80 |
