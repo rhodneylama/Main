@@ -1458,8 +1458,12 @@ section('Iron Dominion and Vex Swarm');
 {
   const S = load();
   const U = S.UNIT_TYPES, dom = S.unitDef('dominion', 'tank'), vex = S.unitDef('vex', 'tank');
-  check('Dominion vehicles: +40% health, -20% speed, +25% cost, +10% range', dom.hp === Math.round(U.tank.hp * 1.4) && dom.speed === Math.round(U.tank.speed * 0.8) && dom.cost === Math.round(U.tank.cost * 1.25) && dom.weapon.range === Math.round(U.tank.weapon.range * 1.1));
-  check('Vex beasts: -35% health, +30% speed, -30% cost, -30% build time, -10% damage', vex.hp === Math.round(U.tank.hp * 0.65) && vex.speed === Math.round(U.tank.speed * 1.3) && vex.cost === Math.round(U.tank.cost * 0.7) && vex.buildTime < U.tank.buildTime && vex.weapon.damage < U.tank.weapon.damage);
+  const DK = S.FACTIONS.dominion.traits.unit, VK = S.FACTIONS.vex.traits.unit;
+  check('Dominion vehicles: more health, range and damage; slower and dearer', DK.hp > 1 && DK.speed < 1 && DK.cost > 1 && DK.range > 1 &&
+    dom.hp === Math.round(U.tank.hp * DK.hp) && dom.speed === Math.round(U.tank.speed * DK.speed) && dom.cost === Math.round(U.tank.cost * DK.cost) && dom.weapon.range === Math.round(U.tank.weapon.range * DK.range));
+  check('Vex beasts: cheaper, quicker to build and faster; frail and softer-hitting', VK.hp < 1 && VK.speed > 1 && VK.cost < 1 && VK.damage < 1 &&
+    vex.hp === Math.round(U.tank.hp * VK.hp) && vex.speed === Math.round(U.tank.speed * VK.speed) && vex.cost === Math.round(U.tank.cost * VK.cost) && vex.buildTime < U.tank.buildTime && vex.weapon.damage < U.tank.weapon.damage);
+  check('workers only get the health change, so every faction earns at the same pace', S.unitDef('vex', 'scavenger').speed === U.scavenger.speed && S.unitDef('dominion', 'scavenger').cost === U.scavenger.cost && S.unitDef('dominion', 'scavenger').hp > U.scavenger.hp);
   check('Scrapline and the Kethra keep the standard numbers', S.unitDef('scrapline', 'tank') === U.tank && S.unitDef('kethra', 'tank') === U.tank);
   check('Dominion buildings are tougher and their towers reach further', S.buildingDef('dominion', 'tower').hp > S.BUILDING_TYPES.tower.hp && S.buildingDef('dominion', 'tower').weapon.range > S.BUILDING_TYPES.tower.weapon.range);
   check('Dominion towers keep the longer reach after their upgrade', S.buildingDef('dominion', 'tower').upgrades.every((o, i) => o.weapon.range > S.BUILDING_TYPES.tower.upgrades[i].weapon.range));
@@ -1489,7 +1493,8 @@ section('Iron Dominion and Vex Swarm');
   for (const u of [foe, foe2]) u.stance = 'stealth';
   let ca = 0, cp = 0;
   for (let i = 0; i < 30 * 4 && (!ca || !cp); i++) { S.stepGame(g); if (alone.lastShot !== undefined && !ca) ca = alone.cooldown; if (packed.lastShot !== undefined && !cp) cp = packed.cooldown; }
-  check('a Vex beast in a pack of three or more reloads 20% faster', ca > 0 && cp > 0 && Math.abs(cp / ca - 0.8) < 0.06, `${ca.toFixed(2)} alone, ${cp.toFixed(2)} in a pack`);
+  const PR = S.FACTIONS.vex.traits.pack.reload;
+  check('a Vex beast in a pack of three or more reloads faster', ca > 0 && cp > 0 && Math.abs(cp / ca - PR) < 0.06, `${ca.toFixed(2)} alone, ${cp.toFixed(2)} in a pack`);
   check('messages use each faction\'s own names, with "a" and "an" right', S.factionText('dominion', 'Scavenger deploying as an Extractor') === 'Hauler deploying as a Derrick' && S.factionText('vex', 'Build a Gun Tower') === 'Build a Spine Tower');
   // Saves keep each faction's own numbers.
   const back = S.loadGame(S.saveGame(g)).game;
