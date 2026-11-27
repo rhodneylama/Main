@@ -487,14 +487,13 @@ function nearestOpenTile(game, tx, ty, maxR = 12) {
 // Can a vehicle drive in a straight line from (x0,y0) to (x1,y1)?
 // Checks the line and four points 10 px either side of it every 8 px. Written
 // out longhand because route smoothing calls it a lot on the big map.
-function hasClearLine(game, x0, y0, x1, y1, team = 0) {
+function hasClearLine(game, x0, y0, x1, y1) {
   const T = CONFIG.TILE, W = game.map.W, H = game.map.H, tiles = game.map.tiles, occ = game.occupied;
-  const gg = team && game.wallCount ? game.gateGrid : null;   // an enemy's gate is shut
   const blocked = (x, y) => {
     const tx = Math.floor(x / T), ty = Math.floor(y / T);
     if (tx < 0 || ty < 0 || tx >= W || ty >= H) return true;
     const i = ty * W + tx, t = tiles[i];
-    return t === TILE_ROCK || t === TILE_WATER || occ[i] > 0 || (gg && gg[i] && gg[i] !== team);
+    return t === TILE_ROCK || t === TILE_WATER || occ[i] > 0;
   };
   const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 8);
   for (let s = 1; s <= steps; s++) {
@@ -504,41 +503,48 @@ function hasClearLine(game, x0, y0, x1, y1, team = 0) {
   return true;
 }
 
-// Is this point in the half of the map that searches treat as the mirror
-// image of the other half?
+// Routes are always worked out from the same part of the map: a request
+// starting anywhere else is solved on a mirrored copy and mirrored back.
+// Otherwise the search's tie-breaking would give one side slightly different
+// (and sometimes better) routes than another, which adds up in battle.
+// Two-sided maps are mirrored through their centre (a half turn), so a route
+// from the other half is solved on the map turned half a turn. Four-sided
+// maps are mirrored left-right and top-bottom too, so a route from any
+// quarter is solved from the top-left quarter.
 function inMirroredHalf(game, x, y) {
   const WW = game.map.W * CONFIG.TILE, HH = game.map.H * CONFIG.TILE;
   return y * WW + x > (HH - y) * WW + (WW - x);
 }
 
-// The map rotated half a turn about its centre. Doing that to a grid stored
-// row by row is the same as reading it backwards.
-function mirroredView(game, walls) {
-  const v = { map: { W: game.map.W, H: game.map.H, tiles: game.map.tiles.slice().reverse() }, occupied: game.occupied.slice().reverse() };
-  if (walls) { v.wallGrid = game.wallGrid.slice().reverse(); v.gateGrid = game.gateGrid.slice().reverse(); v.wallCount = game.wallCount; }
-  return v;
-}
-
-// Routes are always worked out from the same half of the map: a request
-// starting in the other half is solved on a mirrored copy and mirrored back.
-// Otherwise the search's tie-breaking would give one side slightly different
-// (and sometimes better) routes than the other, which adds up in battle.
-// With walls on the map, `team` is whose route it is: an enemy's gate is
-// shut to it, and with `breach` (armed vehicles) an enemy's walls and gates
-// count as passable but costly: the route goes through the weakest spot and
-// the vehicle breaks through when it gets there.
-function findPath(game, sx, sy, gx, gy, team = 0, breach = false) {
-  const T = CONFIG.TILE, W = game.map.W, H = game.map.H, WW = W * T, HH = H * T;
-  if (!game.wallCount) team = 0;
-  if (inMirroredHalf(game, sx, sy)) {
-    return findPathOn(mirroredView(game, !!team), WW - sx, HH - sy, WW - gx, HH - gy, team, breach).map(p => ({ x: WW - p.x, y: HH - p.y }));
+// The map flipped left-right (fx) and/or top-bottom (fy). Flipping both is
+// the half turn, which for a grid stored row by row is reading it backwards.
+function flipGrid(a, W, H, fx, fy) {
+  if (fx && fy) return a.slice().reverse();
+  const out = new a.constructor(a.length);
+  for (let y = 0; y < H; y++) {
+    const sy = fy ? H - 1 - y : y;
+    for (let x = 0; x < W; x++) out[y * W + x] = a[sy * W + (fx ? W - 1 - x : x)];
   }
-  return findPathOn(game, sx, sy, gx, gy, team, breach);
+  return out;
+}
+function mirroredView(game, fx = true, fy = true) {
+  const W = game.map.W, H = game.map.H;
+  return { map: { W, H, tiles: flipGrid(game.map.tiles, W, H, fx, fy) }, occupied: flipGrid(game.occupied, W, H, fx, fy) };
 }
 
-function findPathOn(game, sx, sy, gx, gy, team = 0, breach = false) {
+function findPath(game, sx, sy, gx, gy) {
+  const T = CONFIG.TILE, W = game.map.W, H = game.map.H, WW = W * T, HH = H * T;
+  let fx, fy;
+  if (game.map.quad) { fx = sx >= WW / 2; fy = sy >= HH / 2; }
+  else fx = fy = inMirroredHalf(game, sx, sy);
+  if (!fx && !fy) return findPathOn(game, sx, sy, gx, gy);
+  const X = x => fx ? WW - x : x, Y = y => fy ? HH - y : y;
+  return findPathOn(mirroredView(game, fx, fy), X(sx), Y(sy), X(gx), Y(gy)).map(p => ({ x: X(p.x), y: Y(p.y) }));
+}
+
+function findPathOn(game, sx, sy, gx, gy) {
   const T = CONFIG.TILE, W = game.map.W, H = game.map.H;
-  if (hasClearLine(game, sx, sy, gx, gy, team)) return [{ x: gx, y: gy }];
+  if (hasClearLine(game, sx, sy, gx, gy)) return [{ x: gx, y: gy }];
 
   let start = { x: Math.floor(sx / T), y: Math.floor(sy / T) };
   if (isBlockedTile(game, start.x, start.y)) start = nearestOpenTile(game, start.x, start.y, 3) || start;
@@ -584,21 +590,11 @@ function findPathOn(game, sx, sy, gx, gy, team = 0, breach = false) {
     return (dx + dy) + (Math.SQRT2 - 2) * Math.min(dx, dy);
   };
   const tiles = game.map.tiles, occ = game.occupied;
-  const wg = team ? game.wallGrid : null, gg = team ? game.gateGrid : null;
-  const open = !wg ? (x, y) => {
+  const open = (x, y) => {
     if (x < 0 || y < 0 || x >= W || y >= H) return false;
     const i = y * W + x, t = tiles[i];
     return t !== TILE_ROCK && t !== TILE_WATER && !(occ[i] > 0);
-  } : (x, y) => {
-    if (x < 0 || y < 0 || x >= W || y >= H) return false;
-    const i = y * W + x, t = tiles[i];
-    if (t === TILE_ROCK || t === TILE_WATER) return false;
-    if (gg[i] && gg[i] !== team) return breach;
-    if (occ[i] > 0) return breach && !!wg[i] && wg[i] !== team;
-    return true;
   };
-  // Breaking through costs time: a wall square counts as 14 squares of driving, a gate 6.
-  const extra = !wg ? () => 0 : j => (gg[j] && gg[j] !== team) ? 6 : (wg[j] && wg[j] !== team && occ[j] > 0) ? 14 : 0;
 
   const si = start.y * W + start.x, gi = goal.y * W + goal.x;
   g[si] = 0;
@@ -618,7 +614,7 @@ function findPathOn(game, sx, sy, gx, gy, team = 0, breach = false) {
       if (dx && dy && (!open(x + dx, y) || !open(x, y + dy))) continue;
       const j = ny * W + nx;
       if (closed[j]) continue;
-      const ng = g[i] + (dx && dy ? Math.SQRT2 : 1) + (wg ? extra(j) : 0);
+      const ng = g[i] + (dx && dy ? Math.SQRT2 : 1);
       if (ng < g[j]) { g[j] = ng; came[j] = i; push(ng + h(nx, ny), j); }
     }
   }
@@ -638,7 +634,7 @@ function findPathOn(game, sx, sy, gx, gy, team = 0, breach = false) {
     // Look at most 40 squares ahead: long straight stretches just become a
     // few shorter legs in a row, and the big map stays quick to plan on.
     for (let j = Math.min(pts.length - 1, k + 40); j > k + 1; j--) {
-      if (hasClearLine(game, from.x, from.y, pts[j].x, pts[j].y, team)) { far = j; break; }
+      if (hasClearLine(game, from.x, from.y, pts[j].x, pts[j].y)) { far = j; break; }
     }
     out.push(pts[far]);
     from = pts[far]; k = far;
