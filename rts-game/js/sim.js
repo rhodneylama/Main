@@ -12,9 +12,9 @@
 // The basic kind of a unit: a Tank Mk II is still a 'tank', a Scavenger II a 'scavenger'.
 const baseType = e => (e.def && e.def.base) || e.type;
 // A building's name, including its upgrade (e.g. 'Factory II').
-// A side's name: its faction, plus its colour when both sides chose the same one.
+// A side's name: its faction, plus its colour when another side chose the same one.
 const sideName = (game, t) => FACTIONS[game.teams[t].faction].name +
-  (game.teams[1].faction === game.teams[2].faction ? ` (${t === 1 ? 'Blue' : 'Red'})` : '');
+  ((game.sides || [1, 2]).some(o => o !== t && game.teams[o] && game.teams[o].faction === game.teams[t].faction) ? ` (${TEAMS[t].short})` : '');
 // Names are shown in the owner's faction's words ("Tank" is a Bulwark to the Kethra).
 const nameOf = e => factionName(e.faction, e.level > 1 && e.def.levels ? e.def.levels[e.level - 2].name : (e.level > 1 && e.def.upgrade) ? e.def.upgrade.name : e.def.name);
 // The upgrade a building is working on: its single upgrade (Recycler,
@@ -24,6 +24,58 @@ const upgradeOf = b => b.def.levels ? b.def.levels[b.level - 1] : b.upgradeKey ?
 // What a building can make right now (upgraded buildings make more).
 const producesOf = b => (b.level > 1 && b.def.upgrade && b.def.upgrade.produces) || b.def.produces || [];
 
+// --- Factions with their own rules (see FACTIONS in config.js) ---------------
+// A faction's version of a vehicle or building: the standard one with the
+// faction's multipliers applied. Factions without traits use the standard
+// definitions themselves. Each version is made once and shared.
+const FACTION_DEFS = { u: Object.create(null), b: Object.create(null) };
+const traitsOf = faction => (FACTIONS[faction] && FACTIONS[faction].traits) || null;
+const round1 = v => Math.round(v * 10) / 10;
+function scaleWeapon(w, k) {
+  if (!w || !k || (!k.range && !k.damage)) return w;
+  const o = Object.assign({}, w, { damage: round1(w.damage * (k.damage || 1)), range: Math.round(w.range * (k.range || 1)) });
+  if (w.minRange) o.minRange = Math.round(w.minRange * (k.range || 1));
+  return o;
+}
+function unitDef(faction, type) {
+  const base = UNIT_TYPES[type], tr = traitsOf(faction);
+  if (!base || !tr || !tr.unit) return base;
+  const c = FACTION_DEFS.u[faction] || (FACTION_DEFS.u[faction] = Object.create(null));
+  if (c[type]) return c[type];
+  const k = tr.unit, d = Object.assign({}, base);
+  d.hp = Math.round(base.hp * (k.hp || 1));
+  // Workers (and the Recycler, and Repair Drones) only get the health
+  // change, so every faction's economy runs at the same pace; the rest is
+  // for fighting vehicles.
+  if (base.role !== 'combat') return (c[type] = d);
+  if (base.speed) d.speed = Math.round(base.speed * (k.speed || 1));
+  d.cost = Math.round(base.cost * (k.cost || 1));
+  d.buildTime = round1(base.buildTime * (k.buildTime || 1));
+  if (base.weapon) d.weapon = scaleWeapon(base.weapon, k);
+  if (base.weapon2) d.weapon2 = scaleWeapon(base.weapon2, k);
+  return (c[type] = d);
+}
+function buildingDef(faction, type) {
+  const base = BUILDING_TYPES[type], tr = traitsOf(faction);
+  if (!base || !tr || !tr.building) return base;
+  const c = FACTION_DEFS.b[faction] || (FACTION_DEFS.b[faction] = Object.create(null));
+  if (c[type]) return c[type];
+  const k = tr.building, hp = v => Math.round(v * (k.hp || 1)), d = Object.assign({}, base);
+  d.hp = hp(base.hp);
+  d.cost = Math.round(base.cost * (k.cost || 1));
+  d.buildTime = round1(base.buildTime * (k.buildTime || 1));
+  if (base.weapon) d.weapon = scaleWeapon(base.weapon, k);
+  if (base.upgrade) d.upgrade = Object.assign({}, base.upgrade, base.upgrade.hp ? { hp: hp(base.upgrade.hp) } : {});
+  if (base.upgrades) d.upgrades = base.upgrades.map(o => Object.assign({}, o, o.hp ? { hp: hp(o.hp) } : {}, o.weapon ? { weapon: scaleWeapon(o.weapon, k) } : {}));
+  if (base.levels) d.levels = base.levels.map(o => Object.assign({}, o, o.hp ? { hp: hp(o.hp) } : {}));
+  return (c[type] = d);
+}
+// Most vehicles a side can have at once.
+const unitCap = (game, team) => { const tr = traitsOf(game.teams[team] && game.teams[team].faction); return (tr && tr.cap) || CONFIG.UNIT_CAP; };
+// The sides in this game (two to four), and whether a side is still in it.
+const sidesOf = game => game.sides || [1, 2];
+const inGame = (game, t) => !(game.out && game.out[t]);
+
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const angleTo = (a, b) => Math.atan2(b.y - a.y, b.x - a.x);
 const wrapAngle = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
@@ -32,7 +84,9 @@ const turnToward = (cur, target, maxStep) => {
   return Math.abs(d) <= maxStep ? target : cur + Math.sign(d) * maxStep;
 };
 
-// factions: { 1: 'scrapline' | 'kethra', 2: ... } (both Scrapline if left out).
+// factions: { 1: 'scrapline' | 'kethra' | 'dominion' | 'vex', 2: ... } (Scrapline if left out).
+// `sides`: how many sides fight (2 to 4; teams 1..sides), every side against
+// every other. Three or four sides need a four-cornered map (see map.js).
 // Campaign battles also pass `mapSeed` (each battlefield keeps its own map
 // while every fight there plays out differently) and `bonus`: extra
 // vehicles per side, { 1: ['tank', 'hornet'], 2: [...] }, from the
@@ -40,10 +94,13 @@ const turnToward = (cur, target, maxStep) => {
 // `uplinks`: three capture-and-hold points (hold two for UPLINK_WIN seconds
 // to win). `tempo`: campaign battles run their economy and production this
 // much faster, so a battle takes 10–15 minutes rather than half an hour.
-function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams = [2], factions = {}, mapSeed = seed, bonus = {}, uplinks = false, tempo = 1, mapType = 'wasteland' } = {}) {
-  const map = mapType === 'urban' ? generateUrbanMap(mapSeed) : mapType === 'tidal' ? generateTidalMap(mapSeed) : generateMap(mapSeed);
+function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams = [2], factions = {}, mapSeed = seed, bonus = {}, uplinks = false, tempo = 1, mapType = 'wasteland', sides = 2 } = {}) {
+  sides = Math.max(2, Math.min(4, sides | 0 || 2));
+  const quad = sides > 2;
+  const map = mapType === 'urban' ? generateUrbanMap(mapSeed, quad) : mapType === 'tidal' ? generateTidalMap(mapSeed, quad) : generateMap(mapSeed, quad);
   const game = {
     map, seed, difficulty, aiTeams, mapType,
+    sides: Array.from({ length: sides }, (_, i) => i + 1), out: {},
     rng: makeRng(seed * 7 + 1),
     tick: 0, time: 0,
     entities: [], byId: new Map(), nextId: 1,
@@ -57,10 +114,16 @@ function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams
     ai: {},
   };
   // Which corner each side starts in is decided at random for every game,
-  // so neither side can count on a favourable spot.
-  const swap = makeRng(seed * 31 + 7)() < 0.5;
-  game.corner = { 1: swap ? 2 : 1, 2: swap ? 1 : 2 };
-  for (const t of [1, 2]) {
+  // so no side can count on a favourable spot. (With three sides, one of
+  // the four corners stays empty.)
+  const crng = makeRng(seed * 31 + 7);
+  if (!quad) { const swap = crng() < 0.5; game.corner = { 1: swap ? 2 : 1, 2: swap ? 1 : 2 }; }
+  else {
+    const c = [1, 2, 3, 4];
+    for (let i = 3; i > 0; i--) { const j = Math.floor(crng() * (i + 1)); [c[i], c[j]] = [c[j], c[i]]; }
+    game.corner = {}; game.sides.forEach((t, i) => { game.corner[t] = c[i]; });
+  }
+  for (const t of game.sides) {
     game.teams[t] = {
       id: t, scrap: CONFIG.START_SCRAP, faction: FACTIONS[factions[t]] ? factions[t] : 'scrapline',
       vis: new Uint8Array(map.W * map.H), explored: new Uint8Array(map.W * map.H),
@@ -75,13 +138,14 @@ function createGame({ seed = Date.now() % 100000, difficulty = 'normal', aiTeams
     // Everyone starts on wheels: the Recycler must be deployed on a geyser.
     const b = map.bases[game.corner[t]];
     const home = { x: (b.x + 0.5) * CONFIG.TILE, y: (b.y + 0.5) * CONFIG.TILE };
-    const dir = game.corner[t] === 1 ? 1 : -1;
-    const spawn = (type, ox, oy) => addUnit(game, type, t, home.x + ox * dir * CONFIG.TILE, home.y + oy * dir * CONFIG.TILE);
+    // Offsets are written for the bottom-left corner and mirrored for the others.
+    const cs = cornerSide(game, home.x, home.y), dx = cs.left ? 1 : -1, dir = cs.bottom ? 1 : -1;
+    const spawn = (type, ox, oy) => addUnit(game, type, t, home.x + ox * dx * CONFIG.TILE, home.y + oy * dir * CONFIG.TILE);
     spawn('mobileRecycler', 0, -1.5);
     spawn('scavenger', 3, -1); spawn('scavenger', 3, 1);
     spawn('constructor', -1, -3);
     spawn('scout', 4, -3); spawn('scout', 5, -2); spawn('tank', 5, -4);
-    (bonus[t] || []).forEach((type, i) => addUnitNear(game, type, t, home.x + (2 + (i % 4) * 1.6) * dir * CONFIG.TILE, home.y - (5.5 + Math.floor(i / 4) * 1.6) * dir * CONFIG.TILE));
+    (bonus[t] || []).forEach((type, i) => addUnitNear(game, type, t, home.x + (2 + (i % 4) * 1.6) * dx * CONFIG.TILE, home.y - (5.5 + Math.floor(i / 4) * 1.6) * dir * CONFIG.TILE));
   }
   if (uplinks) placeUplinks(game);
   updateVisibility(game);
@@ -99,7 +163,7 @@ function faceCentre(game, x, y) {
 }
 
 function addUnit(game, type, team, x, y) {
-  const def = UNIT_TYPES[type];
+  const def = unitDef(game.teams[team].faction, type);
   const u = {
     id: game.nextId++, kind: 'unit', type, def, team, x, y, faction: game.teams[team].faction,
     hp: def.hp, maxHp: def.hp, radius: def.radius,
@@ -122,7 +186,7 @@ function addUnitNear(game, type, team, x, y) {
 }
 
 function addBuilding(game, type, team, tx, ty, complete) {
-  const def = BUILDING_TYPES[type], T = CONFIG.TILE;
+  const def = buildingDef(game.teams[team].faction, type), T = CONFIG.TILE;
   const b = {
     id: game.nextId++, kind: 'building', type, def, team, tx, ty, size: def.size, faction: game.teams[team].faction,
     x: (tx + def.size / 2) * T, y: (ty + def.size / 2) * T, radius: def.size * T / 2,
@@ -185,7 +249,7 @@ function bankScrap(game, team, amount, quiet = false) {
 const recycleValue = u => Math.round(u.def.cost * 0.5);
 // What a vehicle costs from this Factory: some weapons (Plasma) make it dearer.
 function buildCost(b, type) {
-  const def = UNIT_TYPES[type], lo = b && b.loadouts && b.loadouts[def.base || type];
+  const def = unitDef(b && b.faction, type), lo = b && b.loadouts && b.loadouts[def.base || type];
   let mul = 1;
   if (lo && def.slots) for (const sl of def.slots) { const w = WEAPONS[lo[sl.type]]; if (w && w.buildMul && fitsSlot(sl, lo[sl.type])) mul *= w.buildMul; }
   return Math.round(def.cost * mul);
@@ -319,7 +383,7 @@ function issueCommand(game, team, cmd) {
       for (const u of units) { u.order = { type: 'idle', gx: u.x, gy: u.y }; u.path = []; u.target = null; }
       break;
     case 'build': {
-      const def = BUILDING_TYPES[cmd.building];
+      const def = buildingDef(game.teams[team].faction, cmd.building);
       if (!def || def.buildable === false) return;
       const u = units.find(x => x.def.role === 'builder');
       if (!u) return;
@@ -435,7 +499,7 @@ function issueCommand(game, team, cmd) {
     }
     case 'produce': {
       const b = own(cmd.buildingId);
-      const def = UNIT_TYPES[cmd.unit];
+      const def = unitDef(game.teams[team].faction, cmd.unit);
       if (!b || b.kind !== 'building' || b.built < 1 || !def || !producesOf(b).includes(cmd.unit)) return;
       const tm = game.teams[team];
       if (def.requires && !tm.research[def.requires]) { pushEvent(game, team, `Research ${RESEARCH[def.requires].name} at a Research Lab first`, 'warn'); return; }
@@ -457,7 +521,7 @@ function issueCommand(game, team, cmd) {
       if (index < 0 || index >= b.queue.length) return;
       const [type] = b.queue.splice(index, 1);
       if (index === 0) {
-        if (b.paid) bankScrap(game, team, b.paidCost || UNIT_TYPES[type].cost);
+        if (b.paid) bankScrap(game, team, b.paidCost || unitDef(b.faction, type).cost);
         b.paid = false; b.prodTime = 0;
       }
       break;
@@ -641,10 +705,11 @@ function issueCommand(game, team, cmd) {
 function arrivalSlots(game, x, y, units) {
   if (units.length <= 1) return [{ x, y }];
   const cx = units.reduce((a, u) => a + u.x, 0) / units.length, cy = units.reduce((a, u) => a + u.y, 0) / units.length;
-  if (inMirroredHalf(game, cx, cy)) {
-    const WW = game.map.W * CONFIG.TILE, HH = game.map.H * CONFIG.TILE;
-    const flipped = units.map(u => ({ x: WW - u.x, y: HH - u.y }));
-    return arrivalSlotsOn(mirroredView(game), WW - x, HH - y, flipped).map(p => ({ x: WW - p.x, y: HH - p.y }));
+  const side = cornerSide(game, cx, cy), fx = side.left, fy = side.bottom;
+  if (fx || fy) {
+    const WW = game.map.W * CONFIG.TILE, HH = game.map.H * CONFIG.TILE, X = v => fx ? WW - v : v, Y = v => fy ? HH - v : v;
+    const flipped = units.map(u => ({ x: X(u.x), y: Y(u.y) }));
+    return arrivalSlotsOn(mirroredView(game, fx, fy), X(x), Y(y), flipped).map(p => ({ x: X(p.x), y: Y(p.y) }));
   }
   return arrivalSlotsOn(game, x, y, units);
 }
@@ -714,9 +779,9 @@ function stepGame(game) {
   game.tick++; game.time += dt;
   if (game.map.tidalMap) updateTide(game);
   updateBattlefield(game, dt);
-  if (game.tick % 15 === 0) for (const t of [1, 2]) if (game.teams[t].commands && game.teams[t].commands.length) updateCommands(game, t, 0.5);
+  if (game.tick % 15 === 0) for (const t of sidesOf(game)) if (game.teams[t].commands && game.teams[t].commands.length) updateCommands(game, t, 0.5);
   // Losing a Base Silo loses whatever no longer fits.
-  if (game.tick % 15 === 0) for (const t of [1, 2]) game.teams[t].scrap = Math.min(game.teams[t].scrap, scrapCapacity(game, t));
+  if (game.tick % 15 === 0) for (const t of sidesOf(game)) game.teams[t].scrap = Math.min(game.teams[t].scrap, scrapCapacity(game, t));
 
   // Shuffle the update order every tick so neither side can get a steady
   // head start from always acting first (or last) on some kind of tick.
@@ -751,7 +816,14 @@ function shuffled(game, list) {
   return out;
 }
 
+// Vex Swarm: anything left alone for a few seconds slowly heals.
+function regrow(game, e, dt) {
+  const tr = traitsOf(e.faction), rg = tr && tr.regen;
+  if (rg && e.hp < e.maxHp && game.time - (e.hurtAt ?? -99) > rg.delay) e.hp = Math.min(e.maxHp, e.hp + e.maxHp * rg.rate * dt);
+}
+
 function updateBuilding(game, b, dt) {
+  if (b.built >= 1) regrow(game, b, dt);
   if (b.built < 1) {
     // Extractors set themselves up after a Scavenger deploys.
     if (b.selfBuild) {
@@ -775,7 +847,7 @@ function updateBuilding(game, b, dt) {
       if (b.upgradeKey) {
         // A Gun Tower becomes a different kind of tower: new name and gun.
         b.variant = up.key;
-        b.def = Object.assign({}, b.def, { name: up.name, weapon: up.weapon, slots: up.slots, desc: up.desc, upgrades: null });
+        b.def = Object.assign({}, b.def, { name: up.name, weapon: up.weapon, slots: up.slots, desc: up.desc, upgrades: null });   // (a faction's own upgrades already carry its range)
         b.weaponLocked = false; b.fitted = null;   // the new hardpoint gets its own choice
         b.cooldown = 0;
       }
@@ -811,7 +883,7 @@ function updateBuilding(game, b, dt) {
   if (b.type === 'recycler') bankScrap(game, b.team, b.def.income * game.teams[b.team].incomeMult * dt, true);
   else if (b.def.income) pumpExtractor(game, b, dt);
   if (b.queue.length && b.upgrading === null) {
-    const def = UNIT_TYPES[b.queue[0]];
+    const def = unitDef(b.faction, b.queue[0]);
     const count = game.entities.filter(e => e.kind === 'unit' && e.team === b.team).length;
     const tm = game.teams[b.team];
     // Pay for the next vehicle when its turn comes; wait until there's enough.
@@ -821,7 +893,7 @@ function updateBuilding(game, b, dt) {
       else b.waiting = true;
     }
     if (!b.paid) { /* waiting for scrap */ }
-    else if (count >= CONFIG.UNIT_CAP) { b.blocked = true; }
+    else if (count >= unitCap(game, b.team)) { b.blocked = true; }
     else {
       b.blocked = false;
       b.prodTime += dt * (game.tempo || 1);
@@ -899,9 +971,9 @@ function pumpExtractor(game, b, dt) {
 function spawnFromBuilding(game, b, type) {
   const T = CONFIG.TILE;
   // Vehicles roll out of the corner facing the middle of the map.
-  const lowerLeft = inMirroredHalf(game, b.x, b.y);
-  const exitY = lowerLeft ? b.ty - 1 : b.ty + b.size;
-  const exitX = lowerLeft ? b.tx + b.size : b.tx - 1;
+  const side = cornerSide(game, b.x, b.y);
+  const exitY = side.bottom ? b.ty - 1 : b.ty + b.size;
+  const exitX = side.left ? b.tx + b.size : b.tx - 1;
   const spot = nearestOpenTile(game, exitX, exitY, 6) || { x: b.tx, y: b.ty };
   const u = addUnit(game, type, b.team, (spot.x + 0.5) * T, (spot.y + 0.5) * T);
   applyLoadout(game, u, b);
@@ -927,6 +999,7 @@ function spawnFromBuilding(game, b, type) {
 // ---------------------------------------------------------------------------
 
 function updateUnit(game, u, dt) {
+  regrow(game, u, dt);
   if (u.cooldown > 0) u.cooldown -= dt;
   if (u.repairing > 0) u.repairing -= dt;
   if (u.def.shield) {
@@ -1401,8 +1474,8 @@ function updateDeploy(game, u, dt) {
   const size = BUILDING_TYPES[type].size;
   // A 3x3 Recycler can't be centred on a grid corner, so it sits one square
   // off; mirror that choice on the far half so both sides are identical.
-  const off = size === 3 && inMirroredHalf(game, g.x, g.y) ? 2 : 1;
-  const tx = g.tx - off, ty = g.ty - off;
+  const side = cornerSide(game, g.x, g.y);
+  const tx = g.tx - (size === 3 && side.left ? 2 : 1), ty = g.ty - (size === 3 && side.bottom ? 2 : 1);
   for (let y = ty; y < ty + size; y++) for (let x = tx; x < tx + size; x++) {
     if (isBlockedTile(game, x, y)) { pushEvent(game, u.team, 'Something is blocking the geyser', 'warn', u.x, u.y); goIdle(u); return; }
   }
@@ -1724,6 +1797,16 @@ function hitChance(game, e, t, d, w = e.def.weapon) {
 // Fires from a fixed spot: a building, or a Sentry or Artillery with its legs down.
 const isFixedGun = e => e.kind === 'building' || (!!e.def.deployToFire && (e.legE || 0) >= 1);
 
+// Vex Swarm: a vehicle fighting with enough of its pack around it reloads faster.
+function packReload(game, e) {
+  const tr = traitsOf(e.faction), pk = tr && tr.pack;
+  if (!pk || e.kind !== 'unit') return 1;
+  let n = 0;
+  forUnitsNear(game, e.x, e.y, pk.r, o => { if (o !== e && o.team === e.team && o.hp > 0 && o.def.weapon && dist(o, e) <= pk.r) n++; });
+  e.packed = n >= pk.n;
+  return e.packed ? pk.reload : 1;
+}
+
 function aimAndFire(game, e, t, dt) {
   const d = edgeDist(e, t);
   const w = e.kind === 'unit' ? chooseWeapon(game, e, t, d) : e.def.weapon;
@@ -1740,7 +1823,7 @@ function aimAndFire(game, e, t, dt) {
   }
   if (e.cooldown > 0) return;
   if (Math.abs(wrapAngle(want - e.turret)) > 0.25) return;
-  e.cooldown = w.cooldown * (1 - CONFIG.VET_RELOAD * (e.rank || 0)) * (1 - COMMAND.reload * (e.cmdBonus || 0));
+  e.cooldown = w.cooldown * (1 - CONFIG.VET_RELOAD * (e.rank || 0)) * (1 - COMMAND.reload * (e.cmdBonus || 0)) * packReload(game, e);
   e.lastShot = game.time;  // drives barrel recoil and the muzzle flash
   const mx = e.x + Math.cos(e.turret) * (e.radius + 4), my = e.y + Math.sin(e.turret) * (e.radius + 4);
   launchShot(game, e, t, w, mx, my, e.turret, d, w.projectile !== 'bullet');
@@ -1873,12 +1956,12 @@ function fitsSlot(slot, key) {
 // for the stock weapon; specials have no stock and start empty). Basic (Mk I)
 // vehicles use the slots they have; a Mk II has more.
 const LOADOUT_DEFS = new Map();
-function loadoutDef(type, lo) {
-  const def = UNIT_TYPES[type];
+function loadoutDef(type, lo, faction) {
+  const def = unitDef(faction, type);
   if (!def.slots || !lo) return def;
   const used = def.slots.filter(sl => lo[sl.type] && lo[sl.type] !== 'stock' && fitsSlot(sl, lo[sl.type]));
   if (!used.length) return def;
-  const key = type + ':' + used.map(sl => sl.type + '=' + lo[sl.type]).join(',');
+  const key = (traitsOf(faction) ? faction + '/' : '') + type + ':' + used.map(sl => sl.type + '=' + lo[sl.type]).join(',');
   let d = LOADOUT_DEFS.get(key);
   if (!d) {
     d = Object.assign({}, def, { loadout: {} });
@@ -1901,7 +1984,7 @@ function loadoutDef(type, lo) {
 function applyLoadout(game, u, b) {
   const lo = b && b.loadouts && b.loadouts[baseType(u)];
   if (!lo) return;
-  u.def = loadoutDef(u.type, lo);
+  u.def = loadoutDef(u.type, lo, u.faction);
   if (u.def.shield) u.shield = u.def.shield;
   if (u.def.special && u.def.special.key === 'mines') u.mines = u.def.special.carry;
 }
@@ -1993,10 +2076,11 @@ function commandThink(game, team, group, cmdr) {
   const T = CONFIG.TILE, tm = game.teams[team];
   const units = group.members.map(id => game.byId.get(id));
   if (!units.length) return;
-  const foe = 3 - team;
   const home = game.entities.find(e => e.team === team && (e.type === 'recycler' || e.type === 'mobileRecycler'));
   const known = e => e.seen && e.seen[team];
-  const theirBase = game.entities.find(e => e.team === foe && e.type === 'recycler' && e.hp > 0 && known(e));
+  // The nearest enemy base it knows of (any side's, with more than two).
+  let theirBase = null;
+  for (const e of game.entities) if (e.team !== team && e.type === 'recycler' && e.hp > 0 && known(e) && (!theirBase || !home || dist(e, home) < dist(theirBase, home))) theirBase = e;
   const pads = game.entities.some(e => e.team === team && e.type === 'repairpad' && e.built >= 1);
   // Badly hurt vehicles go for repairs (with a Repair Pad), then rejoin.
   for (const u of units) if (pads && u.hp < u.maxHp * 0.4 && !u.repairTrip) { u.cmdTask = 'repair'; issueCommand(game, team, { type: 'gorepair', ids: [u.id], byCommander: true }); }
@@ -2295,7 +2379,7 @@ function updateTide(game) {
   // Warnings a little before it turns.
   for (const [at, text] of [[T.low - T.warn, `The tide is coming in: the sand flats flood in ${T.warn} seconds. Get off the sand!`],
                             [T.low + T.high - T.warn, `The tide is going out in ${T.warn} seconds: the sand flats will open up.`]])
-    if (c >= at && c - dt < at) for (const t of [1, 2]) pushEvent(game, t, text, 'warn');
+    if (c >= at && c - dt < at) for (const t of sidesOf(game)) pushEvent(game, t, text, 'warn');
   const high = tideIsHigh(game);
   if ((game.map.tide === 'high') === high) return;
   setTide(game, high);
@@ -2317,17 +2401,23 @@ function setTide(game, high) {
       damage(game, u, u.maxHp * T.swamp, { kind: 'artillery', team: 0, owner: 0 });
       game.effects.push({ kind: 'dust', x: u.x, y: u.y, t: 0, life: 0.6 });
     }
-    for (const t of [1, 2]) pushEvent(game, t, 'High tide: the sand flats are under water. Only the causeways are open.', 'warn');
+    for (const t of sidesOf(game)) pushEvent(game, t, 'High tide: the sand flats are under water. Only the causeways are open.', 'warn');
   } else {
-    // Low tide washes fresh scrap up on the sand, the same on both sides.
-    const flats = [];
-    for (let i = 0; i < W * m.H; i++) if (m.tidal[i] && i < W * m.H - 1 - i) flats.push(i);
+    // Low tide washes fresh scrap up on the sand, the same for every side
+    // (one pile and its mirror images).
+    const flats = [], WW = W * TL, HH = m.H * TL;
+    for (let i = 0; i < W * m.H; i++) {
+      if (!m.tidal[i]) continue;
+      const x = i % W, y = Math.floor(i / W);
+      if (m.quad ? (x < W / 2 - 1 && y < m.H / 2 - 1) : i < W * m.H - 1 - i) flats.push(i);
+    }
     for (let k = 0; k < T.washup && flats.length; k++) {
       const i = flats[Math.floor(game.rng() * flats.length)], x = (i % W + 0.5) * TL, y = (Math.floor(i / W) + 0.5) * TL;
-      const id = Math.max(0, ...game.scrap.map(s => s.id)) + 1;
-      game.scrap.push({ id, x, y, amount: T.washAmount, max: T.washAmount }, { id: id + 1, x: W * TL - x, y: m.H * TL - y, amount: T.washAmount, max: T.washAmount });
+      let id = Math.max(0, ...game.scrap.map(s => s.id)) + 1;
+      const copies = m.quad ? [[x, y], [WW - x, y], [x, HH - y], [WW - x, HH - y]] : [[x, y], [WW - x, HH - y]];
+      for (const [px, py] of copies) game.scrap.push({ id: id++, x: px, y: py, amount: T.washAmount, max: T.washAmount });
     }
-    for (const t of [1, 2]) pushEvent(game, t, 'Low tide: the sand flats are open, and fresh scrap has washed up.', 'info');
+    for (const t of sidesOf(game)) pushEvent(game, t, 'Low tide: the sand flats are open, and fresh scrap has washed up.', 'info');
   }
   // Routes planned across the sand (or round it) are out of date.
   for (const u of game.entities) if (u.kind === 'unit' && u.path && u.path.length) { const g = u.path[u.path.length - 1]; planPath(game, u, g.x, g.y); }
@@ -2342,6 +2432,9 @@ function damage(game, e, amount, p) {
     if (rel > Math.PI * 2 / 3) amount *= CONFIG.ARMOR_REAR;
     else if (rel > Math.PI / 3) amount *= CONFIG.ARMOR_SIDE;
   }
+  // Iron Dominion: a vehicle that has stood still for a moment braces.
+  const tr = traitsOf(e.faction);
+  if (tr && tr.brace && e.kind === 'unit' && game.tick - (e.movingTick || 0) > tr.brace.after * CONFIG.TICK_RATE) amount *= 1 - tr.brace.cut;
   const wasAlive = e.hp > 0;
   if (e.shield > 0 && !p.pierceShield) {
     const soak = Math.min(e.shield, amount);
@@ -2350,7 +2443,7 @@ function damage(game, e, amount, p) {
   }
   if (e.def.shield) e.shieldWait = e.def.shieldDelay;
   e.hp -= amount;
-  e.hitFlash = 0.1;
+  e.hitFlash = 0.1; e.hurtAt = game.time;
   const shooter = game.byId.get(p.owner);
   if (shooter && shooter.hp > 0) { e.lastHitBy = shooter; e.lastHitAt = game.time; }
   noteFighting(game, e.x, e.y);
@@ -2394,7 +2487,8 @@ function removeDead(game) {
       game.effects.push({ kind: 'explode', type: e.type, team: e.team, faction: e.faction, x: e.x, y: e.y, t: 0, life: 1.2, size: e.radius * 1.6 });
       game.effects.push({ kind: 'crater', type: e.type, faction: e.faction, x: e.x, y: e.y, t: 0, life: 90 });
       pushEvent(game, e.team, `${nameOf(e)} destroyed`, 'bad', e.x, e.y);
-      pushEvent(game, 3 - e.team, `Enemy ${nameOf(e)} destroyed`, 'good', e.x, e.y);
+      const by = e.lastHitBy && e.lastHitBy.team;
+      if (by && by !== e.team) pushEvent(game, by, `Enemy ${nameOf(e)} destroyed`, 'good', e.x, e.y);
     } else {
       // Explosion, then a burnt-out wreck in the vehicle's own shape.
       game.effects.push({ kind: 'explode', type: baseType(e), team: e.team, faction: e.faction, x: e.x, y: e.y, t: 0, life: 1.2, size: e.radius * 2.2 });
@@ -2402,7 +2496,8 @@ function removeDead(game) {
       const salvage = Math.round(e.def.cost * CONFIG.WRECK_SCRAP_FRACTION);
       if (salvage > 0) game.scrap.push({ id: 100000 + e.id, x: e.x, y: e.y, amount: salvage, max: salvage, wreck: true });
       game.teams[e.team].stats.lost++;
-      game.teams[3 - e.team].stats.killed++;
+      const by = e.lastHitBy && e.lastHitBy.team;
+      if (by && by !== e.team && game.teams[by]) game.teams[by].stats.killed++;
     }
     game.events.push({ sound: 'boom', x: e.x, y: e.y, big: e.kind === 'building' });
   }
@@ -2535,7 +2630,7 @@ function updateBuilder(game, u, dt) {
 
 function updateVisibility(game) {
   const T = CONFIG.TILE, W = game.map.W, H = game.map.H;
-  for (const t of [1, 2]) game.teams[t].vis.fill(0);
+  for (const t of sidesOf(game)) game.teams[t].vis.fill(0);
   for (const e of game.entities) {
     if (e.kind === 'building' && e.built < 1 && e.built < 0.05) continue;
     const tm = game.teams[e.team];
@@ -2549,7 +2644,7 @@ function updateVisibility(game) {
     }
   }
   // Radar pings light up a wide circle for a few seconds.
-  for (const t of [1, 2]) {
+  for (const t of sidesOf(game)) {
     const tm = game.teams[t];
     tm.pings = tm.pings.filter(p => p.until > game.time);
     for (const p of tm.pings) {
@@ -2560,7 +2655,7 @@ function updateVisibility(game) {
     }
   }
   // Remember enemy buildings once you've seen them.
-  for (const e of game.entities) if (e.kind === 'building') for (const t of [1, 2]) if (t !== e.team && isVisibleTo(game, t, e)) e.seen[t] = true;
+  for (const e of game.entities) if (e.kind === 'building') for (const t of sidesOf(game)) if (t !== e.team && isVisibleTo(game, t, e)) e.seen[t] = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -2589,7 +2684,7 @@ function segmentsCross(x1, y1, x2, y2, x3, y3, x4, y4) {
 
 function updateShields(game, dt) {
   const active = [];
-  for (const t of [1, 2]) {
+  for (const t of sidesOf(game)) {
     const projectors = game.entities.filter(e => e.team === t && e.def.field && e.hp > 0 && e.built >= 1).sort((a, b) => a.id - b.id);
     const gens = game.entities.filter(e => e.team === t && e.type === 'generator' && e.hp > 0 && e.built >= 1).sort((a, b) => a.id - b.id);
     // How many projectors each Generator is powering (shown on it).
@@ -2635,7 +2730,7 @@ function hitField(game, f, p) {
     game.activeFields = game.activeFields.filter(x => x !== f);
     game.effects.push({ kind: 'shielddown', x: f.cx, y: f.cy, a: Math.atan2(f.dy, f.dx), len: F.length, t: 0, life: 0.8, team: f.team });
     pushEvent(game, f.team, `Shield collapsed: rebooting in ${F.reboot} s`, 'bad', f.b.x, f.b.y);
-    pushEvent(game, 3 - f.team, 'Enemy shield down', 'good', f.b.x, f.b.y);
+    if (p.team && p.team !== f.team) pushEvent(game, p.team, 'Enemy shield down', 'good', f.b.x, f.b.y);
   }
 }
 
@@ -2650,38 +2745,57 @@ function hitField(game, f, p) {
 function placeUplinks(game) {
   const T = CONFIG.TILE, W = game.map.W, H = game.map.H;
   const c = { x: W / 2, y: H / 2 };
-  const b1 = game.map.bases[1], b2 = game.map.bases[2];
-  // Across the line between the two corners, a third of the way to the edge.
-  let px = -(b2.y - b1.y), py = b2.x - b1.x;
-  const n = Math.hypot(px, py) || 1; px /= n; py /= n;
-  const reach = Math.min(W, H) * 0.3;
-  const spots = [c, { x: c.x + px * reach, y: c.y + py * reach }, { x: c.x - px * reach, y: c.y - py * reach }];
+  let spots;
+  if (game.map.quad) {
+    // Four corners: the middle, and one between each pair of neighbouring
+    // corners (on the map's centre lines, halfway out). Hold three of five.
+    const rx = W * 0.27, ry = H * 0.27;
+    spots = [c, { x: c.x - rx, y: c.y }, { x: c.x + rx, y: c.y }, { x: c.x, y: c.y - ry }, { x: c.x, y: c.y + ry }];
+  } else {
+    const b1 = game.map.bases[1], b2 = game.map.bases[2];
+    // Across the line between the two corners, a third of the way to the edge.
+    let px = -(b2.y - b1.y), py = b2.x - b1.x;
+    const n = Math.hypot(px, py) || 1; px /= n; py /= n;
+    const reach = Math.min(W, H) * 0.3;
+    spots = [c, { x: c.x + px * reach, y: c.y + py * reach }, { x: c.x - px * reach, y: c.y - py * reach }];
+  }
   game.uplinks = spots.map((p, i) => {
     const t = nearestOpenTile(game, Math.floor(p.x), Math.floor(p.y), 12) || { x: Math.floor(p.x), y: Math.floor(p.y) };
-    return { id: i + 1, x: (t.x + 0.5) * T, y: (t.y + 0.5) * T, owner: 0, p: 0, contested: false };
+    return { id: i + 1, x: (t.x + 0.5) * T, y: (t.y + 0.5) * T, owner: 0, p: 0, by: 0, contested: false };
   });
+  game.uplinkNeed = Math.floor(game.uplinks.length / 2) + 1;   // two of three, three of five
   game.uplinkHold = { team: 0, since: 0 };
 }
+const uplinkNeed = game => game.uplinkNeed || 2;
+const NUMBER_WORDS = ['no', 'one', 'two', 'three', 'four', 'five'];
 
+// An uplink is owned by one side (owner) or no one; `p` (0 to 1) is how far
+// the side in `by` has got toward taking it (for a side's own uplink, how
+// firmly it holds it). One side alone on it pushes it its way: first
+// knocking down another side's hold, then capturing. Two or more sides on
+// it: nothing changes.
 function updateUplinks(game, dt) {
   const R = CONFIG.UPLINK_RADIUS;
   for (const u of game.uplinks) {
-    const n = { 1: 0, 2: 0 };
-    forUnitsNear(game, u.x, u.y, R, e => { if (e.hp > 0 && e.def.role === 'combat' && dist(e, u) <= R) n[e.team]++; });
-    u.contested = n[1] > 0 && n[2] > 0;
+    if (u.by === undefined) { u.by = u.p > 0 ? 1 : u.p < 0 ? 2 : 0; u.p = Math.abs(u.p); }   // saved before four sides
+    const n = {};
+    forUnitsNear(game, u.x, u.y, R, e => { if (e.hp > 0 && e.def.role === 'combat' && dist(e, u) <= R) n[e.team] = (n[e.team] || 0) + 1; });
+    const here = Object.keys(n).map(Number);
+    u.contested = here.length > 1;
     const was = u.owner;
-    if (!u.contested && (n[1] || n[2])) {
-      const t = n[1] ? 1 : 2, sign = t === 1 ? 1 : -1;
-      u.p = Math.max(-1, Math.min(1, u.p + sign * Math.min(3, n[t]) * dt / CONFIG.UPLINK_CAPTURE));
-      if (u.p >= 1) u.owner = 1; else if (u.p <= -1) u.owner = 2;
-      else if ((u.owner === 1 && u.p <= 0) || (u.owner === 2 && u.p >= 0)) u.owner = 0;
+    if (here.length === 1) {
+      const t = here[0], step = Math.min(3, n[t]) * dt / CONFIG.UPLINK_CAPTURE;
+      if (u.owner === t) { u.p = Math.min(1, u.p + step); u.by = t; }
+      else if (u.owner) { u.p -= step; u.by = u.owner; if (u.p <= 0) { u.owner = 0; u.p = 0; u.by = t; } }
+      else if (u.by && u.by !== t && u.p > 0) { u.p -= step; if (u.p <= 0) { u.p = 0; u.by = t; } }
+      else { u.by = t; u.p = Math.min(1, u.p + step); if (u.p >= 1) u.owner = t; }
     }
     if (u.owner !== was) {
-      if (u.owner) { pushEvent(game, u.owner, 'Uplink captured', 'good', u.x, u.y); pushEvent(game, 3 - u.owner, 'Uplink lost to the enemy', 'bad', u.x, u.y); }
-      else if (was) pushEvent(game, was, 'Uplink lost', 'bad', u.x, u.y);
+      if (u.owner) pushEvent(game, u.owner, 'Uplink captured', 'good', u.x, u.y);
+      if (was) pushEvent(game, was, u.owner ? 'Uplink lost to the enemy' : 'Uplink lost', 'bad', u.x, u.y);
     }
   }
-  for (const t of [1, 2]) {
+  for (const t of sidesOf(game)) {
     const tm = game.teams[t], held = game.uplinks.filter(u => u.owner === t).length;
     // Call-ins earned by the uplinks held.
     if (held && tm.callins < CONFIG.CALLIN_MAX) {
@@ -2689,14 +2803,18 @@ function updateUplinks(game, dt) {
       if (tm.callinProgress >= 1) { tm.callinProgress -= 1; tm.callins++; pushEvent(game, t, 'Call-in ready', 'good'); }
     }
   }
-  const holder = game.time < CONFIG.UPLINK_ONLINE ? 0 : [1, 2].find(t => game.uplinks.filter(u => u.owner === t).length >= 2) || 0;
+  const need = uplinkNeed(game), words = NUMBER_WORDS[need], of = NUMBER_WORDS[game.uplinks.length];
+  const holder = game.time < CONFIG.UPLINK_ONLINE ? 0 : sidesOf(game).find(t => game.uplinks.filter(u => u.owner === t).length >= need) || 0;
   if (!game.uplinksOnline && game.time >= CONFIG.UPLINK_ONLINE) {
     game.uplinksOnline = true;
-    for (const t of [1, 2]) pushEvent(game, t, 'Uplinks online: hold two of the three to win', 'info');
+    for (const t of sidesOf(game)) pushEvent(game, t, `Uplinks online: hold ${words} of the ${of} to win`, 'info');
   }
   if (holder !== game.uplinkHold.team) {
     game.uplinkHold = { team: holder, since: game.time };
-    if (holder) { pushEvent(game, holder, 'You hold two uplinks: keep them to win', 'good'); pushEvent(game, 3 - holder, 'The enemy holds two uplinks: take one back!', 'bad'); }
+    if (holder) {
+      pushEvent(game, holder, `You hold ${words} uplinks: keep them to win`, 'good');
+      for (const t of sidesOf(game)) if (t !== holder && inGame(game, t)) pushEvent(game, t, `${sideName(game, holder)} holds ${words} uplinks: take one back!`, 'bad');
+    }
   }
 }
 
@@ -2724,18 +2842,32 @@ function updateDrops(game) {
   game.drops = game.drops.filter(d => !d.done);
 }
 
+// The one rule of victory: destroy the enemy Recycler. With more than two
+// sides, a side that loses its Recycler is out (what it has left falls
+// apart), and the last side standing wins.
 function checkVictory(game) {
   const hold = game.uplinkHold;
   if (hold && hold.team && game.time - hold.since >= CONFIG.UPLINK_WIN) {
     game.winner = hold.team;
-    game.endReason = `${sideName(game, hold.team)} held two uplinks for ${Math.round(CONFIG.UPLINK_WIN / 60 * 10) / 10} minutes.`;
+    game.endReason = `${sideName(game, hold.team)} held ${NUMBER_WORDS[uplinkNeed(game)]} uplinks for ${Math.round(CONFIG.UPLINK_WIN / 60 * 10) / 10} minutes.`;
     return;
   }
-  for (const t of [1, 2]) {
-    // The one rule of victory: destroy the enemy Recycler.
-    if (!game.entities.some(e => e.team === t && (e.type === 'recycler' || e.type === 'mobileRecycler'))) {
-      game.winner = 3 - t; game.endReason = `${sideName(game, t)} lost their ${factionName(game.teams[t].faction, 'Recycler')}.`; return;
-    }
+  const sides = sidesOf(game);
+  if (!game.out) game.out = {};
+  for (const t of sides) {
+    if (game.out[t]) continue;
+    if (game.entities.some(e => e.team === t && (e.type === 'recycler' || e.type === 'mobileRecycler'))) continue;
+    const reason = `${sideName(game, t)} lost their ${factionName(game.teams[t].faction, 'Recycler')}.`;
+    if (sides.length === 2) { game.winner = sides.find(o => o !== t); game.endReason = reason; return; }
+    game.out[t] = game.time;
+    game.lastOut = { team: t, reason };
+    for (const e of game.entities) if (e.team === t && e.hp > 0) { e.hp = 0; e.lastHitBy = null; }
+    for (const o of sides) pushEvent(game, o, o === t ? `${reason} You are out of the battle.` : `${reason} They are out of the battle.`, o === t ? 'bad' : 'info');
+  }
+  const left = sides.filter(t => !game.out[t]);
+  if (sides.length > 2 && left.length <= 1) {
+    game.winner = left[0] || sides[0];
+    game.endReason = `${sideName(game, game.winner)} is the last side standing. ${game.lastOut ? game.lastOut.reason : ''}`.trim();
   }
 }
 
@@ -2760,6 +2892,18 @@ function saveDefs() {
     (d.upgrades || []).forEach((o, i) => m.set(o, 'bo:' + k + ':' + i));
   }
   for (const [k, d] of Object.entries(RESEARCH)) m.set(d, 'r:' + k);
+  // Factions with their own numbers have their own versions of everything.
+  for (const f of Object.keys(FACTIONS)) {
+    if (!traitsOf(f)) continue;
+    for (const k of Object.keys(UNIT_TYPES)) { const d = unitDef(f, k); if (d !== UNIT_TYPES[k]) m.set(d, `fu:${f}:${k}`); }
+    for (const k of Object.keys(BUILDING_TYPES)) {
+      const d = buildingDef(f, k);
+      if (d === BUILDING_TYPES[k]) continue;
+      m.set(d, `fb:${f}:${k}`);
+      if (d.upgrade) m.set(d.upgrade, `fbu:${f}:${k}`);
+      (d.upgrades || []).forEach((o, i) => m.set(o, `fbo:${f}:${k}:${i}`));
+    }
+  }
   return m;
 }
 

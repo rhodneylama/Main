@@ -34,6 +34,8 @@ const ROOTS = [0, -4, 3, -2];
 const SOUND = {
   scrapline: { pad: 'sawtooth', padCut: 900, bass: 'sawtooth', arp: 'square', arpCut: 2400, echo: 0.22, flat2: false },
   kethra:    { pad: 'sine',     padCut: 2200, bass: 'triangle', arp: 'sine',  arpCut: 5000, echo: 0.42, flat2: true },
+  dominion:  { pad: 'square',   padCut: 650,  bass: 'sawtooth', arp: 'triangle', arpCut: 1800, echo: 0.3, flat2: false },
+  vex:       { pad: 'triangle', padCut: 1500, bass: 'square',   arp: 'sawtooth', arpCut: 3600, echo: 0.5, flat2: true },
 };
 // How loud each layer is for a mood (battle: calm → heated, by intensity).
 const MIX = {

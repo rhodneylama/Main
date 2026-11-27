@@ -19,7 +19,7 @@ function load() {
   vm.createContext(ctx);
   vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
     'createGame, generateMap, generateUrbanMap, generateTidalMap, WEAPONS, makeWeapon, loadoutDef, isVisibleTo, scrapIsDangerous, TILE_DIRT, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
-    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, COMMAND, buildCost, damageForTest: damage });', ctx);
+    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, COMMAND, buildCost, unitDef, buildingDef, unitCap, factionText, TEAMS, damageForTest: damage });', ctx);
   return ctx;
 }
 
@@ -1406,6 +1406,105 @@ section('Workers look after themselves');
   check('a badly hurt worker gets itself repaired at the Repair Pad', reachedPad && scav.hp >= scav.maxHp * 0.98);
   for (let i = 0; i < 30 * 3; i++) S.stepGame(g);
   check('and then goes back to work', !scav.patching && scav.order.type === 'harvest');
+}
+
+
+section('Three or four sides');
+{
+  const S = load();
+  const g = S.createGame({ seed: 9, aiTeams: [], sides: 4 });
+  const W = g.map.W, H = g.map.H, T = 32;
+  check('four sides: four teams on a four-cornered map', g.sides.length === 4 && g.map.quad && [1, 2, 3, 4].every(t => g.teams[t]));
+  const recs = g.sides.map(t => mine(g, t, 'mobileRecycler')[0]);
+  const corners = new Set(recs.map(r => (r.x < W * 16 ? 'L' : 'R') + (r.y < H * 16 ? 'T' : 'B')));
+  check('each side starts in its own corner', corners.size === 4);
+  // Every corner is a mirror image of the others: the map and where everyone starts.
+  let asym = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const v = g.map.tiles[y * W + x]; if (v !== g.map.tiles[y * W + W - 1 - x] || v !== g.map.tiles[(H - 1 - y) * W + x]) asym++; }
+  check('the four-cornered map is mirrored left-right and top-bottom', asym === 0, `${asym} squares differ`);
+  const r1 = recs[0];
+  check('starting forces are mirror images in every corner', recs.every(r => [[W * T - r1.x, r1.y], [r1.x, H * T - r1.y], [W * T - r1.x, H * T - r1.y], [r1.x, r1.y]].some(([x, y]) => Math.abs(r.x - x) < 1 && Math.abs(r.y - y) < 1)));
+  check('32 geysers, at least 20 squares apart', g.geysers.length === 32 && g.geysers.every(a => g.geysers.every(b => a === b || Math.hypot(a.tx - b.tx, a.ty - b.ty) >= 20)));
+  for (const type of ['urban', 'tidal']) {
+    const m = S.createGame({ seed: 9, aiTeams: [], sides: 4, mapType: type }).map;
+    let a = 0;
+    for (let y = 0; y < m.H; y++) for (let x = 0; x < m.W; x++) { const v = m.tiles[y * m.W + x]; if (v !== m.tiles[y * m.W + m.W - 1 - x] || v !== m.tiles[(m.H - 1 - y) * m.W + x]) a++; }
+    check(`the ${type === 'urban' ? 'ruined city' : 'Tidal Flats'} can be fought by four, mirrored the same way`, m.quad && a === 0 && Object.keys(m.bases).length === 4, `${a} squares differ`);
+  }
+  // Routes are as good from every corner.
+  const lens = recs.map(r => { const p = S.findPath(g, r.x, r.y, W * 16, H * 16); let L = 0, prev = r; for (const q of p) { L += S.dist(prev, q); prev = q; } return Math.round(L); });
+  check('a route to the middle is the same length from every corner', Math.max(...lens) - Math.min(...lens) <= 2, lens.join(', '));
+
+  // Three sides: lose your Recycler and you are out; last one standing wins.
+  const g3 = S.createGame({ seed: 4, aiTeams: [], sides: 3 });
+  check('three sides use the four-cornered map', g3.sides.length === 3 && g3.map.quad);
+  const tank2 = S.addUnit(g3, 'tank', 2, 3000, 3000);
+  mine(g3, 2, 'mobileRecycler')[0].hp = 0;
+  run(g3, S, 1);
+  check('a side that loses its Recycler is out, and what it had left falls apart', g3.out[2] > 0 && tank2.hp <= 0 && !g3.entities.some(e => e.team === 2) && !g3.winner);
+  mine(g3, 3, 'mobileRecycler')[0].hp = 0;
+  run(g3, S, 1);
+  check('the last side standing wins', g3.winner === 1 && /last side standing/.test(g3.endReason), g3.endReason);
+
+  // Uplinks with four sides: five of them, hold three.
+  const gu = S.createGame({ seed: 4, aiTeams: [], sides: 4, uplinks: true });
+  check('a four-sided uplink battle has five uplinks; hold three to win', gu.uplinks.length === 5 && gu.uplinkNeed === 3 && gu.uplinks.every(u => !S.isBlockedAt(gu, u.x, u.y)));
+  // A save keeps the sides and who is out.
+  const back = S.loadGame(S.saveGame(g3)).game;
+  check('a saved game keeps its sides and who is out', back.sides.length === 3 && back.out[2] > 0 && back.winner === 1);
+}
+
+section('Iron Dominion and Vex Swarm');
+{
+  const S = load();
+  const U = S.UNIT_TYPES, dom = S.unitDef('dominion', 'tank'), vex = S.unitDef('vex', 'tank');
+  check('Dominion vehicles: +40% health, -20% speed, +25% cost, +10% range', dom.hp === Math.round(U.tank.hp * 1.4) && dom.speed === Math.round(U.tank.speed * 0.8) && dom.cost === Math.round(U.tank.cost * 1.25) && dom.weapon.range === Math.round(U.tank.weapon.range * 1.1));
+  check('Vex beasts: -35% health, +30% speed, -30% cost, -30% build time, -10% damage', vex.hp === Math.round(U.tank.hp * 0.65) && vex.speed === Math.round(U.tank.speed * 1.3) && vex.cost === Math.round(U.tank.cost * 0.7) && vex.buildTime < U.tank.buildTime && vex.weapon.damage < U.tank.weapon.damage);
+  check('Scrapline and the Kethra keep the standard numbers', S.unitDef('scrapline', 'tank') === U.tank && S.unitDef('kethra', 'tank') === U.tank);
+  check('Dominion buildings are tougher and their towers reach further', S.buildingDef('dominion', 'tower').hp > S.BUILDING_TYPES.tower.hp && S.buildingDef('dominion', 'tower').weapon.range > S.BUILDING_TYPES.tower.weapon.range);
+  check('Dominion towers keep the longer reach after their upgrade', S.buildingDef('dominion', 'tower').upgrades.every((o, i) => o.weapon.range > S.BUILDING_TYPES.tower.upgrades[i].weapon.range));
+  const g = S.createGame({ seed: 3, aiTeams: [], sides: 4, factions: { 1: 'scrapline', 2: 'kethra', 3: 'dominion', 4: 'vex' } });
+  check('unit caps: 80 for the Dominion, 140 for the Swarm, 100 for the rest', S.unitCap(g, 3) === 80 && S.unitCap(g, 4) === 140 && S.unitCap(g, 1) === 100);
+  check('each side gets its own faction\'s vehicles', mine(g, 3, 'tank')[0].def === dom && mine(g, 4, 'tank')[0].def === vex && mine(g, 1, 'tank')[0].def === U.tank);
+  // Brace: a Dominion vehicle that has stood still takes less damage.
+  const a = S.addUnit(g, 'tank', 3, 4000, 3000), b = S.addUnit(g, 'tank', 3, 4100, 3000);
+  run(g, S, 3);
+  b.movingTick = g.tick;
+  const shot = { damage: 100, kind: 'shell', owner: 0, team: 1 };
+  const h0 = a.hp, h1 = b.hp;
+  S.damageForTest(g, a, 100, shot); S.damageForTest(g, b, 100, shot);
+  check('a Dominion vehicle that stands still braces: 25% less damage', Math.abs((h0 - a.hp) - 75) < 0.01 && Math.abs((h1 - b.hp) - 100) < 0.01, `${h0 - a.hp} vs ${h1 - b.hp}`);
+  // Regrowth: a Vex beast heals once left alone.
+  const v = S.addUnit(g, 'tank', 4, 5000, 4000);
+  S.damageForTest(g, v, 100, shot);
+  const hurt = v.hp;
+  run(g, S, 4);
+  const early = v.hp;
+  run(g, S, 6);
+  check('a Vex beast heals itself once it has not been hit for 6 seconds', early === hurt && v.hp > hurt, `${hurt} → ${early} → ${Math.round(v.hp)}`);
+  // Pack: a Vex beast with three of its pack around it attacks faster.
+  const alone = S.addUnit(g, 'tank', 4, 2000, 5200), foe = S.addUnit(g, 'tank', 1, 2150, 5200);
+  const packed = S.addUnit(g, 'tank', 4, 6000, 5200), foe2 = S.addUnit(g, 'tank', 1, 6150, 5200);
+  for (const [dx, dy] of [[-40, 0], [0, 40], [0, -40]]) S.addUnit(g, 'tank', 4, 6000 + dx, 5200 + dy);
+  for (const u of [foe, foe2]) u.stance = 'stealth';
+  let ca = 0, cp = 0;
+  for (let i = 0; i < 30 * 4 && (!ca || !cp); i++) { S.stepGame(g); if (alone.lastShot !== undefined && !ca) ca = alone.cooldown; if (packed.lastShot !== undefined && !cp) cp = packed.cooldown; }
+  check('a Vex beast in a pack of three or more reloads 20% faster', ca > 0 && cp > 0 && Math.abs(cp / ca - 0.8) < 0.06, `${ca.toFixed(2)} alone, ${cp.toFixed(2)} in a pack`);
+  check('messages use each faction\'s own names, with "a" and "an" right', S.factionText('dominion', 'Scavenger deploying as an Extractor') === 'Hauler deploying as a Derrick' && S.factionText('vex', 'Build a Gun Tower') === 'Build a Spine Tower');
+  // Saves keep each faction's own numbers.
+  const back = S.loadGame(S.saveGame(g)).game;
+  check('a saved game keeps each faction\'s own vehicles', back.byId.get(a.id).def.hp === dom.hp && back.byId.get(v.id).def.speed === vex.speed);
+  check('four team colours', [1, 2, 3, 4].every(t => S.TEAMS[t] && S.TEAMS[t].color));
+}
+
+section('Computer opponents with four sides');
+{
+  const S = load();
+  const g = S.createGame({ seed: 5, difficulty: 'normal', aiTeams: [1, 2, 3, 4], sides: 4, factions: { 1: 'scrapline', 2: 'kethra', 3: 'dominion', 4: 'vex' } });
+  for (let i = 0; i < 30 * 60 * 6; i++) { for (const t of g.aiTeams) S.aiUpdate(g, t); S.stepGame(g); g.events.length = 0; }
+  check('all four computer opponents set up a base', g.sides.every(t => g.entities.some(e => e.team === t && e.type === 'recycler')));
+  check('and build an army', g.sides.every(t => g.entities.filter(e => e.team === t && e.kind === 'unit' && e.def.role === 'combat').length >= 4), g.sides.map(t => g.entities.filter(e => e.team === t && e.kind === 'unit' && e.def.role === 'combat').length).join(', '));
+  check('each picks a side to fight', g.sides.every(t => g.ai[t].rival && g.ai[t].rival !== t));
 }
 
 console.log(`\n${passes} passed, ${fails} failed`);

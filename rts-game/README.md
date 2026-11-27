@@ -41,6 +41,14 @@ Add `?seed=42` to get the same map every time.
 The top bar shows the health of both bases. The enemy's shows `?` until one of
 your vehicles has seen it.
 
+**Three or four sides.** On the start screen, **Sides** sets how many fight:
+2 (one against one), or 3 or 4 in a **free-for-all**, where every side fights
+every other (the computer opponents fight each other too). Bases sit in the
+four corners of a map mirrored both ways, so every corner is alike. Lose your
+Recycler and you are **out**: you can watch the rest or leave. The last side
+standing wins. The top bar then shows each enemy's base in its colour (✕ once
+it is out).
+
 The enemy attacks in waves. On **Easy** its first attack comes after about 10
 minutes and is small, so you have time to learn. **Normal** attacks after about
 5 minutes; **Hard** after 3.
@@ -100,19 +108,34 @@ The game works on touch screens, held upright or sideways. For the whole screen,
 
 ## Factions
 
-On the start screen you pick your faction, then the difficulty. The enemy
-fields the other faction.
+On the start screen you pick your faction, then each enemy's (or **Random**).
 
 - **Scrapline:** tracked steel war machines built from scrap.
 - **Kethra Concord:** hovering alien constructs on glowing gravity rings.
+  Same rules as Scrapline; only the look and the names differ.
+- **Iron Dominion:** riveted iron siege engines on wide treads. Every vehicle
+  has 40% more health and 10% more range but is 20% slower and costs 25%
+  more; buildings are 40% tougher and their guns reach 15% further. A vehicle
+  that stands still for 2 seconds **braces** and takes 25% less damage. Only
+  80 vehicles at once: fewer, stronger machines.
+- **Vex Swarm:** living chitin beasts on scuttling legs. Every beast costs 30%
+  less, grows 30% faster and runs 30% faster, but has 35% less health and
+  bites 10% softer. In a **pack** of 3 or more, they attack 25% faster;
+  anything not hit for 6 seconds slowly **heals itself**. Up to 140 at once.
 
-Both fight by exactly the same rules; only the look and the names differ.
 This guide uses Scrapline names. The Kethra call them: Recycler = **Nexus**
 (on wheels: **Monad**), Scavenger = **Skimmer**, Constructor = **Loom**,
 Scout = **Shard**, Hornet = **Talon**, Tank = **Bulwark**, Sentry = **Pylon**,
 Artillery = **Spire**, Factory = **Assembler**, Extractor = **Siphon**,
 Base Silo = **Vault Orb**, Gun Tower = **Prism Tower**, Research Lab =
 **Archive**, Radar = **Sensor Array**, Repair Pad = **Mending Lattice**.
+The Dominion: Recycler = **Citadel**, Scavenger = **Hauler**, Constructor =
+**Foreman**, Scout = **Lancer**, Tank = **Warden**, Artillery = **Bombard**,
+Factory = **Foundry**, Extractor = **Derrick**, Gun Tower = **Battery**.
+The Swarm: Recycler = **Hive** (on legs: **Brood Mother**), Scavenger =
+**Gatherer**, Constructor = **Shaper**, Scout = **Skitter**, Tank =
+**Ravager**, Artillery = **Spitter**, Factory = **Spawning Pool**, Extractor =
+**Taproot**, Gun Tower = **Spine Tower**.
 
 **How to play** on the start screen (or Help on the pause screen) has the
 mission, the controls and tips.
@@ -172,10 +195,10 @@ screen hands it back to the allied commander. Hold all fifteen to win.
 ## Shields
 
 Research **Forcefield Tech** at a Research Lab, build a **Power Generator**, then **Shield Projectors** (180 scrap) near it. Each
-projector throws a forcefield wall in front of it that stops enemy fire from
+projector throws a forcefield barrier in front of it that stops enemy fire from
 that side (vehicles and shots from behind pass through). While placing one,
 press **Rotate ↻** (or `F`) to point it at the threat; build several side by
-side for a long wall. One Generator powers four projectors, and each burns a
+side for a longer barrier. One Generator powers four projectors, and each burns a
 little scrap (6 a minute) while running. The field turns from blue to orange
 to red as it weakens; when it collapses, the projector is exposed for 15
 seconds while it reboots.
@@ -280,7 +303,6 @@ city between the two bases with only five bridges.
 | Base Silo | 250 | Adds 300 to your scrap storage. Must be next to your Recycler. |
 | Gun Tower | 110 | Defensive turret. Upgrade once to an **Artillery Tower** (180: long-range shells with splash, range 520, needs your side to see the target) or a **Heavy Gun Tower** (150: tougher, faster twin cannon, range 280). |
 | Research Lab | 200 | Researches Advanced Scouts (150), Tanks (200), Artillery (250), Hornets (175), Sentries (175) and Juggernauts (225), one at a time. |
-| Wall / Wall Corner | 75 each | Built one section at a time by a **Heavy Constructor** (from a Recycler II; the long one with the hazard stripes). Each section is the size of a Gun Tower; **Rotate** turns it, and a section placed next to another snaps flush so they join into one wall. Leave a gap for your own vehicles. A Constructor can build a Gun Tower, Radar or Shield Projector on any section (15% more reach; tap it to upgrade it; it falls with the section). Walls stop direct fire from both sides: only artillery (and guns up on the wall) fire over. Enemies break through; artillery, HE and Bunker Busters do it fastest, Plasma slowest. If you take the Heavy Constructor off a wall, tap an unfinished section or press **Resume walls**. |
 | Armory | 200 | Researches 31 weapons for five kinds of hardpoint: **Cannons** (Sabot, Railgun, HE, Autocannon, Plasma), **Guns** (Heavy Machine Gun, Flamethrower, Laser, Flak, AP Rounds), **Rockets & Missiles** (Rocket Battery, Swarm, Guided, Thermobaric, Cluster, EMP), **Artillery** (Mortar, Cluster, Bunker Buster, Guided, EMP, Smoke, Incendiary) and **Specials** (Shock Emitter, Cloak, Shield, Sensor Pulse, Point Defence, Overdrive, Jammer, Mine Layer). Use **Loadouts ▾** on a Factory (or the Recycler, for Scavenger IIs) to choose each vehicle's weapons; each Factory has its own loadouts, and new vehicles from it are built with them. Mk II vehicles have extra hardpoints. A tower's weapon is picked once with **Fit weapon ▾** and locked. |
 | Radar | 150 | Every 30 seconds, a ping reveals a wide circle (750 px, 2.5× normal sight) for 4 seconds. |
 | Repair Pad | 150 | A flat 3×3 pad. Every vehicle parked on it is repaired at 30 health a second (shields too); workers wait there until fixed. **Go repair** sends damaged vehicles there; once fixed they drive to the pad's **waypoint** (or step off beside it). Vehicles parked on it can be **recycled** for half their cost: press Recycle, then Confirm recycle. |
@@ -344,6 +366,7 @@ point an AI assistant when you want to change something.
 | `js/ai.js` | The computer opponent's decision-making. |
 | `js/sprites.js` | The Scrapline design sheet: how every Scrapline vehicle and building looks. |
 | `js/sprites_kethra.js` | The Kethra Concord design sheet (see `KETHRA_SPRITES.md`). |
+| `js/sprites_factions.js` | The Iron Dominion and Vex Swarm design sheets. |
 | `js/render.js` | Draws everything on screen, using `sprites.js` for vehicles and buildings. |
 | `tests/rules.js` | Automatic checks of the game rules. Run `node rts-game/tests/rules.js` (needs Node.js). |
 | `tests/balance/` | Tools that play many computer-vs-computer games and measure the economy. See `ECONOMY_TEST_REPORT.md`. |

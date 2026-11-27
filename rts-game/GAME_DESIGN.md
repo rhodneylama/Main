@@ -58,10 +58,13 @@ Plays on desktop (mouse and keyboard) and on phones and tablets (touch).
 onto geysers, Constructors), Battlefield 2 (a battlefield of vehicles with
 distinct roles), and 4X / RTS games (gather, build, expand, research, conquer).
 
-**Factions:** two, chosen on the start screen. **Scrapline** (tracked steel
-war machines) and the **Kethra Concord** (hovering alien constructs). They
-fight by exactly the same rules and numbers; only the art and the names
-differ (section 6, "Factions"). The computer opponent fields the other one.
+**Factions:** four, chosen on the start screen. **Scrapline** (tracked steel
+war machines) and the **Kethra Concord** (hovering alien constructs) fight
+by exactly the same rules and numbers; only the art and the names differ.
+The **Iron Dominion** (slow, tough, long-reaching siege engines) and the
+**Vex Swarm** (cheap, fast, frail living beasts that heal and hunt in packs)
+play differently, with their own numbers and rules (section 6, "Factions").
+Each computer opponent's faction is picked on the start screen, or at random.
 
 **The loop:**
 
@@ -78,8 +81,11 @@ differ (section 6, "Factions"). The computer opponent fields the other one.
 7. Defend against the enemy's attack waves.
 8. Destroy the enemy Recycler.
 
-**Players:** one human (Blue Command) against one computer opponent (Red
-Legion). A spectator mode lets two computer players fight.
+**Players:** one human (Blue Command) against one, two or three computer
+opponents (Red Legion, Amber Host, Violet Order), picked on the start screen
+(**Sides**: 2, 3 or 4). With three or four sides it is a free-for-all: every
+side against every other, last side standing. A spectator mode lets the
+computer players fight it out.
 
 **Match length:** roughly 8 to 50+ minutes, depending on difficulty and play; the bigger map made games longer (see Known problems).
 
@@ -90,10 +96,16 @@ Legion). A spectator mode lets two computer players fight.
 - **You win** when the enemy has no Recycler, whether deployed or still a
   vehicle.
 - **You lose** when you have no Recycler.
+- **Three or four sides:** a side that loses its Recycler is **out**: what it
+  has left falls apart (leaving its wrecks as salvage), every side is told,
+  and the last side standing wins. Knocked out yourself, you get a
+  **Knocked out** screen and can **Watch the rest** (the whole map revealed)
+  or leave.
 - Nothing else ends the game: there are no tickets, flags, timers or score
   limits.
-- The end screen shows, for both sides: vehicles built, enemies destroyed,
-  vehicles lost, scrap gathered, and battle length.
+- The end screen shows, for every side: vehicles built, enemies destroyed,
+  vehicles lost, scrap gathered, when it was knocked out (three or four
+  sides), and battle length. A kill counts for whoever fired the last shot.
 
 The Recycler cannot be demolished by its owner.
 
@@ -188,8 +200,37 @@ about 10% of the map is rock and 5% water (the old map: 11% and 4%).
 
 ### Symmetry
 
-Every map is **point-symmetric**: rotating it half a turn about its centre
-gives the same map. Whatever is near one base is also near the other. Maps
+Every two-sided map is **point-symmetric**: rotating it half a turn about its
+centre gives the same map. Whatever is near one base is also near the other.
+
+### Four-cornered maps (27 November 2026)
+
+With three or four sides, every map (Wasteland, Ruined city and Tidal Flats)
+is generated **four-cornered**: mirrored left-right *and* top-bottom, so all
+four corners are alike. Bases sit in the four corners, 10 tiles from the
+edges. Each side's quarter has (positions in layout tiles, bottom-left side):
+
+| Feature | Positions | Notes |
+| --- | --- | --- |
+| Geysers | under the start; (33, 146), (60, 143) home; (51, 113), (12, 108) middle distance; (100, 152) toward the neighbour across; (30, 96) toward the neighbour up the map; (90, 101) toward the centre | 8 a side, 32 in all, at least 20 tiles apart (25 in practice). |
+| Scrap fields | home (21, 156), (8, 144), (40, 158); near (59, 132), (32, 113), (88, 157), (12, 125); middle (70, 105), (46, 96), (95, 128); contested (60, 87) shared with the side up the map, (108, 141) with the side across, (109, 86) the rich field in the very middle (all four sides' copies land on it) | 13 a side. |
+| Clearings | (51, 121), (82, 100), and the centre | |
+
+- **Ruined city:** instead of the canal between two bases, a **ring canal**
+  circles the city centre, crossed by eight bridges (two at the top, two at
+  the bottom, two each side); rubble barricades are half as common, since
+  four-way mirroring doubles them.
+- **Tidal Flats:** one island per geyser; causeways run from home to the
+  middle island, on to the island toward the centre and the centre itself,
+  and from home's flank islands across to each neighbour.
+- With **three sides**, one corner (chosen at random) stays empty.
+- **Uplinks:** five (the centre, and one between each pair of neighbouring
+  corners); hold three to win.
+- **Fairness:** routes, where vehicles roll out of buildings, how a
+  Recycler sits on its geyser, how groups spread out and where the
+  computer places buildings are all worked out as if from the bottom-left
+  corner and mirrored, so every corner plays the same (a test checks a
+  route to the middle is the same length from all four). Maps
 come from a number called the **seed**. The same seed always gives the same
 map, and adding `?seed=42` to the address picks one.
 
@@ -408,13 +449,62 @@ usual Mk II +40% damage and +50% armour, and a little more speed (36).
 
 ### Factions
 
-Each side plays one faction, chosen on the start screen (the computer takes
-the other; in Watch mode Blue is the chosen faction). Every unit and building
-has the same numbers for both; the game stores a `faction` on each side and
+Each side plays one faction: yours is chosen on the start screen, and so is
+each computer opponent's (or **Random**, a faction no other side has while
+there are enough to go round). The game stores a `faction` on each side and
 on everything it owns, draws it with that faction's designs
 (`js/sprites.js` for Scrapline, `js/sprites_kethra.js` for the Kethra
-Concord) and shows its names in that faction's words, in buttons, the
-selection panel and messages (`FACTIONS` in `js/config.js`).
+Concord, `js/sprites_factions.js` for the Iron Dominion and the Vex Swarm)
+and shows its names in that faction's words, in buttons, the selection panel
+and messages (`FACTIONS` in `js/config.js`; "a" and "an" are put right).
+
+**Scrapline and the Kethra Concord** have exactly the same numbers.
+
+**Iron Dominion** (27 November 2026): slow, tough siege engines.
+
+| Trait | Effect |
+| --- | --- |
+| Vehicles | health ×1.4, speed ×0.8, cost ×1.25, build time ×1.2, weapon range ×1.1 |
+| Buildings | health ×1.4; tower guns reach ×1.15 (kept through the Gun Tower's upgrades) |
+| Brace | a vehicle that has stood still for 2 s takes 25% less damage |
+| Unit cap | 80 |
+
+**Vex Swarm** (27 November 2026): cheap, fast, frail living beasts.
+
+| Trait | Effect |
+| --- | --- |
+| Beasts | health ×0.65, speed ×1.3, cost ×0.7, build time ×0.7, damage ×0.9 |
+| Buildings | health ×0.8, cost ×0.85, build time ×0.8 |
+| Pack | a beast with 3 or more of its armed beasts within 170 px reloads in 0.8 of the time |
+| Regrowth | anything (beasts and buildings) not hit for 6 s heals 1.5% of its health a second |
+| Unit cap | 140 |
+
+How it works: `unitDef(faction, type)` and `buildingDef(faction, type)` in
+`sim.js` make each faction's own version of every vehicle and building once
+(the standard one with the multipliers applied); everything a side builds
+uses its faction's version, and loadouts are fitted on top. Saved games
+store these versions by name like the standard ones.
+
+| Scrapline | Iron Dominion | Vex Swarm |
+| --- | --- | --- |
+| Recycler (mobile) / Recycler | Citadel Crawler / Citadel | Brood Mother / Hive |
+| Scavenger / Constructor | Hauler / Foreman | Gatherer / Shaper |
+| Scout / Hornet | Lancer / Striker | Skitter / Stinger |
+| Tank / Artillery | Warden / Bombard | Ravager / Spitter |
+| Sentry / Juggernaut / Repair Drone | Redoubt / Behemoth / Tender | Burrower / Leviathan / Mender Mite |
+| Factory / Extractor / Base Silo | Foundry / Derrick / Strongbox | Spawning Pool / Taproot / Larder |
+| Gun Tower / Artillery Tower / Heavy Gun Tower | Battery / Siege Battery / Heavy Battery | Spine Tower / Spore Tower / Thorn Tower |
+| Research Lab / Armory / Radar | War College / Arsenal / Watchpost | Gene Vat / Mutation Pit / Eye Stalk |
+| Repair Pad / Power Generator / Shield Projector | Dry Dock / Boiler House / Aegis Engine | Healing Pool / Bio-Reactor / Membrane |
+
+**Looks:** Dominion machines are riveted iron and brass on wide treads, with
+slab armour, twin barrels and smokestacks that puff while they move; a team
+band runs down both sides of every hull. Vex beasts are segmented chitin on
+scuttling legs that walk while they move, with mandibles, spines and
+acid-green glands for guns, and a team stripe down the back; their
+buildings are grown mounds ringed in team colour.
+
+**Team colours:** Blue Command, Red Legion, Amber Host, Violet Order.
 
 | Scrapline | Kethra Concord | | Scrapline | Kethra Concord |
 | --- | --- | --- | --- | --- |
@@ -502,47 +592,12 @@ in `sim.js`).
   Generator by its Recycler and two Shield Projectors in front of its base,
   facing the middle of the map.
 
-### Walls (redesigned 24 November 2026)
+### Walls (removed 27 November 2026)
 
-Walls are built **one section at a time**. A **Heavy Constructor** (built
-by a **Recycler II**: 130 scrap, 10 s, 420 HP, slow at 34; drawn long and
-broad with a dozer blade and hazard stripes) builds them, and nothing else.
-
-| Piece | Cost | Time | HP | Size | What it does |
-| --- | --- | --- | --- | --- | --- |
-| Wall | 75 | 8 s | 4,000 | 2×2 (a Gun Tower's size) | A straight section, across or up and down (**Rotate**). |
-| Wall Corner | 75 | 8 s | 4,000 | 2×2 | An L-shaped section that turns the wall; **Rotate** fits it to any of the four corners. |
-
-- **Building:** pick Wall or Wall Corner, tap where it goes (Build here)
-  or click. A section placed near another **snaps flush against it**, so
-  walls line up neatly. Placing carries on section after section until
-  **Done**. Each section is built on its own, so a long wall takes a
-  Heavy Constructor a while and costs a lot: walls are for where they
-  matter, not for walling in everything.
-- **Joining:** sections that touch draw as one continuous wall (a thin
-  seam between sections); a free end gets a cap.
-- **Gaps:** leave a gap for your own vehicles. Gun Towers can stand in the
-  gap, or on the wall.
-- **On the wall:** a Constructor can build a **Gun Tower, Radar or Shield
-  Projector** on any section (or corner). It stands in the section's
-  middle, sees, shoots and pings **15% further**, **upgrades as usual**
-  (tap it to select it), and falls when the section falls.
-- **Walls stop direct fire from both sides:** guns, cannons, rockets and
-  missiles hit the wall (an enemy wall takes the damage; your own wall just
-  stops your shot). Only **artillery** arcs over, and a gun up on a wall
-  fires over. Nothing picks targets it can't hit through a wall.
-- **Breaking through:** armed vehicles plan their route through an enemy
-  wall when going round costs more (each wall square counts as 14 squares
-  of driving), then stop and shoot their way through. Unarmed vehicles go
-  round.
-- **What hurts walls:** artillery shells ×1.25, **HE Cannon ×1.7, Bunker
-  Buster ×1.8**, **Plasma ×0.5**.
-- **Picking walls back up:** a Heavy Constructor sent to an unfinished
-  section finishes every unfinished section joined to it; **Resume walls**
-  sends it to all unfinished sections nearby.
-- Repair Drones repair walls like any building.
-- **Retired:** the drawn walls (pivot and drag, Shield Walls, gates and
-  bastions) from 23 November. They still load and work in older saves.
+Walls, wall corners, the Heavy Constructor, towers mounted on walls and the
+wall bonuses on HE Cannons, Bunker Busters and Plasma are gone. Older saved
+games still load: their walls disappear (freeing the ground) and their Heavy
+Constructors become Constructors.
 
 ### Building lifecycle
 
@@ -2467,3 +2522,13 @@ saved version on the `claude/topdown-2d-rts-game-5pqhc1` branch.
     Heavy Constructor, snapping flush to each other. Gun Towers, Radars and
     Shield Projectors go on top of any section. Computer opponents build
     their walls the same way.
+57. **Walls removed; four sides; two new factions** (27 November 2026):
+    walls, corners, the Heavy Constructor and everything to do with them are
+    gone. Up to four sides can fight (Sides on the start screen), every side
+    against every other, last side standing, on four-cornered versions of
+    all three maps (mirrored both ways; 32 geysers; the city gets a ring
+    canal). Two new factions with their own rules: the **Iron Dominion**
+    (tough, slow, long-reaching, braces when still, 80 vehicles) and the
+    **Vex Swarm** (cheap, fast, frail, heals itself, faster in packs, 140
+    beasts), each with its own designs, names, colours and sound. Amber and
+    Violet join Blue and Red.

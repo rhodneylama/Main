@@ -69,14 +69,21 @@ const CONFIG = {
   SCRAP_NODE_AMOUNT: 400,    // scrap in each fresh scrap pile
 };
 
+// Up to four sides. `art` is the colour name the sprite sets use.
 const TEAMS = {
-  1: { name: 'Blue Command', color: '#4aa3ff', dark: '#1b4a78', light: '#a9d4ff' },
-  2: { name: 'Red Legion',   color: '#ff5a4a', dark: '#7a2018', light: '#ffb0a6' },
+  1: { name: 'Blue Command', color: '#4aa3ff', dark: '#1b4a78', light: '#a9d4ff', art: 'blue', short: 'Blue' },
+  2: { name: 'Red Legion',   color: '#ff5a4a', dark: '#7a2018', light: '#ffb0a6', art: 'red', short: 'Red' },
+  3: { name: 'Amber Host',   color: '#ffb22e', dark: '#7a4d08', light: '#ffdc9a', art: 'amber', short: 'Amber' },
+  4: { name: 'Violet Order', color: '#c77dff', dark: '#5a2580', light: '#e6c4ff', art: 'violet', short: 'Violet' },
 };
 
-// The two playable factions. They play by exactly the same rules (every unit
-// and building has the same numbers); only the look and the names differ.
-// `names` maps the Scrapline name of anything to the faction's own name.
+// The playable factions. Scrapline and the Kethra Concord play by exactly the
+// same rules (only the look and the names differ). The Iron Dominion and the
+// Vex Swarm play differently: their `traits` change their vehicles and
+// buildings (multipliers on the standard numbers) and give each its own
+// special rules (see sim.js: unitDef, buildingDef, damage, aimAndFire).
+// `names` maps the Scrapline name of anything to the faction's own name (a
+// name inside a longer one is swapped too: "Tank Mk II" becomes "Warden Mk II").
 const FACTIONS = {
   scrapline: {
     name: 'Scrapline', tagline: 'Salvage crews in tracked steel',
@@ -100,6 +107,54 @@ const FACTIONS = {
       'Advanced Hornets': 'Advanced Talons', 'Advanced Sentries': 'Advanced Pylons', 'Advanced Juggernauts': 'Advanced Colossi',
     },
   },
+  // Heavy, slow and tough: fewer, stronger machines that out-range and
+  // out-last the enemy, and dig in when they stop.
+  //   unit / building: multipliers on hp, speed, cost, buildTime, weapon
+  //   range and damage. cap: most vehicles at once.
+  //   brace: a vehicle that has stood still for brace.after seconds takes
+  //   brace.cut less damage.
+  dominion: {
+    name: 'Iron Dominion', tagline: 'Armoured siege engines',
+    desc: 'Riveted iron and brass. Every vehicle is much tougher (+40% health) and reaches further (+10% range), but slower (-20%) and dearer (+25%). Buildings +40% health; guns on towers reach 15% further. Vehicles that stand still for 2 s brace and take 25% less damage. Only 80 vehicles at once.',
+    traits: {
+      unit: { hp: 1.4, speed: 0.8, cost: 1.25, buildTime: 1.2, range: 1.1 },
+      building: { hp: 1.4, range: 1.15 },
+      cap: 80, brace: { after: 2, cut: 0.25 },
+    },
+    names: {
+      'Recycler (mobile)': 'Citadel Crawler', 'Recycler': 'Citadel', 'Scavenger': 'Hauler', 'Constructor': 'Foreman',
+      'Scout': 'Lancer', 'Tank': 'Warden', 'Artillery': 'Bombard', 'Hornet': 'Striker', 'Sentry': 'Redoubt',
+      'Repair Drone': 'Tender', 'Juggernaut': 'Behemoth', 'Juggernauts': 'Behemoths',
+      'Factory': 'Foundry', 'Extractor': 'Derrick', 'Base Silo': 'Strongbox', 'Extractor Silo': 'Derrick Tank',
+      'Gun Tower': 'Battery', 'Artillery Tower': 'Siege Battery', 'Heavy Gun Tower': 'Heavy Battery',
+      'Research Lab': 'War College', 'Armory': 'Arsenal', 'Radar': 'Watchpost', 'Repair Pad': 'Dry Dock',
+      'Power Generator': 'Boiler House', 'Shield Projector': 'Aegis Engine',
+    },
+  },
+  // Fast, cheap and fragile living war-beasts that breed quickly, heal
+  // themselves and fight best in packs.
+  //   pack: a vehicle with at least pack.n of its own vehicles within pack.r
+  //   reloads pack.reload as long.
+  //   regen: anything not hit for regen.delay seconds heals regen.rate of its
+  //   health a second.
+  vex: {
+    name: 'Vex Swarm', tagline: 'Fast-breeding living war-beasts',
+    desc: 'Chitin and acid. Every beast is cheap (-30%), quick to grow (-30% build time) and fast (+30%), but frail (-35% health) and bites a little softer (-10% damage). Up to 140 at once. In a pack of 3 or more they attack 25% faster, and anything not hit for 6 s slowly heals itself.',
+    traits: {
+      unit: { hp: 0.65, speed: 1.3, cost: 0.7, buildTime: 0.7, damage: 0.9 },
+      building: { hp: 0.8, cost: 0.85, buildTime: 0.8 },
+      cap: 140, pack: { r: 170, n: 3, reload: 0.8 }, regen: { delay: 6, rate: 0.015 },
+    },
+    names: {
+      'Recycler (mobile)': 'Brood Mother', 'Recycler': 'Hive', 'Scavenger': 'Gatherer', 'Constructor': 'Shaper',
+      'Scout': 'Skitter', 'Tank': 'Ravager', 'Artillery': 'Spitter', 'Hornet': 'Stinger', 'Sentry': 'Burrower',
+      'Repair Drone': 'Mender Mite', 'Juggernaut': 'Leviathan', 'Juggernauts': 'Leviathans',
+      'Factory': 'Spawning Pool', 'Extractor': 'Taproot', 'Base Silo': 'Larder', 'Extractor Silo': 'Root Larder',
+      'Gun Tower': 'Spine Tower', 'Artillery Tower': 'Spore Tower', 'Heavy Gun Tower': 'Thorn Tower',
+      'Research Lab': 'Gene Vat', 'Armory': 'Mutation Pit', 'Radar': 'Eye Stalk', 'Repair Pad': 'Healing Pool',
+      'Power Generator': 'Bio-Reactor', 'Shield Projector': 'Membrane',
+    },
+  },
 };
 // A name as a faction calls it.
 const factionName = (faction, name) => (FACTIONS[faction] && FACTIONS[faction].names[name]) || name;
@@ -112,7 +167,10 @@ const factionText = (() => {
     if (!f || !Object.keys(f.names).length) return text;
     const re = cache[faction] || (cache[faction] = new RegExp('\\b(' + Object.keys(f.names).sort((a, b) => b.length - a.length)
       .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')(s?)(?![\\w])', 'g'));
-    return text.replace(re, (m, n, pl) => f.names[n] + pl);
+    // ...and "a"/"an" put right in front of a swapped name ("an Extractor" → "a Derrick").
+    return text.replace(re, (m, n, pl) => '\u0001' + f.names[n] + pl)
+      .replace(/\b(a|an|A|An) \u0001([A-Za-z])/g, (m, art, c) => (/[AEIOUaeiou]/.test(c) ? (art[0] === 'A' ? 'An' : 'an') : art[0]) + ' ' + c)
+      .replace(/\u0001/g, '');
   };
 })();
 

@@ -27,15 +27,27 @@ let paused = false, speed = 1, accumulator = 0, lastFrame = 0, spectating = fals
 function startGame(difficulty, watch = false) {
   view.war = null;
   const seed = Number(new URLSearchParams(location.search).get('seed')) || Math.floor(Math.random() * 99999);
-  // You play the faction you picked; the enemy fields the other one.
-  const other = chosenFaction === 'kethra' ? 'scrapline' : 'kethra';
-  game = createGame({ seed, difficulty, aiTeams: watch ? [1, 2] : [2], factions: { 1: chosenFaction, 2: other }, uplinks: chosenMode === 'uplinks', mapType: chosenMap });
+  // You play the faction you picked (side 1); each enemy fields the faction
+  // picked for it, or a random one (a different faction from everyone else's
+  // while there are enough to go round).
+  const n = chosenSides, factions = { 1: chosenFaction }, used = new Set([chosenFaction]), rnd = makeRng(seed * 13 + 5);
+  for (let t = 2; t <= n; t++) {
+    let f = chosenFoes[t];
+    if (!FACTIONS[f]) {
+      const fresh = Object.keys(FACTIONS).filter(k => !used.has(k)), pool = fresh.length ? fresh : Object.keys(FACTIONS);
+      f = pool[Math.floor(rnd() * pool.length)];
+    }
+    factions[t] = f; used.add(f);
+  }
+  const all = Array.from({ length: n }, (_, i) => i + 1);
+  game = createGame({ seed, difficulty, aiTeams: watch ? all : all.slice(1), factions, uplinks: chosenMode === 'uplinks', mapType: chosenMap, sides: n });
   enterBattle(watch);
   input.groups = {}; view.groupOf = new Map();
   // Small screens start zoomed out so more of the battlefield fits.
   view.cam.zoom = Math.max(0.55, Math.min(1, Math.min(view.screenW, view.screenH) / 700));
   const hq0 = findHQ(watch ? 1 : view.team); centerOn(hq0); if (!watch) select([hq0]);
-  logMessage(watch ? 'Spectating: two AI commanders fight it out.' : 'Drive your Recycler onto the glowing geyser and deploy it to set up your base.', 'info');
+  logMessage(watch ? `Spectating: ${n === 2 ? 'two' : n === 3 ? 'three' : 'four'} AI commanders fight it out.` : 'Drive your Recycler onto the glowing geyser and deploy it to set up your base.', 'info');
+  if (!watch && n > 2) logMessage(`A free-for-all: ${all.slice(1).map(t => sideName(game, t)).join(', ')} are all against you, and against each other. Last side standing wins.`, 'warn');
   refreshPanel();
 }
 
@@ -51,7 +63,7 @@ function enterBattle(watch, war = null) {
   const mine_ = game.teams[watch ? 1 : view.team].faction;
   buildTerrain(game);
   minimapBase = null;
-  view.selected = []; view.placing = null; view.revealAll = watch; view.pings = []; view.alerts = [];
+  view.selected = []; view.placing = null; view.revealAll = watch; view.pings = []; view.alerts = []; view.outShown = false;
   view.lastAutosave = game.time;
   resize();
   for (const id of ['menu', 'end', 'saves', 'paused', 'help', 'war', 'warnew', 'lz', 'wardrop']) $(id).classList.add('hidden');
@@ -137,24 +149,36 @@ function describeSave(m) {
   return `${m.spectating ? 'Watching AI vs AI' : f} · ${d} · ${t} into the battle · saved ${when}`;
 }
 
+// The end of the battle, or (with three or four sides) the moment you are
+// knocked out while the others fight on: then you can watch the rest.
 function showEnd() {
+  const knockedOut = !game.winner;
   const won = game.winner === view.team;
   $('again').textContent = view.war ? 'Back to the war map' : 'Play again';
-  $('end-title').textContent = spectating ? `${sideName(game, game.winner)} wins` : won ? 'Victory' : 'Defeat';
-  $('end-title').className = won || spectating ? 'win' : 'lose';
-  Music.sting(won || spectating);
-  $('end-reason').textContent = game.endReason;
-  if (view.war) $('end-reason').textContent += ' ' + War.battleOver(won);
-  const s1 = game.teams[1].stats, s2 = game.teams[2].stats;
+  $('end-title').textContent = knockedOut ? 'Knocked out' : spectating ? `${sideName(game, game.winner)} wins` : won ? 'Victory' : 'Defeat';
+  $('end-title').className = won || (spectating && !knockedOut) ? 'win' : 'lose';
+  Music.sting(won || (spectating && !knockedOut));
+  $('end-reason').textContent = knockedOut ? `You lost your ${factionName(game.teams[view.team].faction, 'Recycler')}. ${game.sides.filter(t => !game.out[t]).length} sides fight on.` : game.endReason;
+  if (view.war && !knockedOut) $('end-reason').textContent += ' ' + War.battleOver(won);
+  const sides = game.sides || [1, 2], cell = f => sides.map(t => `<td>${f(game.teams[t].stats, t)}</td>`).join('');
   const mins = Math.floor(game.time / 60), secs = Math.floor(game.time % 60);
   $('end-stats').innerHTML = `
-    <tr><th></th><th style="color:${TEAMS[1].color}">${sideName(game, 1)}</th><th style="color:${TEAMS[2].color}">${sideName(game, 2)}</th></tr>
-    <tr><td>Vehicles built</td><td>${s1.built}</td><td>${s2.built}</td></tr>
-    <tr><td>Enemies destroyed</td><td>${s1.killed}</td><td>${s2.killed}</td></tr>
-    <tr><td>Vehicles lost</td><td>${s1.lost}</td><td>${s2.lost}</td></tr>
-    <tr><td>Scrap gathered</td><td>${Math.round(s1.scrapGathered)}</td><td>${Math.round(s2.scrapGathered)}</td></tr>
-    <tr><td colspan="3" class="dim">Battle length ${mins}:${String(secs).padStart(2, '0')}</td></tr>`;
+    <tr><th></th>${sides.map(t => `<th style="color:${TEAMS[t].color}">${sideName(game, t)}</th>`).join('')}</tr>
+    <tr><td>Vehicles built</td>${cell(s => s.built)}</tr>
+    <tr><td>Enemies destroyed</td>${cell(s => s.killed)}</tr>
+    <tr><td>Vehicles lost</td>${cell(s => s.lost)}</tr>
+    <tr><td>Scrap gathered</td>${cell(s => Math.round(s.scrapGathered))}</tr>
+    ${sides.length > 2 ? `<tr><td>Knocked out</td>${cell((s, t) => game.out[t] ? `${Math.floor(game.out[t] / 60)}:${String(Math.floor(game.out[t] % 60)).padStart(2, '0')}` : '—')}</tr>` : ''}
+    <tr><td colspan="${sides.length + 1}" class="dim">Battle length ${mins}:${String(secs).padStart(2, '0')}</td></tr>`;
+  $('watchrest').classList.toggle('hidden', !knockedOut);
   $('end').classList.remove('hidden');
+}
+// Knocked out of a free-for-all: watch the others fight it out.
+function watchTheRest() {
+  $('end').classList.add('hidden');
+  spectating = true; view.revealAll = true; view.selected = [];
+  logMessage('Watching the rest of the battle.', 'info');
+  refreshPanel();
 }
 
 // -----------------------------------------------------------------------------
@@ -780,7 +804,7 @@ function rotatePlacement() {
 }
 
 function placeBuilding(w, keepPlacing) {
-  const def = BUILDING_TYPES[view.placing];
+  const def = view.placing && buildingDef(game.teams[view.team].faction, view.placing);
   const builder = def && mine(view.selected).find(u => u.kind === 'unit' && u.def.role === 'builder');
   if (!builder || !def) { view.placing = null; return; }
   const { tx, ty } = placementTile(w, def.size);
@@ -1023,7 +1047,7 @@ function refreshPanel() {
   // rebuilding the panel.
   if (own && !rebuild && sel[0].queue && sel[0].queue.length) {
     const bar = cmds.querySelector('.prog');
-    if (bar) bar.style.width = `${Math.min(100, sel[0].prodTime / UNIT_TYPES[sel[0].queue[0]].buildTime * 100)}%`;
+    if (bar) bar.style.width = `${Math.min(100, sel[0].prodTime / unitDef(sel[0].faction, sel[0].queue[0]).buildTime * 100)}%`;
   }
   if (!own || !rebuild) return;
 
@@ -1170,9 +1194,9 @@ function refreshPanel() {
       view.tier = view.tier || {};
       for (const { base, types } of groups) {
         const type = types.includes(view.tier[base]) ? view.tier[base] : types[types.length - 1];
-        const d = UNIT_TYPES[type];
+        const d = unitDef(first.faction, type);
         const queued = types.reduce((n, t) => n + (counts[t] || 0), 0);
-        const building = types.includes(now) ? UNIT_TYPES[now] : null;
+        const building = types.includes(now) ? unitDef(first.faction, now) : null;
         const note = building && first.waiting ? 'Needs scrap' : building && first.blocked ? 'Unit limit' : null;
         const cancelType = counts[type] ? type : types.find(t => counts[t]);
         addBtn(d.name, buildCost(first, type), keys.shift(), () => issueCommand(game, view.team, { type: 'produce', buildingId: first.id, unit: type, count: input.keys.has('Shift') ? 5 : 1 }),
@@ -1180,7 +1204,7 @@ function refreshPanel() {
             progress: building && !first.waiting && !first.blocked ? first.prodTime / building.buildTime : null,
             onCancel: cancelType ? () => { issueCommand(game, view.team, { type: 'cancel', buildingId: first.id, unit: cancelType }); refreshPanel(); } : null,
             pickLabel: types.length > 1 ? (d.base ? 'Mk II' : 'Mk I') : null,
-            onPick: types.length > 1 ? chip => openPop(chip, types.map(t => ({ label: own_(UNIT_TYPES[t].name), note: `${UNIT_TYPES[t].cost} scrap · ${UNIT_TYPES[t].base ? 'upgraded' : 'standard'}`,
+            onPick: types.length > 1 ? chip => openPop(chip, types.map(t => ({ label: own_(UNIT_TYPES[t].name), note: `${buildCost(first, t)} scrap · ${UNIT_TYPES[t].base ? 'upgraded' : 'standard'}`,
               active: t === type, onClick: () => { view.tier[base] = t; panelKey = ''; refreshPanel(); } }))) : null });
       }
       // Waypoint: where every new vehicle from this building drives to.
@@ -1221,7 +1245,7 @@ function refreshPanel() {
   if (builder && sel.length === 1) {
     const types = Object.keys(BUILDING_TYPES).filter(t => BUILDING_TYPES[t].buildable !== false);
     types.forEach((type, i) => {
-      const d = BUILDING_TYPES[type];
+      const d = buildingDef(game.teams[view.team].faction, type);
       const locked = d.requires && !game.teams[view.team].research[d.requires];
       if (locked) addBtn(d.name, null, HOTKEYS[i], () => logMessage(`Research ${RESEARCH[d.requires].name} at a Research Lab first`, 'warn'),
         { note: 'Research first', locked: true, title: `${d.name}: research ${RESEARCH[d.requires].name} at a Research Lab first.\n${d.desc}` });
@@ -1409,16 +1433,28 @@ function updateHud() {
   const cap = scrapCapacity(game, view.team);
   $('scrap').textContent = `${Math.floor(me.scrap)} / ${cap}`;
   $('scrap').classList.toggle('full', me.scrap >= cap - 1);
-  $('units').textContent = `${units} / ${CONFIG.UNIT_CAP}`;
+  $('units').textContent = `${units} / ${unitCap(game, view.team)}`;
   // Base health bars. You only know the enemy's once you have seen it.
   const hq = findHQ;
-  const myHq = hq(view.team), theirs = hq(3 - view.team);
   const pct = e => e ? Math.max(0, e.hp / e.maxHp * 100) : 0;
+  const myHq = hq(view.team);
   $('hq-me').textContent = `${Math.round(pct(myHq))}%`;
   $('hq-me-bar').style.width = `${pct(myHq)}%`;
-  const known = theirs && (spectating || (theirs.seen && theirs.seen[view.team]));
-  $('hq-foe').textContent = known ? `${Math.round(pct(theirs))}%` : '?';
-  $('hq-foe-bar').style.width = known ? `${pct(theirs)}%` : '0%';
+  const foes = (game.sides || [1, 2]).filter(t => t !== view.team);
+  const knownHq = t => { const e = hq(t); return e && (spectating || (e.seen && e.seen[view.team])) ? e : null; };
+  if (foes.length === 1) {
+    const theirs = knownHq(foes[0]);
+    $('hq-foe-label').innerHTML = 'Enemy<span class="wide"> base</span>';
+    $('hq-foe').textContent = theirs ? `${Math.round(pct(theirs))}%` : '?';
+    $('hq-foe-bar').style.width = theirs ? `${pct(theirs)}%` : '0%';
+  } else {
+    // Several enemies: each one's base, in its colour (✕ once it is out).
+    const left = foes.filter(t => !game.out[t]).length;
+    $('hq-foe-label').innerHTML = `Enemies<span class="wide"> (${left} left)</span>`;
+    $('hq-foe').innerHTML = foes.map(t => `<span style="color:${TEAMS[t].color}">${game.out[t] ? '✕' : knownHq(t) ? Math.round(pct(knownHq(t))) + '%' : '?'}</span>`).join(' ');
+    const weakest = foes.filter(t => !game.out[t]).map(knownHq).filter(Boolean).sort((a, b) => pct(a) - pct(b))[0];
+    $('hq-foe-bar').style.width = weakest ? `${pct(weakest)}%` : '0%';
+  }
   // Call-ins in hand (and progress toward the next, from uplinks).
   const tmc = game.teams[view.team];
   $('callin-n').textContent = tmc.callins;
@@ -1429,7 +1465,7 @@ function updateHud() {
     const pips = game.uplinks.map(u => `<i style="background:${u.owner ? TEAMS[u.owner].color : '#555'}${u.contested ? ';outline:2px solid #ffd25a' : ''}"></i>`).join('');
     const h = game.uplinkHold, clock = sec => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
     const txt = game.time < CONFIG.UPLINK_ONLINE ? `online in ${clock(CONFIG.UPLINK_ONLINE - game.time)}`
-      : h.team ? `${h.team === view.team ? 'win' : 'loss'} in ${clock(CONFIG.UPLINK_WIN - (game.time - h.since))}` : 'hold two';
+      : h.team ? `${h.team === view.team ? 'win' : 'loss'} in ${clock(CONFIG.UPLINK_WIN - (game.time - h.since))}` : `hold ${NUMBER_WORDS[uplinkNeed(game)]}`;
     $('uplink-stat').innerHTML = `<span class="label">Uplinks</span><b><span class="pips">${pips}</span> <span class="${h.team && h.team !== view.team ? 'warn' : ''}">${txt}</span></b>`;
   }
   const m = Math.floor(game.time / 60), s = Math.floor(game.time % 60);
@@ -1549,6 +1585,7 @@ function frame(now) {
       stepGame(game); accumulator -= step; n++;
     }
     if (game.winner) setTimeout(showEnd, 1200);
+    else if (!spectating && game.out && game.out[view.team] && !view.outShown) { view.outShown = true; setTimeout(showEnd, 1200); }
   }
   view.selected = view.selected.filter(e => e.hp > 0);
   for (const p of view.pings) p.t += dt;
@@ -1564,7 +1601,26 @@ function frame(now) {
 // Menu buttons
 // -----------------------------------------------------------------------------
 
-let chosenDifficulty = 'normal', chosenFaction = 'scrapline', chosenMode = 'recycler', chosenMap = 'wasteland';
+let chosenDifficulty = 'normal', chosenFaction = 'scrapline', chosenMode = 'recycler', chosenMap = 'wasteland', chosenSides = 2;
+const chosenFoes = {};   // side -> faction key, or 'random'
+// One "Enemy" choice per opposing side, in that side's colour.
+function buildFoeChoices() {
+  const box = $('foesel'); box.innerHTML = '';
+  for (let t = 2; t <= chosenSides; t++) {
+    const label = document.createElement('label');
+    label.innerHTML = `<i style="background:${TEAMS[t].color}"></i>${chosenSides > 2 ? `Enemy ${t - 1}` : 'Enemy'} `;
+    const sel = document.createElement('select');
+    sel.title = `The faction ${TEAMS[t].short} fights as`;
+    sel.innerHTML = '<option value="random">Random</option>' + Object.entries(FACTIONS).map(([k, f]) => `<option value="${k}">${f.name}</option>`).join('');
+    sel.value = chosenFoes[t] || 'random';
+    sel.addEventListener('change', () => { chosenFoes[t] = sel.value; try { localStorage.setItem('scrapline.foes', JSON.stringify(chosenFoes)); } catch (err) { /* optional */ } });
+    label.appendChild(sel); box.appendChild(label);
+  }
+}
+try { Object.assign(chosenFoes, JSON.parse(localStorage.getItem('scrapline.foes') || '{}')); const n = +localStorage.getItem('scrapline.sides'); if (n >= 2 && n <= 4) chosenSides = n; } catch (err) { /* optional */ }
+$('sidessel').value = String(chosenSides);
+$('sidessel').addEventListener('change', e => { chosenSides = +e.target.value; buildFoeChoices(); try { localStorage.setItem('scrapline.sides', String(chosenSides)); } catch (err) { /* optional */ } });
+buildFoeChoices();
 $('modesel').addEventListener('change', e => { chosenMode = e.target.value; });
 $('mapsel').addEventListener('change', e => { chosenMap = e.target.value; });
 try { if (FACTIONS[localStorage.getItem('scrapline.faction')]) chosenFaction = localStorage.getItem('scrapline.faction'); } catch (err) { /* optional */ }
@@ -1630,8 +1686,10 @@ $('quitbtn').onclick = () => {
   for (const id of ['paused', 'help', 'end']) $(id).classList.add('hidden');
   $('menu').classList.remove('hidden'); Music.play('menu', chosenFaction); Music.duck(false);
 };
+$('watchrest').onclick = watchTheRest;
 $('again').onclick = () => {
   $('end').classList.add('hidden');
+  if (game && !game.winner) { game = null; updateGroupBar(true); }   // knocked out: leave the battle
   if (view.war) { game = null; updateGroupBar(true); War.open(); return; }
   $('menu').classList.remove('hidden'); Music.play('menu', chosenFaction);
 };

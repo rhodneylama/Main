@@ -49,7 +49,28 @@ function makeNoise(rng, cell) {
   };
 }
 
-function generateMap(seed) {
+// Symmetry. Two-sided maps are mirrored through the centre (a half turn), so
+// whatever is near one base is near the other. Four-sided maps are also
+// mirrored left-right and top-bottom, so all four corners are alike.
+// symTiles: a square and its mirror images. symCorners: a grid corner (a
+// geyser) and its mirror images.
+const symTiles = (W, H, quad) => (x, y) => quad ? [[x, y], [W - 1 - x, y], [x, H - 1 - y], [W - 1 - x, H - 1 - y]] : [[x, y], [W - 1 - x, H - 1 - y]];
+const symCorners = (W, H, quad) => (x, y) => quad ? [[x, y], [W - x, y], [x, H - y], [W - x, H - y]] : [[x, y], [W - x, H - y]];
+// Where each side starts: corners 1 and 2 face each other across the map;
+// four-sided maps add 3 (bottom-right) and 4 (top-left).
+function cornerBases(W, H, quad) {
+  const b = { 1: { x: 10, y: H - 11 }, 2: { x: W - 11, y: 10 } };
+  if (quad) { b[3] = { x: W - 11, y: H - 11 }; b[4] = { x: 10, y: 10 }; }
+  return b;
+}
+// Every copy of a list of spots (given for the bottom-left side), without repeats.
+function allCopies(list, sym) {
+  const out = [], seen = new Set();
+  for (const p of list) for (const [x, y] of sym(p.x, p.y)) { const k = x + ',' + y; if (!seen.has(k)) { seen.add(k); out.push({ x, y }); } }
+  return out;
+}
+
+function generateMap(seed, quad = false) {
   const W = CONFIG.MAP_W, H = CONFIG.MAP_H;
   const rng = makeRng(seed);
   // Noise sizes grow with the map (2.3x per side since the 96x72 version), so
@@ -58,14 +79,14 @@ function generateMap(seed) {
   const n1 = makeNoise(rng, 21 * K), n2 = makeNoise(rng, 10 * K), n3 = makeNoise(rng, 13 * K);
   const tiles = new Uint8Array(W * H);
   const idx = (x, y) => y * W + x;
-  const mirror = (x, y) => [W - 1 - x, H - 1 - y];
+  const sym = symTiles(W, H, quad);
 
-  // Terrain, mirrored through the centre of the map.
+  // Terrain, mirrored: every square takes the ground of the one copy of it
+  // that comes first (so all copies match).
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       let [cx, cy] = [x, y];
-      const [mx, my] = mirror(x, y);
-      if (idx(x, y) > idx(mx, my)) [cx, cy] = [mx, my];
+      for (const [mx, my] of sym(x, y)) if (idx(mx, my) < idx(cx, cy)) [cx, cy] = [mx, my];
       const h = n1(cx, cy) * 0.75 + n2(cx, cy) * 0.25;
       let t = n3(cx, cy) > 0.58 ? TILE_DIRT : TILE_GRASS;
       if (h > 0.74) t = TILE_ROCK;
@@ -74,35 +95,29 @@ function generateMap(seed) {
     }
   }
 
-  // Bases stay tucked into opposite corners, 10 squares from the edges.
-  const bases = { 1: { x: 10, y: H - 11 }, 2: { x: W - 11, y: 10 } };
-  // Everything below is listed for the bottom-left player's half only and
-  // mirrored through the centre for the other player.
-  // Open clearings: good spots for outposts and battles.
-  const halfClearings = [{ x: 51, y: 47 }, { x: 80, y: 116 }].map(scaleSpot);
-  // The centre clearing is carved twice, once as its own mirror image, so
-  // the middle of the map stays perfectly symmetric.
+  // Bases stay tucked into the corners, 10 squares from the edges.
+  const bases = cornerBases(W, H, quad);
+  // Everything below is listed for the bottom-left player's side only and
+  // mirrored for the others.
+  // Open clearings: good spots for outposts and battles. The centre one is
+  // carved with all its copies, so the middle stays perfectly symmetric.
   const mid = { x: Math.floor(W / 2), y: Math.floor(H / 2) };
-  const clearings = [...halfClearings, mid, { x: W - 1 - mid.x, y: H - 1 - mid.y }];
-  for (const f of halfClearings) { const [x, y] = mirror(f.x, f.y); clearings.push({ x, y }); }
+  const halfClearings = (quad ? [{ x: 51, y: 121 }, { x: 82, y: 100 }] : [{ x: 51, y: 47 }, { x: 80, y: 116 }]).map(scaleSpot);
+  const clearings = allCopies([...halfClearings, mid], sym);
 
-  // Loose scrap fields: 18 per side, from home out to the contested middle.
-  const halfFields = HALF_FIELDS();
-  const fieldTiles = [];
-  for (const f of halfFields) {
-    fieldTiles.push(f);
-    const [x, y] = mirror(f.x, f.y);
-    fieldTiles.push({ x, y });
-  }
+  // Loose scrap fields: 18 per side (two-sided) or 13 per side (four-sided),
+  // from home out to the contested middle.
+  const halfFields = quad ? QUAD_FIELDS() : HALF_FIELDS();
+  const fieldTiles = allCopies(halfFields, sym);
 
   // Scrap geysers: fixed spots where a Scavenger can deploy as an Extractor.
   // Given as tile corners; the Extractor sits on the 2x2 tiles around each.
-  // 10 per side, at least 20 squares from any other geyser (including the
-  // other side's): one under the start, two near home, two in the middle
-  // distance, three forward on the flanks and two contested near the centre.
-  const halfGeysers = HALF_GEYSERS(bases[1]);
-  const geyserTiles = [];
-  for (const g of halfGeysers) { geyserTiles.push(g); geyserTiles.push({ x: W - g.x, y: H - g.y }); }
+  // Two-sided: 10 per side, at least 20 squares from any other geyser
+  // (including the other side's): one under the start, two near home, two
+  // in the middle distance, three forward on the flanks and two contested
+  // near the centre. Four-sided: 8 per side (see QUAD_GEYSERS).
+  const halfGeysers = quad ? QUAD_GEYSERS(bases[1]) : HALF_GEYSERS(bases[1]);
+  const geyserTiles = allCopies(halfGeysers, symCorners(W, H, quad));
 
   const clear = (cx, cy, r, type) => {
     for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) {
@@ -113,25 +128,26 @@ function generateMap(seed) {
       }
     }
   };
-  for (const t of [1, 2]) clear(bases[t].x, bases[t].y, 10, TILE_DIRT);
+  for (const t in bases) clear(bases[t].x, bases[t].y, 10, TILE_DIRT);
   for (const f of clearings) clear(f.x, f.y, 4, TILE_DIRT);
   for (const f of fieldTiles) clear(f.x, f.y, 4, TILE_GRASS);
-  for (const g of geyserTiles) { clear(g.x, g.y, 3, TILE_DIRT); clear(g.x - 1, g.y - 1, 3, TILE_DIRT); }
+  // (Around all four squares at the geyser, so every mirror image matches.)
+  for (const g of geyserTiles) for (const [ox, oy] of [[0, 0], [-1, -1], [-1, 0], [0, -1]]) clear(g.x + ox, g.y + oy, 3, TILE_DIRT);
 
   // Map edge is a rock wall.
   for (let x = 0; x < W; x++) { tiles[idx(x, 0)] = TILE_ROCK; tiles[idx(x, H - 1)] = TILE_ROCK; }
   for (let y = 0; y < H; y++) { tiles[idx(0, y)] = TILE_ROCK; tiles[idx(W - 1, y)] = TILE_ROCK; }
 
-  // Make sure everything important can be driven to from both bases.
-  connectAll(tiles, W, H, bases[1], [bases[2], ...clearings, ...fieldTiles, ...geyserTiles],
-    (x, y) => { for (const [px, py] of [[x, y], mirror(x, y)]) clear(px, py, 1, TILE_DIRT); });
+  // Make sure everything important can be driven to from every base.
+  connectAll(tiles, W, H, bases[1], [...Object.values(bases).slice(1), ...clearings, ...fieldTiles, ...geyserTiles],
+    (x, y) => { for (const [px, py] of sym(x, y)) clear(px, py, 1, TILE_DIRT); });
 
   const T = CONFIG.TILE;
-  const scrap = scatterScrap(rng, halfFields, W, H);
+  const scrap = scatterScrap(rng, halfFields, W, H, quad);
 
   const geysers = geyserTiles.map((g, i) => ({ id: i + 1, x: g.x * T, y: g.y * T, tx: g.x, ty: g.y, extractorId: 0 }));
 
-  return { W, H, tiles, bases, scrap, geysers, seed, fields: fieldTiles };
+  return { W, H, tiles, bases, scrap, geysers, seed, fields: fieldTiles, quad };
 }
 
 // Digs roads until everything important can be driven to from `start`.
@@ -167,8 +183,8 @@ function connectAll(tiles, W, H, start, important, dig) {
 }
 
 // Loose scrap: a handful of piles around each field centre, mirrored.
-function scatterScrap(rng, halfFields, W, H) {
-  const T = CONFIG.TILE, scrap = [];
+function scatterScrap(rng, halfFields, W, H, quad = false) {
+  const T = CONFIG.TILE, scrap = [], WW = W * T, HH = H * T;
   let sid = 1;
   for (const f of halfFields) {
     const count = rng.int(5, 7);
@@ -176,8 +192,8 @@ function scatterScrap(rng, halfFields, W, H) {
       const a = rng() * Math.PI * 2, r = rng.range(0.5, 2.8);
       const x = (f.x + 0.5 + Math.cos(a) * r) * T, y = (f.y + 0.5 + Math.sin(a) * r) * T;
       const amt = CONFIG.SCRAP_NODE_AMOUNT;
-      scrap.push({ id: sid++, x, y, amount: amt, max: amt });
-      scrap.push({ id: sid++, x: W * T - x, y: H * T - y, amount: amt, max: amt });
+      const copies = quad ? [[x, y], [WW - x, y], [x, HH - y], [WW - x, HH - y]] : [[x, y], [WW - x, HH - y]];
+      for (const [px, py] of copies) scrap.push({ id: sid++, x: px, y: py, amount: amt, max: amt });
     }
   }
   return scrap;
@@ -201,6 +217,26 @@ const HALF_GEYSERS = base => [
     { x: 96, y: 91 }, { x: 66, y: 40 }].map(scaleSpot),
 ];
 
+// Four-sided maps: the bottom-left side's quarter, mirrored left-right and
+// top-bottom for the other three. 13 scrap fields a side: three at home,
+// four near expansions, three in the middle distance, and three contested:
+// one shared with the neighbour up the map, one with the neighbour across,
+// and the rich field in the very middle (all four sides' copies land on it).
+const QUAD_FIELDS = () => [
+  { x: 21, y: 156 }, { x: 8, y: 144 }, { x: 40, y: 158 },
+  { x: 59, y: 132 }, { x: 32, y: 113 }, { x: 88, y: 157 }, { x: 12, y: 125 },
+  { x: 70, y: 105 }, { x: 46, y: 96 }, { x: 95, y: 128 },
+  { x: 60, y: 87 }, { x: 108, y: 141 }, { x: 109, y: 86 },
+].map(scaleSpot);
+// 8 geysers a side, at least 20 squares from any other (every side's): one
+// under the start, two near home, two in the middle distance, one forward
+// toward each neighbour and one toward the centre.
+const QUAD_GEYSERS = base => [
+  { x: base.x, y: base.y + 1 },
+  ...[{ x: 33, y: 146 }, { x: 60, y: 143 }, { x: 51, y: 113 }, { x: 12, y: 108 },
+    { x: 100, y: 152 }, { x: 30, y: 96 }, { x: 90, y: 101 }].map(scaleSpot),
+];
+
 // -----------------------------------------------------------------------------
 // The urban map: a ruined city. A grid of streets (you can drive but not build
 // on them) between city blocks: solid towers, blocks split by narrow alleys,
@@ -219,17 +255,20 @@ function urbanGrid(W, H) {
   const VX = (((W - VW) % P) + P) % P / 2, HY = (((H - HW) % P) + P) % P / 2;
   return { P, VW, HW, VX: VX < 2 ? VX + P / 2 : VX, HY: HY < 2 ? HY + P / 2 : HY, BX: 0, BY: 0 };
 }
-function generateUrbanMap(seed) {
+// Four-sided (quad): mirrored four ways, and instead of the canal between
+// two bases a ring canal circles the city centre, crossed by eight bridges.
+function generateUrbanMap(seed, quad = false) {
   const W = CONFIG.MAP_W, H = CONFIG.MAP_H, grid = urbanGrid(W, H), { P, VX, VW, HY, HW } = grid;
   const rng = makeRng(seed);
   const tiles = new Uint8Array(W * H).fill(TILE_DIRT), style = new Uint8Array(W * H);
   const idx = (x, y) => y * W + x;
-  const mirror = (x, y) => [W - 1 - x, H - 1 - y];
+  const sym = symTiles(W, H, quad);
   const inMap = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
-  // Paints a square and its mirror image.
-  const put = (x, y, t, st = 0) => { for (const [px, py] of [[x, y], mirror(x, y)]) if (inMap(px, py)) { tiles[idx(px, py)] = t; style[idx(px, py)] = st; } };
+  // Paints a square and its mirror images.
+  const put = (x, y, t, st = 0) => { for (const [px, py] of sym(x, y)) if (inMap(px, py)) { tiles[idx(px, py)] = t; style[idx(px, py)] = st; } };
   const disc = (cx, cy, r, t, st = 0) => { for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r + r) put(x, y, t, st); };
-  const bases = { 1: { x: 10, y: H - 11 }, 2: { x: W - 11, y: 10 } };
+  const bases = cornerBases(W, H, quad);
+  const halfFields = quad ? QUAD_FIELDS() : HALF_FIELDS(), halfGeysers = quad ? QUAD_GEYSERS(bases[1]) : HALF_GEYSERS(bases[1]);
 
   // City blocks. Block (kx, ky) covers x 6+18kx..18+18kx and y 5+18ky..18+18ky;
   // its mirror image is block (11-kx, 8-ky).
@@ -240,12 +279,13 @@ function generateUrbanMap(seed) {
   const blockOf = (x, y) => [Math.floor((x - VX - VW) / P), Math.floor((y - HY - HW) / P)];
   const mid = { x: Math.floor(W / 2), y: Math.floor(H / 2) };
   { const [kx, ky] = blockOf(mid.x - 4, mid.y); forced.set(kx + ',' + ky, 'plaza'); }
-  for (const g of HALF_GEYSERS(bases[1])) { const [kx, ky] = blockOf(g.x, g.y); if (!forced.has(kx + ',' + ky)) forced.set(kx + ',' + ky, 'lot'); }
+  for (const g of halfGeysers) { const [kx, ky] = blockOf(g.x, g.y); if (!forced.has(kx + ',' + ky)) forced.set(kx + ',' + ky, 'lot'); }
+  const blockCopies = (kx, ky) => quad ? [[kx, ky], [BX - 1 - kx, ky], [kx, BY - 1 - ky], [BX - 1 - kx, BY - 1 - ky]] : [[kx, ky], [BX - 1 - kx, BY - 1 - ky]];
   for (let ky = 0; ky < BY; ky++) for (let kx = 0; kx < BX; kx++) {
-    const mkx = BX - 1 - kx, mky = BY - 1 - ky;
-    if (ky * BX + kx > mky * BX + mkx) continue;    // the mirror image is painted with it
+    const copies = blockCopies(kx, ky);
+    if (copies.some(([a, b]) => b * BX + a < ky * BX + kx)) continue;    // its mirror images are painted with it
     const r = makeRng((seed * 977 + ky * 131 + kx * 7) >>> 0);
-    let type = forced.get(kx + ',' + ky) || forced.get(mkx + ',' + mky);
+    let type = copies.map(([a, b]) => forced.get(a + ',' + b)).find(Boolean);
     if (!type) { const v = r(); type = v < 0.45 ? 'tower' : v < 0.67 ? 'alley' : v < 0.82 ? 'court' : v < 0.93 ? 'lot' : 'park'; }
     const { x0, y0, w, h } = blockAt(kx, ky);
     const fill = (t, st = 0) => { for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) put(x, y, t, st); };
@@ -281,13 +321,14 @@ function generateUrbanMap(seed) {
   for (let y = mid.y - 6; y <= mid.y + 6; y++) for (let x = mid.x - 3; x <= mid.x + 3; x++) put(x, y, TILE_GRASS);
 
   // Rubble barricades: some street stretches are blocked, making dead ends.
+  const rubble = quad ? 0.035 : 0.07;   // (four-way mirroring doubles every barricade)
   for (let a = 0; a <= BX; a++) for (let ky = 0; ky < BY; ky++) {
-    if (rng() > 0.07) continue;
+    if (rng() > rubble) continue;
     const x0 = VX + a * P, y0 = HY + HW + ky * P + 5;
     for (let y = y0; y < y0 + 3; y++) for (let x = x0; x < x0 + VW; x++) put(x, y, TILE_ROCK, 3);
   }
   for (let b = 0; b <= BY; b++) for (let kx = 0; kx < BX; kx++) {
-    if (rng() > 0.07) continue;
+    if (rng() > rubble) continue;
     const y0 = HY + b * P, x0 = VX + VW + kx * P + 5;
     for (let y = y0; y < y0 + HW; y++) for (let x = x0; x < x0 + 3; x++) put(x, y, TILE_ROCK, 3);
   }
@@ -299,7 +340,20 @@ function generateUrbanMap(seed) {
   const bridgeV = new Set([2, Math.floor(BX / 2) - 0, BX - Math.floor(BX / 2), BX - 2]), bridgeH = new Set([1, BY - 1]);
   const isBridge = (x, y) => (((x - VX) % P + P) % P < VW && bridgeV.has(Math.floor((x - VX) / P))) ||
                              (((y - HY) % P + P) % P < HW && bridgeH.has(Math.floor((y - HY) / P)));
-  for (let x = 0; x < W; x++) {
+  if (quad) {
+    // A ring canal round the centre (an ellipse, so it keeps the same share
+    // of the map each way). Streets cross it on bridges where it runs
+    // straight across them: two at the top, two at the bottom, two each side.
+    const rx = W * 0.27, ry = H * 0.27;
+    const onStreetV = x => ((x - VX) % P + P) % P < VW, onStreetH = y => ((y - HY) % P + P) % P < HW;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const dx = (x - cx0) / rx, dy = (y - cy0) / ry, d = Math.hypot(dx, dy);
+      if (Math.abs(d - 1) * Math.min(rx, ry) > 3.2) continue;
+      const i = idx(x, y);
+      const bridge = (onStreetV(x) && Math.abs(dx) < 0.45) || (onStreetH(y) && Math.abs(dy) < 0.45);
+      if (bridge) { tiles[i] = TILE_DIRT; style[i] = 2; } else { tiles[i] = TILE_WATER; style[i] = 0; }
+    }
+  } else for (let x = 0; x < W; x++) {
     const yc = cy0 + (x - cx0) * 0.66 + 7 * Math.sin((x - cx0) * 0.045);
     for (let y = Math.floor(yc - 4); y <= Math.ceil(yc + 4); y++) {
       if (!inMap(x, y) || Math.abs(y - yc) > 3.4) continue;
@@ -310,11 +364,9 @@ function generateUrbanMap(seed) {
 
   // Scrap fields lie in cleared squares of street; geysers in open lots; each
   // base in a wide plaza.
-  const fieldTiles = [];
-  for (const f of HALF_FIELDS()) { fieldTiles.push(f); const [x, y] = mirror(f.x, f.y); fieldTiles.push({ x, y }); }
-  for (const f of HALF_FIELDS()) disc(f.x, f.y, 3, TILE_DIRT);
-  const halfGeysers = HALF_GEYSERS(bases[1]), geyserTiles = [];
-  for (const g of halfGeysers) { geyserTiles.push(g); geyserTiles.push({ x: W - g.x, y: H - g.y }); }
+  const fieldTiles = allCopies(halfFields, sym);
+  for (const f of halfFields) disc(f.x, f.y, 3, TILE_DIRT);
+  const geyserTiles = allCopies(halfGeysers, symCorners(W, H, quad));
   for (const g of halfGeysers) { disc(g.x, g.y, 5, TILE_GRASS); disc(g.x - 1, g.y - 1, 5, TILE_GRASS); }
   disc(bases[1].x, bases[1].y, 14, TILE_GRASS);
 
@@ -322,7 +374,7 @@ function generateUrbanMap(seed) {
   for (let x = 0; x < W; x++) { put(x, 0, TILE_ROCK); }
   for (let y = 0; y < H; y++) { put(0, y, TILE_ROCK); }
 
-  connectAll(tiles, W, H, bases[1], [bases[2], mid, ...fieldTiles, ...geyserTiles],
+  connectAll(tiles, W, H, bases[1], [...Object.values(bases).slice(1), mid, ...fieldTiles, ...geyserTiles],
     (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const t = tiles[idx(x + dx, y + dy)]; if (inMap(x + dx, y + dy) && (t === TILE_ROCK || t === TILE_WATER)) put(x + dx, y + dy, TILE_DIRT, 3); } });
 
   // Streets, bridges and rubble tracks can be driven on but not built on.
@@ -330,9 +382,9 @@ function generateUrbanMap(seed) {
   for (let i = 0; i < W * H; i++) noBuild[i] = tiles[i] === TILE_DIRT ? 1 : 0;
 
   const T = CONFIG.TILE;
-  const scrap = scatterScrap(rng, HALF_FIELDS(), W, H);
+  const scrap = scatterScrap(rng, halfFields, W, H, quad);
   const geysers = geyserTiles.map((g, i) => ({ id: i + 1, x: g.x * T, y: g.y * T, tx: g.x, ty: g.y, extractorId: 0 }));
-  return { W, H, tiles, bases, scrap, geysers, seed, fields: fieldTiles, urban: true, style, noBuild, grid };
+  return { W, H, tiles, bases, scrap, geysers, seed, fields: fieldTiles, urban: true, style, noBuild, grid, quad };
 }
 
 // -----------------------------------------------------------------------------
@@ -346,47 +398,55 @@ function generateUrbanMap(seed) {
 //
 // Square styles here: 5 causeway. map.tidal marks the sand flats.
 // -----------------------------------------------------------------------------
-function generateTidalMap(seed) {
+function generateTidalMap(seed, quad = false) {
   const W = CONFIG.MAP_W, H = CONFIG.MAP_H;
   const rng = makeRng(seed);
   const n1 = makeNoise(rng, 9 * LAYOUT_K()), n2 = makeNoise(rng, 17 * LAYOUT_K());
   const tiles = new Uint8Array(W * H).fill(TILE_WATER), style = new Uint8Array(W * H), tidal = new Uint8Array(W * H);
   const idx = (x, y) => y * W + x;
-  const mirror = (x, y) => [W - 1 - x, H - 1 - y];
+  const sym = symTiles(W, H, quad), canon = (x, y) => !sym(x, y).some(([a, b]) => idx(a, b) < idx(x, y));
   const inMap = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
-  const bases = { 1: { x: 10, y: H - 11 }, 2: { x: W - 11, y: 10 } };
+  const bases = cornerBases(W, H, quad);
+  const halfFields = quad ? QUAD_FIELDS() : HALF_FIELDS();
   const mid = { x: Math.floor(W / 2), y: Math.floor(H / 2) };
   // Islands (bottom-left player's half; mirrored): centre and radius.
   const K = LAYOUT_K();
-  const islands = [
+  // (Four-sided: one island per geyser of QUAD_GEYSERS, in the same order.)
+  const islands = (quad ? [
+    { x: 18, y: 150, r: 25, home: true },
+    { x: 60, y: 143, r: 10 }, { x: 51, y: 113, r: 11 }, { x: 12, y: 108, r: 9 },
+    { x: 100, y: 152, r: 9 }, { x: 30, y: 96, r: 9 }, { x: 90, y: 101, r: 10 },
+  ] : [
     { x: 18, y: 150, r: 25, home: true },
     { x: 60, y: 143, r: 10 }, { x: 51, y: 113, r: 11 }, { x: 14, y: 90, r: 11 },
     { x: 103, y: 142, r: 11 }, { x: 116, y: 156, r: 9 }, { x: 29, y: 56, r: 11 },
     { x: 96, y: 91, r: 10 }, { x: 66, y: 40, r: 10 },
-  ].map(i => ({ ...scaleSpot(i), r: Math.round(i.r * K) }));
+  ]).map(i => ({ ...scaleSpot(i), r: Math.round(i.r * K) }));
+  const centre = islands.length;
   islands.push({ x: mid.x, y: mid.y, r: Math.round(12 * K) });
   // Islets for the scrap fields that aren't on an island already.
   const onIsland = p => islands.some(i => Math.hypot(p.x - i.x, p.y - i.y) < i.r - 2);
-  const islets = HALF_FIELDS().filter(f => !onIsland(f)).map(f => ({ x: f.x, y: f.y, r: 3.5 }));
+  const islets = halfFields.filter(f => !onIsland(f)).map(f => ({ x: f.x, y: f.y, r: 3.5 }));
   const half = [...islands, ...islets];
-  // Both players' islands (the centre one only once), so sandbars can join
+  // Every side's islands (each spot only once), so sandbars can join
   // islands on either side of the middle.
-  const all = [...half, ...half.filter(i => i.x !== mid.x || i.y !== mid.y).map(i => ({ x: W - 1 - i.x, y: H - 1 - i.y, r: i.r }))];
+  const all = [], seenI = new Set();
+  for (const i of half) for (const [x, y] of sym(i.x, i.y)) { const k = x + ',' + y; if (!seenI.has(k)) { seenI.add(k); all.push({ x, y, r: i.r }); } }
   // Sandbars between neighbouring islands: dry at low tide only.
   const bars = [];
   for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
     const a = all[i], b = all[j], d = Math.hypot(a.x - b.x, a.y - b.y);
     if (d < a.r + b.r + 26) bars.push({ a, b, w: 3 + (a.r > 6 && b.r > 6 ? 1.5 : 0) });
   }
-  // Paint the canonical half (and its mirror image at the same time).
-  const put = (x, y, t, st = 0, td = 0) => { for (const [px, py] of [[x, y], mirror(x, y)]) if (inMap(px, py)) { const i = idx(px, py); tiles[i] = t; style[i] = st; tidal[i] = td; } };
+  // Paint the canonical part (and its mirror images at the same time).
+  const put = (x, y, t, st = 0, td = 0) => { for (const [px, py] of sym(x, y)) if (inMap(px, py)) { const i = idx(px, py); tiles[i] = t; style[i] = st; tidal[i] = td; } };
   const segDist = (px, py, a, b) => {
     const vx = b.x - a.x, vy = b.y - a.y, L = vx * vx + vy * vy || 1;
     const t = Math.max(0, Math.min(1, ((px - a.x) * vx + (py - a.y) * vy) / L));
     return Math.hypot(px - a.x - vx * t, py - a.y - vy * t);
   };
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    if (idx(x, y) > idx(...mirror(x, y))) continue;
+    if (!canon(x, y)) continue;
     const wob = 0.82 + 0.36 * n1(x, y);
     let land = false, flat = false;
     for (const isl of all) {
@@ -398,15 +458,20 @@ function generateTidalMap(seed) {
     else if (flat) put(x, y, TILE_DIRT, 0, 1);
   }
   // Rocky outcrops on the bigger islands (never near a base or geyser).
-  const geyserHalf = HALF_GEYSERS(bases[1]);
+  const geyserHalf = quad ? QUAD_GEYSERS(bases[1]) : HALF_GEYSERS(bases[1]);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    if (idx(x, y) > idx(...mirror(x, y)) || tidal[idx(x, y)] || tiles[idx(x, y)] === TILE_WATER) continue;
-    if (n1(x * 1.7, y * 1.7) > 0.8 && Math.hypot(x - bases[1].x, y - bases[1].y) > 15 && geyserHalf.every(g => Math.hypot(x - g.x, y - g.y) > 6) && HALF_FIELDS().every(f => Math.hypot(x - f.x, y - f.y) > 5))
+    if (!canon(x, y) || tidal[idx(x, y)] || tiles[idx(x, y)] === TILE_WATER) continue;
+    if (n1(x * 1.7, y * 1.7) > 0.8 && Math.hypot(x - bases[1].x, y - bases[1].y) > 15 && geyserHalf.every(g => Math.hypot(x - g.x, y - g.y) > 6) && halfFields.every(f => Math.hypot(x - f.x, y - f.y) > 5))
       put(x, y, TILE_ROCK);
   }
   // Stone causeways, above water at every tide: home -> middle island ->
   // forward island -> centre; and a flank route.
-  const causeways = [[islands[0], islands[2]], [islands[2], islands[7]], [islands[7], islands[9]], [islands[0], islands[4]], [islands[3], islands[6]], [islands[2], islands[3]]];
+  // Four-sided: home -> middle island -> the island toward the centre ->
+  // centre, and from home's flanks across to each neighbour's mirror island.
+  const across = (i, fx, fy) => ({ x: fx ? W - 1 - i.x : i.x, y: fy ? H - 1 - i.y : i.y });
+  const causeways = quad
+    ? [[islands[0], islands[2]], [islands[2], islands[6]], [islands[6], islands[centre]], [islands[0], islands[1]], [islands[1], islands[4]], [islands[4], across(islands[4], true, false)], [islands[2], islands[5]], [islands[5], across(islands[5], false, true)]]
+    : [[islands[0], islands[2]], [islands[2], islands[7]], [islands[7], islands[9]], [islands[0], islands[4]], [islands[3], islands[6]], [islands[2], islands[3]]];
   const road = (a, b) => {
     const steps = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) * 2);
     for (let s = 0; s <= steps; s++) {
@@ -422,30 +487,29 @@ function generateTidalMap(seed) {
   for (const [a, b] of causeways) road(a, b);
 
   // Geysers sit on solid ground; the base island has room to build.
-  const geyserTiles = [];
-  for (const g of geyserHalf) { geyserTiles.push(g); geyserTiles.push({ x: W - g.x, y: H - g.y }); }
+  const geyserTiles = allCopies(geyserHalf, symCorners(W, H, quad));
   const solid = (cx, cy, r) => { for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r + r && inMap(x, y)) { const i = idx(x, y); if (tiles[i] === TILE_WATER || tidal[i] || tiles[i] === TILE_ROCK) put(x, y, TILE_GRASS); } };
   for (const g of geyserHalf) { solid(g.x, g.y, 4); solid(g.x - 1, g.y - 1, 4); }
   solid(bases[1].x, bases[1].y, 13);
-  for (const f of HALF_FIELDS()) solid(f.x, f.y, 2);
+  for (const f of halfFields) solid(f.x, f.y, 2);
   for (let x = 0; x < W; x++) put(x, 0, TILE_ROCK);
   for (let y = 0; y < H; y++) put(0, y, TILE_ROCK);
 
-  const fieldTiles = [];
-  for (const f of HALF_FIELDS()) { fieldTiles.push(f); const [x, y] = mirror(f.x, f.y); fieldTiles.push({ x, y }); }
+  const fieldTiles = allCopies(halfFields, sym);
   // At high tide the two bases (and the centre) must still be joined, by
   // causeway; at low tide everything must be reachable over the sand.
   const high = tiles.slice(); for (let i = 0; i < W * H; i++) if (tidal[i]) high[i] = TILE_WATER;
-  connectAll(high, W, H, bases[1], [bases[2], mid], (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inMap(x + dx, y + dy)) { const i = idx(x + dx, y + dy); if (high[i] === TILE_WATER || high[i] === TILE_ROCK) { put(x + dx, y + dy, TILE_DIRT, 5, 0); const [mx, my] = mirror(x + dx, y + dy); high[i] = TILE_DIRT; high[idx(mx, my)] = TILE_DIRT; } } });
-  connectAll(tiles, W, H, bases[1], [bases[2], mid, ...fieldTiles, ...geyserTiles], (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inMap(x + dx, y + dy)) { const t = tiles[idx(x + dx, y + dy)]; if (t === TILE_WATER || t === TILE_ROCK) put(x + dx, y + dy, TILE_DIRT, 0, 1); } });
+  const others = Object.values(bases).slice(1);
+  connectAll(high, W, H, bases[1], [...others, mid], (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inMap(x + dx, y + dy)) { const i = idx(x + dx, y + dy); if (high[i] === TILE_WATER || high[i] === TILE_ROCK) { put(x + dx, y + dy, TILE_DIRT, 5, 0); for (const [mx, my] of sym(x + dx, y + dy)) high[idx(mx, my)] = TILE_DIRT; } } });
+  connectAll(tiles, W, H, bases[1], [...others, mid, ...fieldTiles, ...geyserTiles], (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inMap(x + dx, y + dy)) { const t = tiles[idx(x + dx, y + dy)]; if (t === TILE_WATER || t === TILE_ROCK) put(x + dx, y + dy, TILE_DIRT, 0, 1); } });
 
   // Sand and causeways can't be built on.
   const noBuild = new Uint8Array(W * H);
   for (let i = 0; i < W * H; i++) noBuild[i] = tidal[i] || style[i] === 5 ? 1 : 0;
   const T = CONFIG.TILE;
-  const scrap = scatterScrap(rng, HALF_FIELDS(), W, H);
+  const scrap = scatterScrap(rng, halfFields, W, H, quad);
   const geysers = geyserTiles.map((g, i) => ({ id: i + 1, x: g.x * T, y: g.y * T, tx: g.x, ty: g.y, extractorId: 0 }));
-  return { W, H, tiles, bases, scrap, geysers, seed, fields: fieldTiles, tidalMap: true, style, tidal, noBuild, tide: 'low' };
+  return { W, H, tiles, bases, scrap, geysers, seed, fields: fieldTiles, tidalMap: true, style, tidal, noBuild, tide: 'low', quad };
 }
 
 // -----------------------------------------------------------------------------
@@ -514,6 +578,17 @@ function hasClearLine(game, x0, y0, x1, y1) {
 function inMirroredHalf(game, x, y) {
   const WW = game.map.W * CONFIG.TILE, HH = game.map.H * CONFIG.TILE;
   return y * WW + x > (HH - y) * WW + (WW - x);
+}
+
+// Which corner's side of the map a point is on, for mirroring choices made
+// near a base (where a vehicle rolls out, how a building lines up), so every
+// corner gets the same result: `left` and `bottom` mean "like the bottom-left
+// start". Two-sided maps only mirror through the centre, so there both are
+// the same (the bottom-left half or the top-right half).
+function cornerSide(game, x, y) {
+  if (game.map.quad) { const WW = game.map.W * CONFIG.TILE, HH = game.map.H * CONFIG.TILE; return { left: x < WW / 2, bottom: y >= HH / 2 }; }
+  const h = inMirroredHalf(game, x, y);
+  return { left: h, bottom: h };
 }
 
 // The map flipped left-right (fx) and/or top-bottom (fy). Flipping both is

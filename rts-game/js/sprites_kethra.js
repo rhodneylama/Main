@@ -4,7 +4,7 @@
 (function (root) {
 'use strict';
 const BASE = { h:'#6d6a86', l:'#cfd0e4', m:'#4a4862', d:'#2a2840', k:'#12111d', f:'#8a5cff', g:'#f4e9ff', gl:'#b9a8ff90', gold:'#e8c35a', gr:'#4fe0b0', pool:'#2f8f63' };
-const TEAM = { blue:{ t:'#35d9ff', td:'#1186ad' }, red:{ t:'#ff4f8b', td:'#b3195a' }, green:{ t:'#5dffa0', td:'#1fae5c' } };
+const TEAM = { blue:{ t:'#35d9ff', td:'#1186ad' }, red:{ t:'#ff4f8b', td:'#b3195a' }, green:{ t:'#5dffa0', td:'#1fae5c' }, amber:{ t:'#ffc23a', td:'#b97a0a' }, violet:{ t:'#d38aff', td:'#8640b8' } };
 const MASK = { h:'#4a4e55', l:'#5a5f66', m:'#3c4046', d:'#2d3035', k:'#15171a', f:'#6a6f76', g:'#6a6f76', gl:'#5a5f66', gold:'#6a6f76', gr:'#6a6f76', pool:'#4a4e55', t:'#ffffff', td:'#d0d0d0' };
 const WRECK = { h:'#4b4a52', l:'#66656e', m:'#3b3a42', d:'#2b2a31', k:'#121115', f:'#4b4a52', g:'#55545c', gl:'#55545ca0', gold:'#4b4a52', gr:'#4b4a52', pool:'#34363a', t:'#403f46', td:'#323137' };
 const SW = 0.6, RAD = Math.PI/180;

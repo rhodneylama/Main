@@ -565,7 +565,7 @@ function drawTerritory(ctx, game, team, placing) {
 }
 
 function drawPlacement(ctx, game, view) {
-  const T = CONFIG.TILE, def = BUILDING_TYPES[view.placing];
+  const T = CONFIG.TILE, def = buildingDef(game.teams[view.team].faction, view.placing);
   const at = view.placeAt || view.mouseWorld;
   if (!at) return;
   const { tx, ty } = placementTile(at, def.size);
@@ -646,10 +646,13 @@ const KETHRA_ID = Object.assign(Object.create(null), {
   artillery: 'spire', hornet: 'talon', sentry: 'pylon', factory: 'assembler', repairpad: 'lattice', extractor: 'siphon',
   basesilo: 'vault', tower: 'prism', arttower: 'prism', heavytower: 'prism', lab: 'archive', radar: 'array', generator: 'vault', shield: 'vault', armory: 'archive', drone: 'shard', heavy: 'colossus',
 });
-// Which set of designs, and which design in it, draws a thing of a given faction.
-const artFor = faction => (faction === 'kethra' && window.KethraSprites ? KethraSprites : UnitSprites);
+// Which set of designs, and which design in it, draws a thing of a given
+// faction. The Iron Dominion's and Vex Swarm's designs (js/sprites_factions.js)
+// use the same design names as Scrapline's.
+const ART = () => ({ kethra: window.KethraSprites, dominion: window.DominionSprites, vex: window.VexSprites });
+const artFor = faction => ART()[faction] || UnitSprites;
 const artId = (faction, type) => (faction === 'kethra' && window.KethraSprites ? KETHRA_ID[type] || type : spriteId(type));
-const teamName = t => (t === 1 ? 'blue' : 'red');
+const teamName = t => (TEAMS[t] && TEAMS[t].art) || 'blue';
 // Seconds since a gun last fired, while its recoil and muzzle flash still show.
 const sinceShot = (e, now) => (e.lastShot !== undefined && now - e.lastShot < 0.5 ? now - e.lastShot : null);
 
@@ -751,11 +754,22 @@ function drawStar(ctx, x, y, R) {
   ctx.closePath(); ctx.fillStyle = '#ffd34d'; ctx.strokeStyle = '#3a2a00'; ctx.lineWidth = 1.2; ctx.fill(); ctx.stroke();
 }
 
-// Repair Drone: a small hovering rotor craft with a green repair light.
-// Kethra version has cyan rotor light. (The Juggernaut is a proper sprite.)
+// Each faction's colours for the things drawn by hand below (Repair Drone,
+// Power Generator, Shield Projector, Armory): round or square shapes, body,
+// plating, the glow of its power, and an accent.
+const LOOK = {
+  scrapline: { round: false, body: '#4a5446', plate: '#6b7866', glow: '#ffd25a', accent: '#e0b030', roof: '#5a6156', roof2: '#6f7869' },
+  kethra:    { round: true,  body: '#2a2e3a', plate: '#3c4254', glow: '#6ff0ff', accent: '#8a5cff' },
+  dominion:  { round: false, body: '#3b3730', plate: '#6a6150', glow: '#ff9a3a', accent: '#c9963b', roof: '#4a453b', roof2: '#625a4a' },
+  vex:       { round: true,  body: '#3e3524', plate: '#6e5f3e', glow: '#b8ff4a', accent: '#e0d070' },
+};
+const lookOf = f => LOOK[f] || LOOK.scrapline;
+
+// Repair Drone: a small hovering rotor craft with a green repair light, in
+// its faction's colours. (The Juggernaut is a proper sprite.)
 function drawCustomUnit(ctx, u, time) {
-  const kethra = u.faction === 'kethra', col = TEAMS[u.team].color, r = u.radius;
-  const body = kethra ? '#2a2e3a' : '#4a5446', plate = kethra ? '#3c4254' : '#6b7866', glow = kethra ? '#6ff0ff' : '#ffd25a';
+  const L = lookOf(u.faction), col = TEAMS[u.team].color, r = u.radius;
+  const body = L.body, plate = L.plate;
   ctx.save(); ctx.translate(u.x, u.y);
   ctx.strokeStyle = '#0d0f0c'; ctx.lineWidth = 1.5;
   if (u.type === 'drone') {
@@ -791,30 +805,31 @@ function drawCustomUnit(ctx, u, time) {
 // (Scrapline), or a rounded forge with a glowing core (Kethra). Sparks fly
 // from it while it researches.
 function drawArmory(ctx, b, ghost, time) {
-  const T = CONFIG.TILE, s = b.size * T, h = s / 2, col = TEAMS[b.team].color, kethra = b.faction === 'kethra';
+  const T = CONFIG.TILE, s = b.size * T, h = s / 2, col = TEAMS[b.team].color, L = lookOf(b.faction), kethra = L.round;
   ctx.save(); ctx.translate(b.x, b.y);
   ctx.globalAlpha = ghost ? 0.5 : b.built < 1 ? 0.25 + 0.6 * b.built : 1;
   ctx.strokeStyle = '#0d0f0c'; ctx.lineWidth = 2;
   if (kethra) {
-    ctx.fillStyle = '#3c4254'; ctx.beginPath();
+    ctx.fillStyle = L.plate; ctx.beginPath();
     for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 + Math.PI / 8; ctx[i ? 'lineTo' : 'moveTo'](Math.cos(a) * (h - 3), Math.sin(a) * (h - 3)); }
     ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#2a2e3a'; ctx.beginPath(); ctx.arc(0, 0, h * 0.55, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = L.body; ctx.beginPath(); ctx.arc(0, 0, h * 0.55, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     const live = b.researching && b.built >= 1;
-    ctx.fillStyle = live ? `rgba(111,240,255,${0.6 + 0.4 * Math.sin(time * 8)})` : '#6ff0ff';
+    ctx.fillStyle = L.glow; if (live) ctx.globalAlpha *= 0.6 + 0.4 * Math.sin(time * 8);
     ctx.beginPath(); ctx.arc(0, 0, h * 0.22, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#8a5cff'; ctx.lineWidth = 2;
+    ctx.globalAlpha = ghost ? 0.5 : b.built < 1 ? 0.25 + 0.6 * b.built : 1;
+    ctx.strokeStyle = L.accent; ctx.lineWidth = 2;
     for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + (live ? time : 0); ctx.beginPath(); ctx.moveTo(Math.cos(a) * h * 0.3, Math.sin(a) * h * 0.3); ctx.lineTo(Math.cos(a) * h * 0.52, Math.sin(a) * h * 0.52); ctx.stroke(); }
     ctx.fillStyle = col; ctx.fillRect(-h * 0.5, h - 9, h, 4);
   } else {
-    ctx.fillStyle = '#5a6156'; ctx.beginPath(); ctx.rect(-h + 3, -h + 3, s - 6, s - 6); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#6f7869'; ctx.fillRect(-h + 7, -h + 7, s - 14, s * 0.42);
+    ctx.fillStyle = L.roof; ctx.beginPath(); ctx.rect(-h + 3, -h + 3, s - 6, s - 6); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = L.roof2; ctx.fillRect(-h + 7, -h + 7, s - 14, s * 0.42);
     // Gun rack on the roof: three barrels.
     ctx.fillStyle = '#2f332d';
     for (let i = 0; i < 3; i++) ctx.fillRect(-h + 12, -h + 11 + i * 7, s - 30, 3.5);
     ctx.fillStyle = '#c9ced4'; for (let i = 0; i < 3; i++) ctx.fillRect(h - 18, -h + 10 + i * 7, 5, 5.5);
     // Blast door with hazard stripes.
-    ctx.fillStyle = '#e0b030'; ctx.fillRect(-h * 0.55, h * 0.12, h * 1.1, h * 0.62);
+    ctx.fillStyle = L.accent; ctx.fillRect(-h * 0.55, h * 0.12, h * 1.1, h * 0.62);
     ctx.fillStyle = '#1b1d21';
     for (let i = 0; i < 5; i++) { ctx.beginPath(); const x0 = -h * 0.55 + i * h * 0.24; ctx.moveTo(x0, h * 0.74); ctx.lineTo(x0 + h * 0.12, h * 0.74); ctx.lineTo(x0 + h * 0.24, h * 0.12); ctx.lineTo(x0 + h * 0.12, h * 0.12); ctx.closePath(); ctx.fill(); }
     ctx.strokeStyle = '#0d0f0c'; ctx.lineWidth = 1.5; ctx.strokeRect(-h * 0.55, h * 0.12, h * 1.1, h * 0.62);
@@ -832,8 +847,8 @@ function drawArmory(ctx, b, ghost, time) {
 }
 
 function drawPowerBuilding(ctx, b, ghost, time) {
-  const T = CONFIG.TILE, s = b.size * T, h = s / 2, col = TEAMS[b.team].color, kethra = b.faction === 'kethra';
-  const glow = kethra ? '#6ff0ff' : '#ffd25a', body = kethra ? '#2a2e3a' : '#4a5446', plate = kethra ? '#3c4254' : '#6b7866';
+  const T = CONFIG.TILE, s = b.size * T, h = s / 2, col = TEAMS[b.team].color, L = lookOf(b.faction), kethra = L.round;
+  const glow = L.glow, body = L.body, plate = L.plate;
   ctx.save();
   ctx.translate(b.x, b.y);
   ctx.globalAlpha = ghost ? 0.5 : b.built < 1 ? 0.25 + 0.6 * b.built : 1;
@@ -929,7 +944,7 @@ function drawHealthBar(ctx, e, selected) {
     ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(e.x - w / 2 - 1, y + 5, w + 2, 5);
     ctx.fillStyle = '#f0a040'; ctx.fillRect(e.x - w / 2, y + 6, w * Math.min(1, work), 3);
   } else if (e.kind === 'building' && e.queue && e.queue.length && e.built >= 1) {
-    const def = UNIT_TYPES[e.queue[0]];
+    const def = unitDef(e.faction, e.queue[0]);
     ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(e.x - w / 2 - 1, y + 5, w + 2, 5);
     ctx.fillStyle = '#8cc8ff'; ctx.fillRect(e.x - w / 2, y + 6, w * e.prodTime / def.buildTime, 3);
   }
@@ -1001,7 +1016,9 @@ function drawUplink(ctx, u, time) {
   ctx.beginPath(); ctx.arc(u.x, u.y, R, 0, Math.PI * 2); ctx.stroke();
   ctx.setLineDash([]); ctx.globalAlpha = 1;
   if (Math.abs(u.p) > 0.01) {
-    ctx.strokeStyle = TEAMS[u.p > 0 ? 1 : 2].color; ctx.lineWidth = 5;
+    // How far the side in `by` has got (older saves: + for Blue, - for Red).
+    const by = u.by !== undefined ? u.by : u.p > 0 ? 1 : 2;
+    ctx.strokeStyle = (TEAMS[by] || TEAMS[1]).color; ctx.lineWidth = 5;
     ctx.beginPath(); ctx.arc(u.x, u.y, 34, -Math.PI / 2, -Math.PI / 2 + Math.abs(u.p) * Math.PI * 2); ctx.stroke();
   }
   // The mast: a plinth, a lattice tower and a dish.
