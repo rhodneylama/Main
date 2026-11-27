@@ -113,15 +113,18 @@ On the start screen you pick your faction, then each enemy's (or **Random**).
 - **Scrapline:** tracked steel war machines built from scrap.
 - **Kethra Concord:** hovering alien constructs on glowing gravity rings.
   Same rules as Scrapline; only the look and the names differ.
-- **Iron Dominion:** riveted iron siege engines on wide treads. Every vehicle
-  has 40% more health and 10% more range but is 20% slower and costs 25%
-  more; buildings are 40% tougher and their guns reach 15% further. A vehicle
+- **Iron Dominion:** riveted iron siege engines on wide treads. Every fighting
+  vehicle has 45% more health and 10% more range but is 15% slower and costs
+  20% more; buildings are 40% tougher and their guns reach 15% further. A vehicle
   that stands still for 2 seconds **braces** and takes 25% less damage. Only
   80 vehicles at once: fewer, stronger machines.
-- **Vex Swarm:** living chitin beasts on scuttling legs. Every beast costs 30%
-  less, grows 30% faster and runs 30% faster, but has 35% less health and
-  bites 10% softer. In a **pack** of 3 or more, they attack 25% faster;
-  anything not hit for 6 seconds slowly **heals itself**. Up to 140 at once.
+- **Vex Swarm:** living chitin beasts on scuttling legs. Every fighting beast
+  costs 25% less, grows 30% faster and runs 30% faster, but has 40% less
+  health and bites 15% softer. In a **pack** of 3 or more, they attack about
+  18% faster; anything not hit for 6 seconds slowly **heals itself**. Up to
+  140 at once.
+- For both, workers (and the Recycler and Repair Drones) only get the health
+  change, so every faction earns scrap at the same pace.
 
 This guide uses Scrapline names. The Kethra call them: Recycler = **Nexus**
 (on wheels: **Monad**), Scavenger = **Skimmer**, Constructor = **Loom**,

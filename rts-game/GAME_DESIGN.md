@@ -464,7 +464,8 @@ and messages (`FACTIONS` in `js/config.js`; "a" and "an" are put right).
 
 | Trait | Effect |
 | --- | --- |
-| Vehicles | health ×1.4, speed ×0.8, cost ×1.25, build time ×1.2, weapon range ×1.1 |
+| Fighting vehicles | health ×1.45, speed ×0.85, cost ×1.2, build time ×1.15, weapon range ×1.1 |
+| Workers, Recycler, Repair Drones | health ×1.45 only (so the economy runs at the standard pace) |
 | Buildings | health ×1.4; tower guns reach ×1.15 (kept through the Gun Tower's upgrades) |
 | Brace | a vehicle that has stood still for 2 s takes 25% less damage |
 | Unit cap | 80 |
@@ -473,11 +474,18 @@ and messages (`FACTIONS` in `js/config.js`; "a" and "an" are put right).
 
 | Trait | Effect |
 | --- | --- |
-| Beasts | health ×0.65, speed ×1.3, cost ×0.7, build time ×0.7, damage ×0.9 |
+| Fighting beasts | health ×0.6, speed ×1.3, cost ×0.75, build time ×0.7, damage ×0.85 |
+| Workers, Recycler, Repair Drones | health ×0.6 only |
 | Buildings | health ×0.8, cost ×0.85, build time ×0.8 |
-| Pack | a beast with 3 or more of its armed beasts within 170 px reloads in 0.8 of the time |
+| Pack | a beast with 3 or more of its armed beasts within 170 px reloads in 0.85 of the time |
 | Regrowth | anything (beasts and buildings) not hit for 6 s heals 1.5% of its health a second |
 | Unit cap | 140 |
+
+**Balance** (computer against computer, Normal, Wasteland, both starting
+corners): the first numbers (health ×1.4 / ×0.65 for everything, workers
+included) left the Swarm winning 6 of 6 against Scrapline and the Dominion
+losing 5 of 6. With workers on the standard economy and the numbers above,
+the Swarm went 3–3 against Scrapline.
 
 How it works: `unitDef(faction, type)` and `buildingDef(faction, type)` in
 `sim.js` make each faction's own version of every vehicle and building once

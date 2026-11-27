@@ -115,9 +115,9 @@ const FACTIONS = {
   //   brace.cut less damage.
   dominion: {
     name: 'Iron Dominion', tagline: 'Armoured siege engines',
-    desc: 'Riveted iron and brass. Every vehicle is much tougher (+40% health) and reaches further (+10% range), but slower (-20%) and dearer (+25%). Buildings +40% health; guns on towers reach 15% further. Vehicles that stand still for 2 s brace and take 25% less damage. Only 80 vehicles at once.',
+    desc: 'Riveted iron and brass. Every fighting vehicle is much tougher (+45% health) and reaches further (+10% range), but slower (-15%), dearer (+20%) and slower to build. Buildings +40% health; guns on towers reach 15% further. Vehicles that stand still for 2 s brace and take 25% less damage. Only 80 vehicles at once.',
     traits: {
-      unit: { hp: 1.45, speed: 0.85, cost: 1.2, buildTime: 1.15, range: 1.1, damage: 1.1 },
+      unit: { hp: 1.45, speed: 0.85, cost: 1.2, buildTime: 1.15, range: 1.1 },
       building: { hp: 1.4, range: 1.15 },
       cap: 80, brace: { after: 2, cut: 0.25 },
     },
@@ -139,7 +139,7 @@ const FACTIONS = {
   //   health a second.
   vex: {
     name: 'Vex Swarm', tagline: 'Fast-breeding living war-beasts',
-    desc: 'Chitin and acid. Every beast is cheap (-30%), quick to grow (-30% build time) and fast (+30%), but frail (-35% health) and bites a little softer (-10% damage). Up to 140 at once. In a pack of 3 or more they attack 25% faster, and anything not hit for 6 s slowly heals itself.',
+    desc: 'Chitin and acid. Every fighting beast is cheap (-25%), quick to grow (-30% build time) and fast (+30%), but frail (-40% health) and bites softer (-15% damage). Up to 140 at once. In a pack of 3 or more they attack about 18% faster, and anything not hit for 6 s slowly heals itself.',
     traits: {
       unit: { hp: 0.6, speed: 1.3, cost: 0.75, buildTime: 0.7, damage: 0.85 },
       building: { hp: 0.8, cost: 0.85, buildTime: 0.8 },
