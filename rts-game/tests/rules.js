@@ -1,0 +1,1516 @@
+// =============================================================================
+// tests/rules.js — RULES TESTS
+//
+// Runs the game's rules without any graphics and checks they behave as
+// designed. Run it from the project folder with:
+//
+//     node rts-game/tests/rules.js
+//
+// Each check prints PASS or FAIL. The last line says how many failed.
+// =============================================================================
+
+const fs = require('fs'), path = require('path'), vm = require('vm');
+const dir = path.join(__dirname, '..', 'js');
+const code = ['config', 'map', 'sim', 'ai', 'campaign'].map(f => fs.readFileSync(path.join(dir, f + '.js'), 'utf8')).join('\n');
+
+// A fresh copy of the game code for each test, so tests can't affect each other.
+function load() {
+  const ctx = { console, Math, performance: { now: () => Date.now() }, btoa, atob };
+  vm.createContext(ctx);
+  vm.runInContext(code + '\n;Object.assign(globalThis, { CONFIG, UNIT_TYPES, BUILDING_TYPES, RESEARCH, TILE_ROCK, TILE_WATER, ' +
+    'createGame, generateMap, generateUrbanMap, generateTidalMap, WEAPONS, makeWeapon, loadoutDef, isVisibleTo, scrapIsDangerous, TILE_DIRT, stepGame, issueCommand, addUnit, addBuilding, findPath, canPlaceBuilding, scrapCapacity, bankScrap, ' +
+    'aiUpdate, dist, isBlockedTile, padUnder, recycleValue, nameOf, FACTIONS, nearestOpenTile, saveGame, loadGame, THEATER, WAR_PACE, WAR_AWAY_CAP, createCampaign, warReport, catchUp, setPace, canAttack, support, neighbours, battleSetup, beginBattle, endBattle, fieldShare, addUnitNear, CALLINS, prepareBattle, landAttacker, landingZones, fortification, isBlockedAt, hitChance, snapFacing, COMMAND, buildCost, unitDef, buildingDef, unitCap, factionText, TEAMS, damageForTest: damage });', ctx);
+  return ctx;
+}
+
+let fails = 0, passes = 0;
+function check(name, ok, detail = '') {
+  if (ok) passes++; else fails++;
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  (' + detail + ')' : ''}`);
+}
+function section(name) { console.log(`\n== ${name}`); }
+
+const run = (g, S, seconds) => { for (let i = 0; i < seconds * S.CONFIG.TICK_RATE; i++) S.stepGame(g); };
+const mine = (g, team, type) => g.entities.filter(e => e.team === team && e.type === type);
+
+// A game with no computer players, team 1's Recycler deployed on its home geyser.
+function deployedGame(S, seed = 42) {
+  const g = S.createGame({ seed, difficulty: 'normal', aiTeams: [] });
+  for (const t of [1, 2]) {
+    const m = mine(g, t, 'mobileRecycler')[0];
+    const gy = g.geysers.slice().sort((a, b) => S.dist(a, m) - S.dist(b, m))[0];
+    S.issueCommand(g, t, { type: 'deploy', ids: [m.id], geyserId: gy.id });
+  }
+  run(g, S, 25);
+  return g;
+}
+
+// The first spot near (x, y) in world pixels where team can place this building.
+function spotFor(S, g, team, type, x, y) {
+  const T = S.CONFIG.TILE, cx = Math.floor(x / T), cy = Math.floor(y / T);
+  for (let r = 0; r < 20; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+    if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+    if (S.canPlaceBuilding(g, team, type, cx + dx, cy + dy).ok) return { tx: cx + dx, ty: cy + dy };
+  }
+  return null;
+}
+function placeDone(S, g, team, type, near) {
+  const s = spotFor(S, g, team, type, near.x, near.y);
+  return s && S.addBuilding(g, type, team, s.tx, s.ty, true);
+}
+
+// -----------------------------------------------------------------------------
+section('Map');
+{
+  const S = load();
+  const seeds = [1, 2, 3, 42, 777, 1234, 9001, 31337, 55555, 80808];
+  let sym = true, edge = true, reach = true, spacing = Infinity, geyserCount = true, half = true, mirrorG = true, mirrorS = true, fields = true;
+  for (const seed of seeds) {
+    const m = S.generateMap(seed), { W, H, tiles } = m;
+    for (let i = 0; i < W * H && sym; i++) if (tiles[i] !== tiles[W * H - 1 - i]) sym = false;
+    for (let x = 0; x < W; x++) if (tiles[x] !== S.TILE_ROCK || tiles[(H - 1) * W + x] !== S.TILE_ROCK) edge = false;
+    for (let y = 0; y < H; y++) if (tiles[y * W] !== S.TILE_ROCK || tiles[y * W + W - 1] !== S.TILE_ROCK) edge = false;
+    const gs = m.geysers;
+    if (gs.length !== 20) geyserCount = false;
+    for (let i = 0; i < gs.length; i++) for (let j = i + 1; j < gs.length; j++)
+      spacing = Math.min(spacing, Math.hypot(gs[i].tx - gs[j].tx, gs[i].ty - gs[j].ty));
+    const b1 = m.bases[1], b2 = m.bases[2];
+    if (gs.filter(p => Math.hypot(p.tx - b1.x, p.ty - b1.y) < Math.hypot(p.tx - b2.x, p.ty - b2.y)).length !== 10) half = false;
+    for (const p of gs) if (!gs.some(q => q.tx === W - p.tx && q.ty === H - p.ty)) mirrorG = false;
+    const T = S.CONFIG.TILE;
+    for (const p of m.scrap) if (!m.scrap.some(q => Math.abs(q.x - (W * T - p.x)) < 1e-6 && Math.abs(q.y - (H * T - p.y)) < 1e-6)) { mirrorS = false; break; }
+    if (m.fields.length !== 36) fields = false;
+    for (const f of m.fields) if (!m.fields.some(q => q.x === W - 1 - f.x && q.y === H - 1 - f.y)) fields = false;
+    // Drive-ability: flood fill from base 1 reaches the enemy base, every geyser and every pile.
+    const open = i => tiles[i] !== S.TILE_ROCK && tiles[i] !== S.TILE_WATER;
+    const seen = new Uint8Array(W * H), stack = [b1.y * W + b1.x]; seen[stack[0]] = 1;
+    while (stack.length) {
+      const i = stack.pop(), x = i % W, y = (i / W) | 0;
+      for (const j of [i + 1, i - 1, i + W, i - W]) if (j >= 0 && j < W * H && !seen[j] && open(j) && Math.abs((j % W) - x) <= 1) { seen[j] = 1; stack.push(j); }
+    }
+    if (!seen[b2.y * W + b2.x]) reach = false;
+    for (const p of gs) if (!seen[p.ty * W + p.tx] && !seen[(p.ty - 1) * W + p.tx - 1]) reach = false;
+    for (const p of m.scrap) { const i = Math.floor(p.y / T) * W + Math.floor(p.x / T); if (open(i) && !seen[i]) reach = false; }
+  }
+  const m = S.generateMap(42);
+  check('map is 257 x 194 squares (15% a side bigger than 223 x 168)', m.W === 257 && m.H === 194, `${m.W} x ${m.H}`);
+  check('bases sit in opposite corners', m.bases[1].x <= 12 && m.bases[1].y >= m.H - 12 && m.bases[2].x >= m.W - 12 && m.bases[2].y <= 11);
+  check('terrain is point-symmetric (10 seeds)', sym);
+  check('map edge is rock (10 seeds)', edge);
+  check('20 geysers (10 seeds)', geyserCount);
+  check('geysers at least 20 squares apart', spacing >= 20, `closest pair ${spacing.toFixed(1)}`);
+  check('10 geysers on each half', half);
+  check('geysers mirrored exactly', mirrorG);
+  check('scrap piles mirrored exactly', mirrorS);
+  check('36 scrap fields, mirrored', fields, `${S.generateMap(42).fields.length} fields`);
+  check('bases, geysers and scrap all reachable (10 seeds)', reach);
+}
+
+section('Route-finding at full size');
+{
+  const S = load();
+  const g = S.createGame({ seed: 42, aiTeams: [] });
+  const u = mine(g, 1, 'tank')[0], foe = mine(g, 2, 'mobileRecycler')[0];
+  const t0 = Date.now(); let p;
+  for (let i = 0; i < 20; i++) p = S.findPath(g, u.x, u.y, foe.x, foe.y);
+  const ms = (Date.now() - t0) / 20;
+  const end = p[p.length - 1];
+  check('a route exists from one base to the other', p.length > 0 && Math.hypot(end.x - foe.x, end.y - foe.y) < 80);
+  check('a cross-map route takes under 20 ms (the map is 32% bigger than when this was 15 ms)', ms < 20, `${ms.toFixed(1)} ms`);
+}
+
+section('Recycler and economy');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  check('the mobile Recycler deploys into a Recycler', !!rec && rec.built >= 1);
+  check('the Recycler holds 300 scrap', S.scrapCapacity(g, 1) === 300);
+  g.teams[1].scrap = 290; S.bankScrap(g, 1, 50, true);
+  check('storage is capped', g.teams[1].scrap === 300);
+  placeDone(S, g, 1, 'basesilo', rec);
+  check('a Base Silo adds 300 storage', S.scrapCapacity(g, 1) === 600);
+  // Take the Scavengers away so only the Recycler's own pump counts.
+  for (const u of g.entities) if (u.team === 1 && u.def.role === 'harvester') u.hp = 0;
+  run(g, S, 1);
+  g.teams[1].scrap = 0; run(g, S, 60);
+  const gain = g.teams[1].scrap;
+  check('the Recycler pumps about 2 scrap a minute (a twentieth of an Extractor)', gain > 1.6 && gain < 2.6, gain.toFixed(2));
+}
+
+section('Workers and tech');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const free = g.geysers.filter(x => !x.extractorId).sort((a, b) => S.dist(a, rec) - S.dist(b, rec))[0];
+  const scav = mine(g, 1, 'scavenger')[0];
+  g.events.length = 0;
+  S.issueCommand(g, 1, { type: 'deploy', ids: [scav.id], geyserId: free.id });
+  check('a basic Scavenger cannot deploy', scav.order.type !== 'deploy');
+  g.teams[1].scrap = 300;
+  S.issueCommand(g, 1, { type: 'upgrade', buildingId: rec.id });
+  run(g, S, 41);
+  check('the Recycler upgrades to Recycler II', rec.level === 2);
+  const s2 = S.addUnit(g, 'scavenger2', 1, rec.x + 60, rec.y);
+  S.issueCommand(g, 1, { type: 'deploy', ids: [s2.id], geyserId: free.id });
+  run(g, S, 90);
+  check('a Scavenger II deploys as an Extractor', mine(g, 1, 'extractor').length === 1);
+  const ex = mine(g, 1, 'extractor')[0];
+  // Only the Extractor and the Recycler's trickle pay in: no Scavengers.
+  for (const u of g.entities) if (u.team === 1 && u.def.role === 'harvester') u.hp = 0;
+  run(g, S, 1);
+  g.teams[1].scrap = 0; ex.stored = 0; run(g, S, 60);
+  check('an Extractor pays about 45 scrap a minute straight into storage', Math.abs(g.teams[1].scrap - 44.9 - 2.1) < 2, g.teams[1].scrap.toFixed(1));
+  g.teams[1].scrap = S.scrapCapacity(g, 1); run(g, S, 200);
+  check('with storage full, an Extractor holds up to 120', Math.abs(ex.stored - 120) < 0.01, ex.stored.toFixed(1));
+  g.teams[1].scrap = 0; run(g, S, 1);
+  check('the held scrap flows in once there is room', ex.stored < 1 && g.teams[1].scrap >= 120, `${Math.round(g.teams[1].scrap)} banked`);
+  check('no Transports or Extractor Silos exist', !S.UNIT_TYPES.transport && !S.BUILDING_TYPES.outsilo);
+  const lab = placeDone(S, g, 1, 'lab', rec);
+  g.teams[1].scrap = 300;
+  S.issueCommand(g, 1, { type: 'research', buildingId: lab.id, key: 'tank2' });
+  run(g, S, 61);
+  check('research completes', !!g.teams[1].research.tank2);
+}
+
+section('Production queue');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  placeDone(S, g, 1, 'basesilo', rec);
+  const fac = placeDone(S, g, 1, 'factory', { x: rec.x + 200, y: rec.y - 150 });
+  for (const u of g.entities) if (u.team === 1 && u.def.role === 'harvester') u.hp = 0;
+  run(g, S, 0.1);
+  g.teams[1].scrap = 250;
+  S.issueCommand(g, 1, { type: 'produce', buildingId: fac.id, unit: 'tank', count: 12 });
+  S.issueCommand(g, 1, { type: 'produce', buildingId: fac.id, unit: 'scout' });
+  check('more than 5 vehicles can be queued', fac.queue.length === 13, `${fac.queue.length} queued`);
+  S.stepGame(g);
+  check('only the vehicle being built is paid for', Math.round(g.teams[1].scrap) === 150, `${Math.round(g.teams[1].scrap)} left`);
+  const tanks0 = mine(g, 1, 'tank').length;
+  run(g, S, 31);
+  check('the queue keeps building while scrap lasts', mine(g, 1, 'tank').length === tanks0 + 2, `${mine(g, 1, 'tank').length - tanks0} built`);
+  g.teams[1].scrap = 0; run(g, S, 20);
+  check('with no scrap, the queue waits', fac.waiting && mine(g, 1, 'tank').length === tanks0 + 2);
+  g.teams[1].scrap = 100; S.stepGame(g);
+  const paidBefore = g.teams[1].scrap;
+  S.issueCommand(g, 1, { type: 'cancel', buildingId: fac.id, unit: 'scout' });
+  check('removing a waiting vehicle refunds nothing (it was never paid for)', g.teams[1].scrap === paidBefore && !fac.queue.includes('scout'));
+  while (fac.queue.length > 1) S.issueCommand(g, 1, { type: 'cancel', buildingId: fac.id, unit: 'tank' });
+  S.issueCommand(g, 1, { type: 'cancel', buildingId: fac.id, unit: 'tank' });
+  check('cancelling the vehicle being built refunds its cost', g.teams[1].scrap === paidBefore + 100 && fac.queue.length === 0, `${g.teams[1].scrap}`);
+}
+
+section('Combat, demolish and the Repair Pad');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const tower = placeDone(S, g, 1, 'tower', { x: rec.x + 200, y: rec.y - 100 });
+  const foe = S.addUnit(g, 'tank', 2, tower.x + 150, tower.y);
+  const hp0 = foe.hp; run(g, S, 3);
+  check('a Gun Tower shoots enemies in range', foe.hp < hp0);
+  foe.hp = 0; run(g, S, 1);
+
+  const fac = placeDone(S, g, 1, 'factory', { x: rec.x + 100, y: rec.y - 200 });
+  const before = g.scrap.reduce((a, s) => a + s.amount, 0);
+  S.issueCommand(g, 1, { type: 'demolish', buildingId: fac.id });
+  run(g, S, 1);
+  const after = g.scrap.reduce((a, s) => a + s.amount, 0);
+  check('demolishing leaves half the cost as scrap', after - before === 75, `${after - before}`);
+
+  const pad = placeDone(S, g, 1, 'repairpad', { x: rec.x + 100, y: rec.y - 200 });
+  check('vehicles can drive over a Repair Pad', !S.isBlockedTile(g, pad.tx + 1, pad.ty + 1));
+  const kinds = ['scout', 'tank', 'artillery', 'scavenger', 'constructor', 'scout2', 'tank2', 'artillery2', 'scavenger2', 'constructor2'];
+  const hurt = kinds.map((k, i) => { const u = S.addUnit(g, k, 1, pad.x - 30 + (i % 4) * 20, pad.y - 30 + Math.floor(i / 4) * 20); u.hp = u.maxHp / 2; if (u.def.shield) u.shield = 0; return u; });
+  run(g, S, 20);
+  const healed = hurt.filter(u => u.hp >= u.maxHp - 1 || u.hp > u.maxHp * 0.5 + 300);
+  check('every kind of vehicle is repaired on the pad', healed.length === kinds.length,
+    hurt.filter(u => !healed.includes(u)).map(u => u.type).join(',') || 'all repaired');
+}
+
+section('Repair Pad: workers wait, and Recycle');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const pad = placeDone(S, g, 1, 'repairpad', { x: rec.x + 150, y: rec.y - 200 });
+  // Hurt workers sent to the pad stay until repaired instead of going back to work.
+  const scav = mine(g, 1, 'scavenger')[0];
+  scav.hp = scav.maxHp * 0.3;
+  S.issueCommand(g, 1, { type: 'gorepair', ids: [scav.id] });
+  run(g, S, 60);
+  check('a hurt Scavenger waits on the pad until fully repaired', scav.hp >= scav.maxHp - 1, `${Math.round(scav.hp)}/${scav.maxHp}`);
+  run(g, S, 10);
+  check('repaired workers then go back to work', !S.padUnder(g, scav) || scav.order.type !== 'idle');
+
+  // Vehicles sent by Go repair drive off once fixed: beside the pad, or to its waypoint.
+  const t1 = S.addUnit(g, 'tank', 1, rec.x + 80, rec.y - 60), t2b = S.addUnit(g, 'constructor', 1, rec.x + 100, rec.y - 60);
+  t1.hp = 100; t2b.hp = 40;
+  S.issueCommand(g, 1, { type: 'gorepair', ids: [t1.id, t2b.id] });
+  run(g, S, 60);
+  check('a repaired Tank leaves the pad by itself', t1.hp >= t1.maxHp - 1 && !S.padUnder(g, t1), `hp ${Math.round(t1.hp)}, on pad ${!!S.padUnder(g, t1)}`);
+  check('a Constructor can Go repair and leaves once fixed', t2b.hp >= t2b.maxHp - 1 && !S.padUnder(g, t2b));
+  const wp = { x: pad.x + 260, y: pad.y - 120 };
+  S.issueCommand(g, 1, { type: 'rally', buildingId: pad.id, x: wp.x, y: wp.y });
+  t1.hp = 100;
+  S.issueCommand(g, 1, { type: 'gorepair', ids: [t1.id] });
+  run(g, S, 60);
+  check("a repaired vehicle drives to the pad's waypoint", S.dist(t1, wp) < 90, `${Math.round(S.dist(t1, wp))} px away`);
+  S.issueCommand(g, 1, { type: 'rally', buildingId: pad.id, clear: true });
+  t1.hp = 0; t2b.hp = 0; run(g, S, 0.1);
+
+  // Recycle: half the cost back, only on the pad, never the Recycler.
+  const T = S.CONFIG.TILE;
+  const onPad = (k, i) => S.addUnit(g, k, 1, (pad.tx + 0.6 + i * 0.9) * T, (pad.ty + 1.5) * T);
+  const tank = onPad('tank', 0), art2 = onPad('artillery2', 1), cons = onPad('constructor', 2);
+  const away = S.addUnit(g, 'tank', 1, rec.x + 400, rec.y - 400);
+  placeDone(S, g, 1, 'basesilo', rec);                     // room to bank the refund
+  for (const u of g.entities) if (u.team === 1 && u.def.role === 'harvester') u.hp = 0;  // no deliveries meanwhile
+  run(g, S, 0.1);
+  g.teams[1].scrap = 0;
+  S.issueCommand(g, 1, { type: 'recycle', ids: [tank.id, art2.id, cons.id, away.id] });
+  run(g, S, 0.2);
+  const want = [tank, art2, cons].reduce((a, u) => a + S.recycleValue(u), 0);
+  check('recycling on the pad refunds half the cost', Math.round(g.teams[1].scrap) === want, `${g.teams[1].scrap} of ${want}`);
+  check('recycled vehicles are removed', ![tank, art2, cons].some(u => g.entities.includes(u)));
+  check('recycled vehicles leave no wreck or salvage', !g.scrap.some(p => p.id === 100000 + tank.id) && !g.effects.some(e => e.kind === 'wreck' && Math.hypot(e.x - tank.x, e.y - tank.y) < 1));
+  check('a vehicle off the pad cannot be recycled', g.entities.includes(away) && away.hp > 0);
+  const mobile = S.addUnit(g, 'mobileRecycler', 1, pad.x, pad.y);
+  S.issueCommand(g, 1, { type: 'recycle', ids: [mobile.id] });
+  run(g, S, 0.2);
+  check('the mobile Recycler cannot be recycled', g.entities.includes(mobile) && mobile.hp > 0);
+  mobile.hp = 0; run(g, S, 0.1);
+  const enemy = S.addUnit(g, 'scout', 2, pad.x, pad.y);
+  S.issueCommand(g, 1, { type: 'recycle', ids: [enemy.id] });
+  S.issueCommand(g, 2, { type: 'recycle', ids: [enemy.id] });
+  run(g, S, 0.2);
+  check("nobody can recycle on the other side's pad", g.entities.includes(enemy));
+  // Storage full: the refund that doesn't fit is left on the pad as loose scrap.
+  g.teams[1].scrap = S.scrapCapacity(g, 1) - 10;
+  const t2 = onPad('tank', 0);
+  const before = g.scrap.reduce((a, p) => a + p.amount, 0);
+  S.issueCommand(g, 1, { type: 'recycle', ids: [t2.id] });
+  const after = g.scrap.reduce((a, p) => a + p.amount, 0);
+  check('with storage full, the rest of the refund is left on the pad', g.teams[1].scrap === S.scrapCapacity(g, 1) && after - before === 40, `banked 10, ground ${after - before}`);
+}
+
+section('Guard');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  // Escort: two Tanks guard a Scavenger that drives off; an enemy attacks it.
+  const scav = S.addUnit(g, 'scavenger', 1, rec.x + 120, rec.y - 120);
+  const g1 = S.addUnit(g, 'tank', 1, rec.x + 60, rec.y - 60), g2 = S.addUnit(g, 'tank', 1, rec.x + 80, rec.y - 40);
+  S.issueCommand(g, 1, { type: 'guard', ids: [g1.id, g2.id], targetId: scav.id });
+  const dest = { x: rec.x + 500, y: rec.y - 350 };
+  S.issueCommand(g, 1, { type: 'move', ids: [scav.id], x: dest.x, y: dest.y });
+  run(g, S, 25);
+  check('guards follow the vehicle they guard', S.dist(g1, scav) < 130 && S.dist(g2, scav) < 130, `${Math.round(S.dist(g1, scav))} and ${Math.round(S.dist(g2, scav))} px away`);
+  const foe = S.addUnit(g, 'scout', 2, scav.x + 150, scav.y);
+  const hp0 = foe.hp; run(g, S, 4);
+  check('guards attack an enemy near the guarded vehicle', foe.hp < hp0 || foe.hp <= 0 || !g.entities.includes(foe));
+  scav.hp = 0; run(g, S, 0.2);
+  check('guards stand down when the guarded vehicle is gone', g1.order.type === 'idle' && g2.order.type === 'idle');
+  // Guard a building: any armed vehicle, not just Artillery.
+  const tower = placeDone(S, g, 1, 'tower', { x: rec.x + 220, y: rec.y - 150 });
+  S.issueCommand(g, 1, { type: 'guard', ids: [g1.id], targetId: tower.id });
+  run(g, S, 25);
+  check('a Tank can guard a building (takes a post beside it)', g1.order.type === 'guard' && Math.hypot(g1.x - g1.order.px, g1.y - g1.order.py) < 40 && S.dist(g1, tower) < 200, `${Math.round(S.dist(g1, tower))} px from the tower`);
+}
+
+section('Gun Tower upgrades');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const t1 = placeDone(S, g, 1, 'tower', { x: rec.x + 220, y: rec.y - 160 });
+  const t2 = placeDone(S, g, 1, 'tower', { x: rec.x + 120, y: rec.y - 300 });
+  g.teams[1].scrap = 300;
+  S.issueCommand(g, 1, { type: 'upgrade', buildingId: t1.id, option: 'arttower' });
+  check('an upgrade costs scrap (Artillery Tower 180)', g.teams[1].scrap === 120);
+  S.issueCommand(g, 1, { type: 'upgrade', buildingId: t1.id, option: 'heavytower' });
+  check('a tower can only upgrade one way', g.teams[1].scrap === 120);
+  run(g, S, 31);
+  check('a Gun Tower becomes an Artillery Tower', t1.variant === 'arttower' && t1.def.weapon.range === 520 && t1.def.name === 'Artillery Tower' && t1.maxHp === 1200);
+  check('the base Gun Tower type is unchanged', S.BUILDING_TYPES.tower.weapon.range === 250 && t2.def.weapon.range === 250);
+  // An enemy far beyond a Gun Tower's range, spotted by a friendly Scout.
+  const ang = Math.atan2(-1, 1), d = 460;
+  const foe = S.addUnit(g, 'tank', 2, t1.x + Math.cos(ang) * d, t1.y + Math.sin(ang) * d);
+  foe.hp = foe.maxHp = 1e6; foe.def = Object.assign({}, foe.def, { weapon: undefined });
+  S.addUnit(g, 'scout', 1, foe.x - 120, foe.y + 60);
+  run(g, S, 8);
+  check('an Artillery Tower shells a spotted enemy at long range', foe.hp < 1e6, `${Math.round(1e6 - foe.hp)} damage at ${d} px`);
+  g.teams[1].scrap = 300;
+  S.issueCommand(g, 1, { type: 'upgrade', buildingId: t2.id, option: 'heavytower' });
+  run(g, S, 26);
+  check('a Gun Tower becomes a Heavy Gun Tower', t2.variant === 'heavytower' && t2.maxHp === 1600 && t2.def.weapon.cooldown === 0.6);
+}
+
+section('Artillery stabilisers');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const T = S.CONFIG.TILE;
+  // An open stretch of ground near the base, with room for a target 200 px east.
+  let P = null;
+  for (let k = 0; k < 2000 && !P; k += 8) {
+    const x = rec.x + 150 + (k % 400), y = rec.y - 200 - Math.floor(k / 400) * 40;
+    if (!S.isBlockedTile(g, Math.floor(x / T), Math.floor(y / T)) && !S.isBlockedTile(g, Math.floor((x + 200) / T), Math.floor(y / T))) P = { x, y };
+  }
+  const art = S.addUnit(g, 'artillery', 1, P.x, P.y);
+  // A target inside the artillery's own sight that can't shoot back or die.
+  const foe = S.addUnit(g, 'tank', 2, P.x + 200, P.y);
+  foe.hp = foe.maxHp = 1e6; foe.def = Object.assign({}, foe.def, { weapon: undefined });
+  let first = null;
+  for (let i = 0; i < 90; i++) { S.stepGame(g); if (first === null && art.lastShot !== undefined) first = (i + 1) / 30; }
+  check('artillery fires only after lowering its legs (about 0.6 s)', first !== null && first >= 0.55 && art.legE === 1, first && `${first.toFixed(2)} s`);
+  const x0 = art.x, y0 = art.y;
+  art.stance = 'return';   // keep driving (an aggressive one would stay and fight)
+  S.issueCommand(g, 1, { type: 'move', ids: [art.id], x: art.x, y: art.y - 200 });
+  let moved = null;
+  for (let i = 0; i < 60; i++) { S.stepGame(g); if (moved === null && Math.hypot(art.x - x0, art.y - y0) > 1) moved = (i + 1) / 30; }
+  check('artillery raises its legs before driving off (about 0.6 s)', moved !== null && moved >= 0.55, moved && `${moved.toFixed(2)} s`);
+  S.issueCommand(g, 1, { type: 'move', ids: [art.id], x: P.x + 100, y: P.y + 400 });
+  let firedMoving = false;
+  for (let i = 0; i < 120; i++) { const shot = art.lastShot, px = art.x, py = art.y; S.stepGame(g); if (art.lastShot !== shot && Math.hypot(art.x - px, art.y - py) > 0.01) firedMoving = true; }
+  check('artillery never fires while moving', !firedMoving);
+}
+
+section('Artillery fires on what its side can see');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const T = S.CONFIG.TILE, open = (x, y) => !S.isBlockedTile(g, Math.floor(x / T), Math.floor(y / T));
+  let P = null;
+  for (let k = 0; k < 4000 && !P; k += 8) {
+    const x = rec.x + 150 + (k % 400), y = rec.y - 200 - Math.floor(k / 400) * 40;
+    if (open(x, y) && open(x + 380, y) && open(x + 330, y + 60)) P = { x, y };
+  }
+  const art = S.addUnit(g, 'artillery', 1, P.x, P.y);
+  // A harmless target past the artillery's own sight (220) but inside its range (440).
+  const foe = S.addUnit(g, 'tank', 2, P.x + 380, P.y);
+  foe.hp = foe.maxHp = 1e6; foe.def = Object.assign({}, foe.def, { weapon: undefined });
+  run(g, S, 3);
+  check('on its own, artillery does not fire at what it cannot see', art.lastShot === undefined);
+  // A friendly Scout (unarmed for the test) spots the target.
+  const spotter = S.addUnit(g, 'scout', 1, P.x + 330, P.y + 60);
+  spotter.def = Object.assign({}, spotter.def, { weapon: undefined });
+  run(g, S, 3);
+  check('artillery fires at a target a friendly vehicle spots, out to its full range', art.lastShot !== undefined);
+}
+
+section('Hornet and Sentry');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const T = S.CONFIG.TILE, open = (x, y) => !S.isBlockedTile(g, Math.floor(x / T), Math.floor(y / T));
+  const f = placeDone(S, g, 1, 'factory', { x: rec.x + 200, y: rec.y });
+  check('a Factory builds Hornets and Sentries', ['hornet', 'sentry'].every(t => f.def.produces.includes(t)));
+  const H = S.UNIT_TYPES.hornet, Tk = S.UNIT_TYPES.tank;
+  const Sc = S.UNIT_TYPES.scout;
+  check('the Hornet sits between a Scout and a Tank (cost, armour, speed)', H.cost > Sc.cost && H.cost < Tk.cost && H.hp > Sc.hp && H.hp < Tk.hp && H.speed < Sc.speed && H.speed > Tk.speed);
+  let P = null;
+  for (let k = 0; k < 4000 && !P; k += 8) {
+    const x = rec.x + 150 + (k % 400), y = rec.y - 200 - Math.floor(k / 400) * 40;
+    if (open(x, y) && open(x + 180, y)) P = { x, y };
+  }
+  // A Sentry with a harmless target in range: packed up it never fires; dug in,
+  // legs first, then a rapid stream; it never moves or gives chase.
+  const sen = S.addUnit(g, 'sentry', 1, P.x, P.y);
+  const foe = S.addUnit(g, 'tank', 2, P.x + 180, P.y);
+  foe.hp = foe.maxHp = 1e6; foe.def = Object.assign({}, foe.def, { weapon: undefined });
+  run(g, S, 2);
+  check('a packed-up Sentry does not fire', sen.lastShot === undefined);
+  S.issueCommand(g, 1, { type: 'dig', ids: [sen.id] });
+  const x0 = sen.x, y0 = sen.y;
+  let first = null, shots = 0, last;
+  for (let i = 0; i < 90; i++) { S.stepGame(g); if (sen.lastShot !== last) { last = sen.lastShot; if (last !== undefined) { shots++; if (first === null) first = (i + 1) / 30; } } }
+  check('a dug-in Sentry lowers its legs before it fires (about 0.6 s)', first !== null && first >= 0.55, first && `${first.toFixed(2)} s`);
+  check('then fires a rapid stream (several shots a second)', shots >= 8, `${shots} shots in 3 s`);
+  foe.x += 200;   // the target backs out of range
+  run(g, S, 3);
+  check('a dug-in Sentry never moves or gives chase', Math.hypot(sen.x - x0, sen.y - y0) < 1 && sen.deployed);
+  S.issueCommand(g, 1, { type: 'move', ids: [sen.id], x: P.x, y: P.y + 120 });
+  run(g, S, 3);
+  check('a move order packs it up and it drives off', !sen.deployed && Math.hypot(sen.x - x0, sen.y - y0) > 20);
+  const hor = S.addUnit(g, 'hornet', 1, foe.x - 150, foe.y);
+  let rocket = false;
+  for (let i = 0; i < 60; i++) { S.stepGame(g); if (g.projectiles.some(p => p.owner === hor.id && p.kind === 'rocket')) rocket = true; }
+  check('a Hornet fires rockets', rocket);
+}
+
+section('Factions');
+{
+  const S = load();
+  const g = S.createGame({ seed: 42, difficulty: 'normal', aiTeams: [], factions: { 1: 'kethra', 2: 'scrapline' } });
+  check('each side gets the faction it chose', g.teams[1].faction === 'kethra' && g.teams[2].faction === 'scrapline');
+  const k = mine(g, 1, 'mobileRecycler')[0], sc = mine(g, 2, 'mobileRecycler')[0];
+  check('vehicles carry their side\'s faction', k.faction === 'kethra' && sc.faction === 'scrapline');
+  const t1 = S.addUnit(g, 'tank2', 1, k.x, k.y), t2 = S.addUnit(g, 'tank', 2, sc.x, sc.y);
+  check('names are in each faction\'s words (Bulwark Mk II, Tank)', S.nameOf(t1) === 'Bulwark Mk II' && S.nameOf(t2) === 'Tank', `${S.nameOf(t1)}, ${S.nameOf(t2)}`);
+  const gy = g.geysers.slice().sort((a, b) => S.dist(a, k) - S.dist(b, k))[0];
+  S.issueCommand(g, 1, { type: 'deploy', ids: [k.id], geyserId: gy.id });
+  run(g, S, 25);
+  const nexus = mine(g, 1, 'recycler')[0];
+  const said = g.events.filter(e => e.team === 1 && e.text).map(e => e.text);
+  check('the Kethra Recycler is a Nexus, and its messages say so', S.nameOf(nexus) === 'Nexus' && said.some(t => /Nexus deploying/.test(t)) && !said.some(t => /Recycler/.test(t)), said.slice(0, 2).join(' / '));
+  const same = Object.keys(S.UNIT_TYPES).every(t => S.UNIT_TYPES[t].hp > 0);
+  check('both factions use the same unit numbers (only names differ)', same && t1.def === S.UNIT_TYPES.tank2);
+  const g2 = S.createGame({ seed: 5, difficulty: 'normal', aiTeams: [] });
+  check('a side with no faction chosen is Scrapline', g2.teams[1].faction === 'scrapline' && g2.teams[2].faction === 'scrapline');
+}
+
+section('Orders: stance, Hunt, Guard, spreading out');
+{
+  const S = load();
+  // An empty battlefield with no computer players: team 1's vehicles at `from`.
+  const field = () => {
+    const g = S.createGame({ seed: 42, difficulty: 'normal', aiTeams: [] });
+    for (const e of g.entities) e.hp = e.type === 'mobileRecycler' ? e.hp : 0;
+    S.stepGame(g);
+    return g;
+  };
+  const T = 32;
+  // Open ground for a building of `size` near (x, y), ignoring territory.
+  const openSpot = (g, x, y, size = 3) => {
+    const cx = Math.floor(x / T), cy = Math.floor(y / T);
+    for (let r = 0; r < 30; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      let ok = true;
+      for (let yy = -1; yy <= size && ok; yy++) for (let xx = -1; xx <= size && ok; xx++) if (S.isBlockedTile(g, cx + dx + xx, cy + dy + yy)) ok = false;
+      if (ok) return { tx: cx + dx, ty: cy + dy };
+    }
+    return null;
+  };
+  const runUntil = (g, sec, done) => { for (let i = 0; i < sec * 30; i++) { S.stepGame(g); if (done && done()) return i / 30; } return Infinity; };
+  const hq1 = g => mine(g, 1, 'mobileRecycler')[0];
+  // A group drives past an enemy tank sitting beside the route.
+  const drive = stance => {
+    const g = field(), h = hq1(g), from = { x: h.x + 300, y: h.y - 300 };
+    const us = [0, 1, 2, 3].map(i => S.addUnitNear(g, 'tank', 1, from.x + (i % 2) * 36, from.y + Math.floor(i / 2) * 36));
+    const dir = { x: Math.sign(g.map.W * T / 2 - h.x), y: Math.sign(g.map.H * T / 2 - h.y) };
+    const dest = { x: from.x + dir.x * 1100, y: from.y };
+    const foe = S.addUnitNear(g, 'tank', 2, from.x + dir.x * 550, from.y + 230);   // beside the route, not in the way
+    foe.stance = 'stealth';   // it just sits there
+    if (stance) S.issueCommand(g, 1, { type: 'stance', ids: us.map(u => u.id), stance });
+    S.issueCommand(g, 1, { type: 'move', ids: us.map(u => u.id), x: dest.x, y: dest.y });
+    const t = runUntil(g, 90, () => us.every(u => u.order.type === 'idle'));
+    return { t, foeHp: foe.hp / foe.maxHp, arrived: us.filter(u => S.dist(u, dest) < 150).length };
+  };
+  const ag = drive(null), st = drive('stealth'), rf = drive('return');
+  check('vehicles are aggressive by default: an enemy beside the route gets attacked, then they carry on to where they were sent',
+    ag.foeHp <= 0 && ag.arrived === 4, `enemy at ${Math.round(Math.max(0, ag.foeHp) * 100)}%, ${ag.arrived}/4 arrived`);
+  check('Stealth: they hold fire and just drive there', st.foeHp === 1 && st.arrived === 4 && st.t < ag.t, `${st.t.toFixed(0)} s vs ${ag.t.toFixed(0)} s`);
+  check('Return fire: they shoot what they pass but keep going', rf.foeHp < 1 && rf.arrived === 4 && rf.t < ag.t,
+    `enemy at ${Math.round(Math.max(0, rf.foeHp) * 100)}%, ${rf.t.toFixed(0)} s`);
+
+  // Hunt: as a pack, they find a known enemy building far away and destroy it, keeping together.
+  {
+    const g = field(), h = hq1(g);
+    const us = [0, 1, 2, 3].map(i => S.addUnitNear(g, 'tank', 1, h.x + 250 + i * 36, h.y - 250));
+    const far = openSpot(g, g.map.W * T / 2, g.map.H * T / 2);
+    const b = S.addBuilding(g, 'factory', 2, far.tx, far.ty, true);
+    b.seen[1] = true;
+    S.issueCommand(g, 1, { type: 'hunt', ids: us.map(u => u.id), pack: true });
+    let spread = 0;
+    const t = runUntil(g, 240, () => {
+      const c = { x: us.reduce((a, u) => a + u.x, 0) / 4, y: us.reduce((a, u) => a + u.y, 0) / 4 };
+      if (g.tick % 30 === 0) spread = Math.max(spread, ...us.map(u => S.dist(u, c)));
+      return b.hp <= 0;
+    });
+    check('Hunt as a pack: they go and destroy a known enemy far away', t < 240, `${Math.round(S.dist(h, b))} px away, ${Math.round(t)} s`);
+    check('and the pack keeps together on the way', spread < 300, `furthest ${Math.round(spread)} px from the middle`);
+    // With nothing known, hunters go searching.
+    const g2 = field(), h2 = hq1(g2), lone = S.addUnitNear(g2, 'hornet', 1, h2.x + 250, h2.y - 250);
+    S.issueCommand(g2, 1, { type: 'hunt', ids: [lone.id] });
+    runUntil(g2, 20);
+    check('Hunt with no enemy in sight: it goes searching', S.dist(lone, h2) > 500 && lone.order.type === 'hunt');
+  }
+
+  // Guard: the guarded building is shot at from beyond the guard's range; the guard goes after the attacker, then returns.
+  {
+    const g = deployedGame(S), rec = mine(g, 1, 'recycler')[0];
+    for (const e of g.entities) if (e.team === 2 && e.type !== 'recycler') e.hp = 0;
+    S.stepGame(g);
+    const guard = S.addUnitNear(g, 'tank', 1, rec.x, rec.y - 150);
+    S.issueCommand(g, 1, { type: 'guard', ids: [guard.id], targetId: rec.id });
+    runUntil(g, 10);
+    const post = { x: guard.order.px, y: guard.order.py };
+    const away = S.dist(post, rec) > 0 ? { x: rec.x - (post.x - rec.x), y: rec.y - (post.y - rec.y) } : post;
+    const k = (rec.radius * 0.8 + 180) / S.dist(away, rec);
+    const foe = S.addUnitNear(g, 'tank', 2, rec.x + (away.x - rec.x) * k, rec.y + (away.y - rec.y) * k);
+    S.issueCommand(g, 2, { type: 'attack', ids: [foe.id], targetId: rec.id });
+    const t = runUntil(g, 40, () => foe.hp <= 0);
+    check('a guard goes after whoever attacks what it guards, even out of its range', t < 40, `${Math.round(t)} s`);
+    runUntil(g, 25);
+    check('then goes back to its post', S.dist(guard, post) < 60, `${Math.round(S.dist(guard, post))} px from it`);
+  }
+
+  // An idle vehicle helps a friend under fire nearby.
+  {
+    const g = field(), h = hq1(g), p = { x: h.x + 400, y: h.y - 400 };
+    const helper = S.addUnitNear(g, 'tank', 1, p.x, p.y);
+    const friend = S.addUnitNear(g, 'tank', 1, p.x + 300, p.y);
+    friend.stance = 'stealth';
+    const foe = S.addUnitNear(g, 'tank', 2, p.x + 480, p.y);
+    S.issueCommand(g, 2, { type: 'attack', ids: [foe.id], targetId: friend.id });
+    const t = runUntil(g, 40, () => foe.hp <= 0);
+    check('an idle vehicle drives over to help a friend under fire nearby', t < 40 && S.dist(helper, p) > 100, `${Math.round(t)} s`);
+  }
+
+  // Attacking together: they fan out round the target instead of piling into one clump.
+  {
+    const g = field(), h = hq1(g);
+    const us = [...Array(8).keys()].map(i => S.addUnitNear(g, 'tank', 1, h.x + 250 + (i % 4) * 34, h.y - 250 - Math.floor(i / 4) * 34));
+    const at = openSpot(g, h.x + 1300 * Math.sign(g.map.W * T / 2 - h.x), h.y - 250);
+    const b = S.addBuilding(g, 'factory', 2, at.tx, at.ty, true);
+    b.hp = b.maxHp = 50000; b.seen[1] = true;
+    S.issueCommand(g, 1, { type: 'attack', ids: us.map(u => u.id), targetId: b.id });
+    runUntil(g, 60, () => us.every(u => !u.path.length && S.dist(u, b) < 260));
+    let near = 0;
+    for (let i = 0; i < us.length; i++) for (let j = i + 1; j < us.length; j++) near = Math.max(near, 0) + (S.dist(us[i], us[j]) < 30 ? 1 : 0);
+    const angles = us.map(u => Math.atan2(u.y - b.y, u.x - b.x)), mean = Math.atan2(angles.reduce((a, x) => a + Math.sin(x), 0), angles.reduce((a, x) => a + Math.cos(x), 0));
+    const arc = Math.max(...angles.map(a => Math.abs(Math.atan2(Math.sin(a - mean), Math.cos(a - mean)))));
+    check('a group attacking one target fans out in an arc around it', arc > 0.35 && near <= 2, `arc ±${arc.toFixed(2)} rad, ${near} pairs bumper to bumper`);
+  }
+
+  check('each side can have 100 units', S.CONFIG.UNIT_CAP === 100);
+  // Two armies of 100 meet: the rules keep up (time is for this computer; phones are slower).
+  {
+    const g = S.createGame({ seed: 4, aiTeams: [] });
+    const types = ['tank', 'tank', 'hornet', 'scout', 'artillery'];
+    for (const t of [1, 2]) {
+      const h = g.entities.find(e => e.team === t && e.type === 'mobileRecycler'), s = t === 1 ? 1 : -1;
+      for (let i = 0; i < 93; i++) S.addUnitNear(g, types[i % 5], t, h.x + ((i % 10) - 5) * 30 * s + 200 * s, h.y - (Math.floor(i / 10) - 5) * 30 * s);
+    }
+    const mid = { x: g.map.W * T / 2, y: g.map.H * T / 2 };
+    for (const t of [1, 2]) S.issueCommand(g, t, { type: 'move', ids: g.entities.filter(e => e.team === t && e.def.weapon && e.kind === 'unit').map(e => e.id), x: mid.x, y: mid.y });
+    runUntil(g, 5);
+    const t0 = Date.now(); runUntil(g, 60); const ms = (Date.now() - t0) / 60;
+    check('200 vehicles fighting: each second of battle takes well under a second to work out', ms < 250, `${ms.toFixed(0)} ms per battle second`);
+  }
+}
+
+section('Saving and loading');
+{
+  const S = load();
+  const g = S.createGame({ seed: 9, difficulty: 'hard', aiTeams: [1, 2] });
+  const step = x => { if (x.rng() < 0.5) { S.aiUpdate(x, 1); S.aiUpdate(x, 2); } else { S.aiUpdate(x, 2); S.aiUpdate(x, 1); } S.stepGame(x); x.events.length = 0; };
+  for (let i = 0; i < 30 * 420; i++) step(g);
+  const text = S.saveGame(g, { note: 'hi' });
+  const { game: h, extra } = S.loadGame(text);
+  check('a battle saves and loads (with the screen\'s own notes)', h.entities.length === g.entities.length && extra.note === 'hi', `${Math.round(text.length / 1024)} KB`);
+  for (let i = 0; i < 30 * 180; i++) { step(g); step(h); }
+  const sig = x => x.entities.map(e => `${e.id}:${e.x.toFixed(3)},${e.y.toFixed(3)},${e.hp.toFixed(2)}`).join('|') + `#${x.teams[1].scrap.toFixed(3)}#${x.teams[2].scrap.toFixed(3)}#${x.tick}`;
+  check('a loaded battle plays on exactly as the original (3 more minutes, two computer players)', sig(g) === sig(h));
+  let bad = false;
+  try { S.loadGame('{"hello":1}'); } catch (err) { bad = true; }
+  check('something that is not a save is refused', bad);
+}
+
+section('Campaign');
+{
+  const S = load();
+  const n = S.THEATER.sectors.length;
+  const linked = S.THEATER.links.every(([a, b]) => a !== b && a < n && b < n);
+  // Every battlefield can be reached from every other.
+  const seen = new Set([0]), todo = [0];
+  while (todo.length) for (const j of S.neighbours(todo.pop())) if (!seen.has(j)) { seen.add(j); todo.push(j); }
+  check('the theater has fifteen battlefields, all joined up', n === 15 && linked && seen.size === n);
+  const c = S.createCampaign({ seed: 5, difficulty: 'normal', pace: 'normal', now: 0 });
+  check('the war starts with each side holding its half, two battles under way',
+    c.owner.filter(o => o === 'ally').length === 7 && Object.keys(c.battles).length === 2);
+  const deep = S.THEATER.sectors.findIndex(s => s.capital === 'enemy');
+  const near = [...Array(n).keys()].find(i => S.canAttack(c, i));
+  check('you can attack an enemy battlefield next to yours, but not one behind enemy lines', near !== undefined && !S.canAttack(c, deep));
+  let refused = false;
+  try { S.beginBattle(c, deep, 'lead', 0); } catch (err) { refused = true; }
+  check('starting an attack deep in enemy ground is refused', refused);
+  // Holding the neighbours of a battlefield gives you a better start there.
+  const x = JSON.parse(JSON.stringify(c)), before = S.battleSetup(x, near, 'lead').bonus[1].length;
+  for (const j of S.neighbours(near)) x.owner[j] = 'ally';
+  const after = S.battleSetup(x, near, 'lead');
+  check('more neighbouring battlefields held means more vehicles at the start', after.bonus[1].length > before && after.allyLv > S.battleSetup(c, near, 'lead').allyLv,
+    `${before} → ${after.bonus[1].length} extra vehicles`);
+  const g = S.createGame({ seed: after.seed, mapSeed: after.mapSeed, aiTeams: [2], factions: after.factions, bonus: after.bonus });
+  check('and they are there when the battle begins', g.entities.filter(e => e.team === 1 && e.kind === 'unit').length === 7 + after.bonus[1].length);
+  const m1 = S.createGame({ seed: 1, mapSeed: after.mapSeed }), m2 = S.createGame({ seed: 2, mapSeed: after.mapSeed });
+  check('each battlefield keeps its own map', m1.map.tiles.join() === m2.map.tiles.join() && m1.map.tiles.join() !== S.createGame({ seed: 1 }).map.tiles.join());
+  // War reports run on real time, at the chosen pace, at most 12 while you're away.
+  const y = S.createCampaign({ seed: 6, pace: 'fast', now: 0 });
+  const ran = S.catchUp(y, 25 * 60e3);
+  check('war reports come in as time passes (Fast: every 10 minutes)', ran === 2 && y.report === 2);
+  const away = S.catchUp(y, 30 * 24 * 3600e3);
+  check(`a month away moves the war only ${S.WAR_AWAY_CAP} reports`, away === S.WAR_AWAY_CAP);
+  S.setPace(y, 'hold', 31 * 24 * 3600e3);
+  check('on Hold the war waits', S.catchUp(y, 99 * 24 * 3600e3) === 0);
+  // A paper war left alone on Normal doesn't run away from you.
+  let decided = 0;
+  for (let s = 1; s <= 10; s++) { const z = S.createCampaign({ seed: s, now: 0 }); for (let r = 0; r < 60; r++) S.warReport(z, r); if (z.outcome) decided++; }
+  check('on Normal the AI commanders alone don\'t decide the war in 60 reports', decided === 0);
+  // Your battle: win it and the battlefield is yours; leave and it goes back on paper.
+  const w = S.createCampaign({ seed: 7, now: 0 });
+  S.beginBattle(w, near, 'lead', 0);
+  S.endBattle(w, 'won', 0.5, 1);
+  check('win your battle and the battlefield is yours', w.owner[near] === 'ally' && !w.battles[near] && !w.playing);
+  S.beginBattle(w, 7, 'command', 2);
+  S.endBattle(w, 'left', 0.8, 3);
+  check('leave a battle and it carries on, on paper, from how it stood', w.battles[7] && w.battles[7].p === 80 && !w.playing);
+  // Reinforce: your strike force is yours alone; the allied commander sends you more.
+  const rs = S.battleSetup(w, 7, 'reinforce');
+  const r = S.createGame({ seed: rs.seed, mapSeed: rs.mapSeed, aiTeams: [1, 2], factions: rs.factions, bonus: rs.bonus });
+  r.teams[1].shareEvery = rs.shareEvery;
+  const hq = r.entities.find(e => e.team === 1 && e.type === 'mobileRecycler');
+  const force = rs.reinforce.map(t => { const u = S.addUnitNear(r, t, 1, hq.x + 200, hq.y); u.cmdr = 'player'; return u; });
+  const spot = force.map(u => `${u.x},${u.y}`).join();
+  const stepR = () => { if (r.rng() < 0.5) { S.aiUpdate(r, 1); S.aiUpdate(r, 2); } else { S.aiUpdate(r, 2); S.aiUpdate(r, 1); } S.stepGame(r); r.events.length = 0; };
+  for (let i = 0; i < 30 * 600 && !r.winner; i++) stepR();
+  const yours = r.entities.filter(e => e.cmdr === 'player');
+  check('the allied commander never moves your strike force', force.every(u => u.hp <= 0 || u.order.type === 'idle' || u.order.type === 'guard') || spot === force.map(u => `${u.x},${u.y}`).join(),
+    force.map(u => u.order.type).join());
+  check('and sends you some of the vehicles it builds', yours.length > force.filter(u => u.hp > 0).length || r.teams[1].shared >= rs.shareEvery,
+    `${r.teams[1].shared || 0} built, ${yours.length} yours`);
+}
+
+section('Uplinks and call-ins');
+{
+  const S = load();
+  const g = S.createGame({ seed: 11, aiTeams: [], uplinks: true });
+  check('an uplink battle has three uplinks on open ground, the middle one in the middle', g.uplinks.length === 3 &&
+    g.uplinks.every(u => !S.isBlockedAt(g, u.x, u.y)) && S.dist(g.uplinks[0], { x: g.map.W * 16, y: g.map.H * 16 }) < 400);
+  const W = g.map.W * 32, H = g.map.H * 32;
+  check('the two side uplinks mirror each other', Math.abs(g.uplinks[1].x + g.uplinks[2].x - W) < 400 && Math.abs(g.uplinks[1].y + g.uplinks[2].y - H) < 400);
+  const run = (sec) => { for (let i = 0; i < sec * 30; i++) S.stepGame(g); };
+  const put = (team, u, n) => [...Array(n).keys()].map(k => S.addUnitNear(g, 'tank', team, u.x + (k - n / 2) * 30, u.y + 20));
+  const a = put(1, g.uplinks[1], 1);
+  run(S.CONFIG.UPLINK_CAPTURE / 3 + 1);
+  const partial = g.uplinks[1].p;
+  run(S.CONFIG.UPLINK_CAPTURE);
+  check('one vehicle on an uplink captures it in about 15 s', g.uplinks[1].owner === 1 && partial > 0.2 && partial < 0.6, `${Math.round(partial * 100)}% after 6 s`);
+  const b = put(2, g.uplinks[1], 2); for (const u of [...a, ...b]) u.stance = 'stealth';
+  const before = g.uplinks[1].p; run(5);
+  check('with both sides on it, nothing changes', g.uplinks[1].contested && g.uplinks[1].p === before);
+  for (const u of b) u.hp = 0;
+  put(1, g.uplinks[2], 3);
+  run(8);
+  check('three vehicles capture three times as fast', g.uplinks[2].owner === 1);
+  const callinsBefore = g.teams[1].callins;
+  run(Math.max(0, S.CONFIG.UPLINK_ONLINE - g.time) + 2);
+  check('holding two only starts the countdown once the uplinks are online', g.uplinkHold.team === 1 && g.uplinkHold.since >= S.CONFIG.UPLINK_ONLINE);
+  run(S.CONFIG.UPLINK_WIN + 1);
+  check('hold two for 3 minutes and you win', g.winner === 1 && /uplinks/.test(g.endReason), g.endReason);
+  check('uplinks held earn call-ins', g.teams[1].callins > callinsBefore, `${callinsBefore} → ${g.teams[1].callins}`);
+
+  const h = S.createGame({ seed: 12, aiTeams: [] });
+  check('everyone starts a battle with one call-in', h.teams[1].callins === 1 && h.teams[2].callins === 1);
+  const m = h.entities.find(e => e.team === 1 && e.type === 'mobileRecycler');
+  h.teams[1].scrap = 0;
+  S.issueCommand(h, 1, { type: 'callin', kind: 'supply' });
+  for (let i = 0; i < 30 * (S.CONFIG.CALLIN_DELAY + 0.5); i++) S.stepGame(h);
+  check('a supply drop lands a few seconds later with 300 scrap', h.teams[1].scrap === 300 && h.teams[1].callins === 0);
+  S.issueCommand(h, 1, { type: 'callin', kind: 'reinforce', x: m.x + 200, y: m.y });
+  const n0 = h.entities.filter(e => e.team === 1).length;
+  for (let i = 0; i < 30 * 6; i++) S.stepGame(h);
+  check('with none left, nothing more can be called', h.entities.filter(e => e.team === 1).length === n0);
+  h.teams[1].callins = 1;
+  S.issueCommand(h, 1, { type: 'callin', kind: 'reinforce', x: m.x + 200 * Math.sign(h.map.W * 16 - m.x), y: m.y });
+  for (let i = 0; i < 30 * (S.CONFIG.CALLIN_DELAY + 0.5); i++) S.stepGame(h);
+  const dropped = h.entities.filter(e => e.team === 1 && e.kind === 'unit').length - (n0 - 0);
+  check('reinforcements: 2 Tanks and 2 Hornets land where you chose', h.lastDrop && h.lastDrop.ids.length === 4 && h.lastDrop.ids.every(id => S.dist(h.byId.get(id), m) < 300));
+  h.teams[1].callins = 1;
+  S.issueCommand(h, 1, { type: 'callin', kind: 'reinforce', x: h.map.W * 32 - m.x, y: h.map.H * 32 - m.y });
+  check('but only on ground you have explored', h.teams[1].callins === 1);
+}
+
+{
+  // The computer opponent's call-ins actually land (aimed at open ground).
+  const S = load();
+  const g = S.createGame({ seed: 5, difficulty: 'normal', aiTeams: [1, 2] });
+  for (let i = 0; i < 30 * 200 && !g.lastDrop; i++) { S.aiUpdate(g, 1); S.aiUpdate(g, 2); S.stepGame(g); g.events.length = 0; }
+  check('the computer opponent uses its call-ins too', g.teams[1].callins + g.teams[2].callins < 2, `${g.teams[1].callins} and ${g.teams[2].callins} left after ${Math.round(g.time)} s`);
+}
+
+section('Campaign battlefields');
+{
+  const S = load();
+  const c = S.createCampaign({ seed: 3, now: 0 });
+  const near = [...Array(15).keys()].find(i => S.canAttack(c, i));
+  const setup = S.battleSetup(c, near, 'lead');
+  const prep = S.prepareBattle(setup, [2]);
+  const g = prep.game, def = prep.defender;
+  const has = type => g.entities.filter(e => e.team === def && e.type === type).length;
+  check('the side holding a battlefield starts with a base there', setup.defender === 2 && has('recycler') === 1 && has('factory') === 1 && has('tower') >= 1 && has('extractor') >= 1,
+    `level ${setup.fort}: ${has('extractor')} Extractors, ${has('tower')} Gun Towers`);
+  const x = JSON.parse(JSON.stringify(c)); x.owner[near] = 'enemy';
+  for (const j of S.neighbours(near)) x.owner[j] = 'enemy';
+  x.heldSince[near] = -20;
+  check('a battlefield held longer, with more support around it, is more built up', S.fortification(x, near) > S.fortification(c, near),
+    `${S.fortification(c, near)} → ${S.fortification(x, near)}`);
+  check('two landing zones to choose from, well clear of their defences', prep.zones.length === 2 &&
+    prep.zones.every(z => Math.min(...g.entities.filter(e => e.team === def && e.kind === 'building').map(b => S.dist(b, z))) > 500), prep.zones.map(z => z.key).join(' + '));
+  const lib = prep.zones.find(z => z.key === 'liberate');
+  {
+    const hqd = g.entities.find(e => e.team === def && e.type === 'recycler'), oc = g.map.bases[g.corner[3 - def]], home = { x: (oc.x + 0.5) * 32, y: (oc.y + 0.5) * 32 };
+    check('landing zones are always on the far half of the map from their base', prep.zones.every(z => S.dist(z, hqd) > S.dist(z, home)));
+  }
+  check('one of them next to an Extractor of theirs to liberate (from base level 2)', setup.fort < 2 || !!lib);
+  S.landAttacker(prep, setup, prep.zones[1]);
+  const mob = g.entities.find(e => e.team === 1 && e.type === 'mobileRecycler');
+  check('you land at the zone you chose, Recycler on wheels, with a strike force', mob && S.dist(mob, prep.zones[1]) < 200 &&
+    g.entities.filter(e => e.team === 1 && e.def.role === 'combat').length >= 6);
+  check('the landing brings three call-ins', g.teams[1].callins === 3);
+  check('with supply crates to start on, and knowing where their Recycler is',
+    g.scrap.filter(n => S.dist(n, prep.zones[1]) < 400).length >= 4 && g.entities.find(e => e.team === def && e.type === 'recycler').seen[1]);
+  check('campaign battles run faster (economy and production)', g.tempo > 1 && g.teams[1].incomeMult === g.tempo);
+  const up = S.THEATER.sectors.findIndex(s => s.uplinks);
+  const us = S.battleSetup(c, up, 'command');
+  check('some battlefields are capture-and-hold', us.uplinks && S.prepareBattle(us, [1, 2]).game.uplinks.length === 3);
+}
+
+section('Hit and miss, shooting on the move');
+{
+  const S = load();
+  const g = S.createGame({ seed: 21, aiTeams: [] });
+  for (const e of g.entities) if (e.type !== 'mobileRecycler') e.hp = 0;
+  S.stepGame(g);
+  const h = g.entities.find(e => e.team === 1 && e.type === 'mobileRecycler');
+  const tank = S.addUnitNear(g, 'tank', 1, h.x + 300, h.y - 300), scout = S.addUnitNear(g, 'scout', 2, h.x + 450, h.y - 300);
+  const still = S.hitChance(g, tank, scout, 150);
+  scout.movingTick = g.tick;
+  const moving = S.hitChance(g, tank, scout, 150), far = S.hitChance(g, tank, scout, 200);
+  tank.movingTick = g.tick;
+  const both = S.hitChance(g, tank, scout, 150);
+  check('shots can miss: less likely to hit a fast mover, at long range, or when firing on the move', still > moving && moving > far && moving > both && both > 0.3,
+    `${Math.round(still * 100)}% still, ${Math.round(moving * 100)}% moving, ${Math.round(far * 100)}% at full range, ${Math.round(both * 100)}% both moving`);
+  check('buildings are always hit', S.hitChance(g, tank, h, 150) === 1 || S.hitChance(g, tank, { kind: 'building', def: {} }, 150) === 1);
+  // Two tanks fight: some shots miss, and they keep moving while they fire.
+  const a = S.addUnitNear(g, 'tank', 1, h.x + 600, h.y - 500), b = S.addUnitNear(g, 'tank', 2, h.x + 760, h.y - 500);
+  let shots = 0, hits = 0, moved = 0;
+  const hpb = () => b.hp;
+  let last = a.lastShot, lastHp = b.hp, x0 = a.x, y0 = a.y;
+  S.issueCommand(g, 1, { type: 'attack', ids: [a.id], targetId: b.id });
+  for (let i = 0; i < 30 * 40 && b.hp > 0 && a.hp > 0; i++) {
+    S.stepGame(g);
+    if (a.lastShot !== last) { last = a.lastShot; shots++; }
+    if (b.hp < lastHp) { hits++; lastHp = b.hp; }
+    if (i % 30 === 0) { moved = Math.max(moved, Math.hypot(a.x - x0, a.y - y0)); }
+  }
+  check('in a fight some shots miss', shots > 4 && hits < shots, `${hits} hits from ${shots} shots`);
+  check('and vehicles keep moving while they fire', moved > 60, `moved ${Math.round(moved)} px while fighting`);
+}
+
+section('Shields');
+{
+  const S = load();
+  const g = deployedGame(S), rec = mine(g, 1, 'recycler')[0], T = S.CONFIG.TILE;
+  for (const e of g.entities) if (e.team === 2 && e.type !== 'recycler') e.hp = 0;
+  S.stepGame(g);
+  g.teams[1].scrap = 300;
+  const toward = Math.atan2(g.map.H * 16 - rec.y, g.map.W * 16 - rec.x);
+  const sh = placeDone(S, g, 1, 'shield', { x: rec.x + Math.cos(toward) * 200, y: rec.y + Math.sin(toward) * 200 });
+  sh.facing = S.snapFacing(toward);
+  for (let i = 0; i < 30 * 20; i++) S.stepGame(g);
+  check('a Shield Projector without a Generator has no field', !sh.powered && (!g.activeFields || !g.activeFields.length));
+  placeDone(S, g, 1, 'generator', rec);
+  for (let i = 0; i < 30 * 3; i++) S.stepGame(g);
+  check('with a Power Generator it starts up (after its reboot time)', sh.powered && sh.field.state === 'down');
+  for (let i = 0; i < 30 * (S.CONFIG.ACC_MIN + S.BUILDING_TYPES.shield.field.reboot); i++) S.stepGame(g);
+  check('then the field is up', sh.field.state === 'up' && g.activeFields.length === 1);
+  g.teams[1].incomeMult = 0;   // no income, to see the upkeep
+  const scrap0 = g.teams[1].scrap;
+  for (let i = 0; i < 30 * 10; i++) S.stepGame(g);
+  check('a powered projector burns scrap (6 a minute)', Math.abs((scrap0 - g.teams[1].scrap) - 1) < 0.2, `${(scrap0 - g.teams[1].scrap).toFixed(2)} in 10 s`);
+  // An enemy tank shoots at the projector from the front: the field takes it.
+  const fx = Math.cos(sh.facing), fy = Math.sin(sh.facing);
+  const front = S.addUnitNear(g, 'tank', 2, sh.x + fx * 200, sh.y + fy * 200);
+  for (let i = 0; i < 3; i++) S.stepGame(g);   // let it see the projector
+  const field0 = sh.field.hp, hp0 = sh.hp;
+  S.issueCommand(g, 2, { type: 'attack', ids: [front.id], targetId: sh.id });
+  for (let i = 0; i < 30 * 6; i++) S.stepGame(g);
+  check('enemy fire from the front is stopped by the field', sh.field.hp < field0 && sh.hp === hp0, `field ${Math.round(field0)} → ${Math.round(sh.field.hp)}, projector ${Math.round(sh.hp)}`);
+  // From behind it gets through.
+  front.hp = 0;
+  const back = S.addUnitNear(g, 'tank', 2, sh.x - fx * 150, sh.y - fy * 150);
+  S.issueCommand(g, 2, { type: 'attack', ids: [back.id], targetId: sh.id });
+  for (let i = 0; i < 30 * 6; i++) S.stepGame(g);
+  check('but fire from behind gets through (the field faces one way)', sh.hp < hp0);
+  back.hp = 0; S.stepGame(g);
+  // Knock it down: it collapses, then reboots.
+  sh.field.hp = 5;
+  const hammer = S.addUnitNear(g, 'tank', 2, sh.x + fx * 200, sh.y + fy * 200);
+  S.issueCommand(g, 2, { type: 'attack', ids: [hammer.id], targetId: sh.id });
+  for (let i = 0; i < 30 * 4 && sh.field.state === 'up'; i++) S.stepGame(g);
+  check('a field shot down collapses and leaves the projector open', sh.field.state === 'down' && !g.activeFields.some(f => f.b === sh));
+  hammer.hp = 0;
+  for (let i = 0; i < 30 * (S.BUILDING_TYPES.shield.field.reboot + 1); i++) S.stepGame(g);
+  check('then reboots after 15 s, partly charged', sh.field.state === 'up' && sh.field.hp < S.BUILDING_TYPES.shield.field.hp * 0.5);
+  // One Generator powers four.
+  const more = [1, 2, 3, 4].map(k => placeDone(S, g, 1, 'shield', { x: rec.x - Math.cos(toward) * (150 + k * 80), y: rec.y - Math.sin(toward) * (150 + k * 80) })).filter(Boolean);
+  S.stepGame(g);
+  const powered = g.entities.filter(e => e.type === 'shield' && e.team === 1 && e.powered).length;
+  check('one Generator powers four Shield Projectors', more.length === 4 && powered === 4, `${powered} of ${more.length + 1} powered`);
+  g.teams[1].scrap = 0; S.stepGame(g);
+  check('with no scrap the shields go down', !g.entities.some(e => e.type === 'shield' && e.powered));
+}
+
+section('Radar anywhere, Radar upgrades, Forcefield Tech');
+{
+  const S = load();
+  const g = deployedGame(S), rec = mine(g, 1, 'recycler')[0], T = S.CONFIG.TILE;
+  // Somewhere explored but well outside the base's territory.
+  for (let i = 0; i < g.teams[1].explored.length; i++) g.teams[1].explored[i] = 1;
+  const far = { x: rec.x + 1400 * Math.sign(g.map.W * 16 - rec.x), y: rec.y - 900 * Math.sign(rec.y - g.map.H * 16) };
+  let spot = null;
+  for (let r = 0; r < 25 && !spot; r++) for (let dy = -r; dy <= r && !spot; dy++) for (let dx = -r; dx <= r && !spot; dx++) {
+    const tx = Math.floor(far.x / T) + dx, ty = Math.floor(far.y / T) + dy;
+    if (S.canPlaceBuilding(g, 1, 'radar', tx, ty).ok) spot = { tx, ty };
+  }
+  check('a Radar can be built anywhere explored, outside your territory', !!spot && !S.canPlaceBuilding(g, 1, 'tower', spot.tx, spot.ty).ok);
+  const radar = S.addBuilding(g, 'radar', 1, spot.tx, spot.ty, true);
+  const near = spotFor(S, g, 1, 'tower', radar.x + 80, radar.y + 80);
+  check('and lets you build around it (a small territory, like a Lab\'s)', !!near && Math.hypot((near.tx + 1) * T - radar.x, (near.ty + 1) * T - radar.y) < 7 * T && S.BUILDING_TYPES.radar.buildRadius === S.BUILDING_TYPES.lab.buildRadius);
+  const pings = () => g.teams[1].pings.length;
+  const countPings = sec => { let n = 0, last = radar.pingTimer; for (let i = 0; i < sec * 30; i++) { S.stepGame(g); if (radar.pingTimer > last + 1) n++; last = radar.pingTimer; } return n; };
+  radar.pingTimer = 0.01;
+  check('a Radar pings every 30 s', countPings(61) === 3);   // at 0, 30 and 60 s
+  g.teams[1].scrap = 900; g.teams[1].incomeMult = 0;
+  S.issueCommand(g, 1, { type: 'upgrade', buildingId: radar.id });
+  for (let i = 0; i < 30 * 31; i++) S.stepGame(g);
+  radar.pingTimer = 0.01;
+  check('Radar II pings every 15 s', radar.level === 2 && countPings(61) === 5 && S.nameOf(radar) === 'Radar II');
+  g.teams[1].scrap = 900;   // more than storage holds, just for this check
+  const before = g.teams[1].scrap;
+  S.issueCommand(g, 1, { type: 'upgrade', buildingId: radar.id });
+  check('each upgrade costs more (250, then 500)', before - g.teams[1].scrap === 500 && S.BUILDING_TYPES.radar.levels[0].cost === 250);
+  for (let i = 0; i < 30 * 46; i++) S.stepGame(g);
+  const W = g.map.W, at = (Math.floor(radar.y / T) - 15) * W + Math.floor(radar.x / T);
+  let seen = 0; for (let i = 0; i < 30 * 10; i++) { S.stepGame(g); if (g.teams[1].vis[at]) seen++; }
+  check('Radar III keeps its circle revealed all the time', radar.level === 3 && seen === 30 * 10, `level ${radar.level}, seen ${seen} of 300 ticks`);
+  S.issueCommand(g, 1, { type: 'upgrade', buildingId: radar.id });
+  check('and that is the last upgrade', radar.upgrading === null);
+  // Shields need Forcefield Tech, and cost half as much again.
+  g.teams[1].scrap = 900;
+  const con = S.addUnitNear(g, 'constructor', 1, rec.x + 100, rec.y);
+  const ss = spotFor(S, g, 1, 'shield', rec.x + 150, rec.y + 150);
+  S.issueCommand(g, 1, { type: 'build', ids: [con.id], building: 'shield', tx: ss.tx, ty: ss.ty });
+  check('a Shield Projector needs Forcefield Tech first', !g.entities.some(e => e.type === 'shield'));
+  g.teams[1].research.shields = true;
+  S.issueCommand(g, 1, { type: 'build', ids: [con.id], building: 'shield', tx: ss.tx, ty: ss.ty });
+  check('then it can be built, for 180 scrap', g.entities.some(e => e.type === 'shield') && 900 - g.teams[1].scrap === 180);
+  check('Forcefield Tech is researched at a Research Lab', S.BUILDING_TYPES.lab.researches.includes('shields') && S.RESEARCH.shields.cost > 0);
+}
+
+section('Veterans and armour facing');
+{
+  const S = load();
+  const g = S.createGame({ seed: 23, aiTeams: [] });
+  for (const e of g.entities) if (e.type !== 'mobileRecycler') e.hp = 0;
+  S.stepGame(g);
+  const h = g.entities.find(e => e.team === 1 && e.type === 'mobileRecycler');
+  const vet = S.addUnitNear(g, 'tank', 1, h.x + 300, h.y - 300), foe = S.addUnitNear(g, 'hornet', 2, h.x + 450, h.y - 300);
+  foe.movingTick = g.tick; vet.movingTick = g.tick;
+  const raw = S.hitChance(g, vet, foe, 150);
+  // Kills earn ranks.
+  const kill = () => { const v = S.addUnitNear(g, 'scout', 2, vet.x + 120, vet.y); S.damageForTest(g, v, 9999, { owner: vet.id, kind: 'shell', team: 1 }); };
+  kill(); kill();
+  check('two kills make a Veteran', vet.rank === 1 && vet.kills === 2);
+  kill(); kill(); kill();
+  const elite = S.hitChance(g, vet, foe, 150);
+  check('five an Elite, with more health', vet.rank === 2 && vet.maxHp > S.UNIT_TYPES.tank.hp);
+  check('veterans hit much more often, even on the move', elite > raw * 1.2, `${Math.round(raw * 100)}% → ${Math.round(elite * 100)}%`);
+  // Armour facing: the same shot does more from the side and the rear.
+  const target = S.addUnitNear(g, 'tank', 2, h.x + 600, h.y - 600);
+  target.angle = 0;
+  const hitFrom = (dx, dy) => { const before = target.hp; S.damageForTest(g, target, 20, { kind: 'shell', team: 1, sx: target.x + dx, sy: target.y + dy }); const d = before - target.hp; target.hp = target.maxHp; return d; };
+  const front = hitFrom(100, 0), side = hitFrom(0, 100), rear = hitFrom(-100, 0);
+  check('hits on the side do 25% more, from behind 50% more', front === 20 && side === 25 && rear === 30, `${front} / ${side} / ${rear}`);
+}
+
+section('Repair Drones, Fight then repair, the Juggernaut, tuning');
+{
+  const S = load();
+  check('Extractors produce 7% more (0.749 a second)', S.BUILDING_TYPES.extractor.income === 0.749);
+  check('shields stronger (1,985 field), reboot 10% sooner', S.BUILDING_TYPES.shield.field.hp === 1985 && S.BUILDING_TYPES.shield.field.reboot === 13.5);
+  check('Artillery fires 10% slower; Artillery Towers unchanged', S.UNIT_TYPES.artillery.weapon.cooldown === 3.85 && S.UNIT_TYPES.artillery2.weapon.cooldown === 3.85 &&
+    S.BUILDING_TYPES.tower.upgrades.find(u => u.key === 'arttower').weapon.cooldown === 4.5);
+  check('a Recycler II builds Repair Drones; Constructors no longer repair', S.BUILDING_TYPES.recycler.upgrade.produces.includes('drone') &&
+    !S.UNIT_TYPES.constructor.canRepair && !S.UNIT_TYPES.constructor2.canRepair && S.UNIT_TYPES.drone.speed === S.UNIT_TYPES.hornet.speed);
+  const g = deployedGame(S), rec = mine(g, 1, 'recycler')[0];
+  for (const e of g.entities) if (e.team === 2 && e.type !== 'recycler') e.hp = 0;
+  S.stepGame(g);
+  const drone = S.addUnitNear(g, 'drone', 1, rec.x + 100, rec.y);
+  check('a new drone starts on Auto repair', drone.order.type === 'automend');
+  rec.hp = rec.maxHp * 0.5;
+  const tank = S.addUnitNear(g, 'tank', 1, rec.x + 500 * Math.sign(g.map.W * 16 - rec.x), rec.y);
+  tank.hp = 100;
+  let tankFirst = false;
+  for (let i = 0; i < 30 * 90; i++) { S.stepGame(g); if (tank.hp === tank.maxHp && rec.hp < rec.maxHp) tankFirst = true; }
+  check('a badly damaged vehicle comes before a building', tankFirst);
+  check('on Auto repair it fixes buildings and vehicles on its own', rec.hp === rec.maxHp && tank.hp === tank.maxHp, `Recycler ${Math.round(rec.hp / rec.maxHp * 100)}%, Tank ${Math.round(tank.hp)}`);
+  const con = S.addUnitNear(g, 'constructor', 1, rec.x - 100, rec.y);
+  rec.hp = rec.maxHp * 0.5; drone.hp = 0; S.stepGame(g);
+  S.issueCommand(g, 1, { type: 'repair', ids: [con.id], targetId: rec.id });
+  for (let i = 0; i < 30 * 10; i++) S.stepGame(g);
+  check('a Constructor can\'t repair a building', rec.hp === rec.maxHp * 0.5);
+  // Fight, then repair: at yellow health it goes to the Repair Pad, then back.
+  const pad = placeDone(S, g, 1, 'repairpad', rec);
+  const post = { x: rec.x + 450 * Math.sign(g.map.W * 16 - rec.x), y: rec.y - 200 * Math.sign(rec.y - g.map.H * 16) };
+  const v = S.addUnitNear(g, 'tank', 1, post.x, post.y);
+  S.issueCommand(g, 1, { type: 'stance', ids: [v.id], stance: 'repair' });
+  for (let i = 0; i < 30; i++) S.stepGame(g);
+  const home = { x: v.x, y: v.y };
+  v.hp = v.maxHp * 0.55;
+  let reachedPad = false;
+  for (let i = 0; i < 30 * 90; i++) { S.stepGame(g); if (S.dist(v, pad) < 60) reachedPad = true; }
+  check('"Fight, then repair": at yellow health it drives to the Repair Pad', reachedPad);
+  check('and once repaired, goes back to where it was', v.hp === v.maxHp && S.dist(v, home) < 120, `${Math.round(S.dist(v, home))} px from its spot`);
+  // The Juggernaut: two turrets, two targets at once.
+  const J = S.UNIT_TYPES.heavy, T = S.UNIT_TYPES.tank;
+  check('the Juggernaut: tougher than a Tank, slower, twice the price, a cannon and a minigun', J.hp > T.hp && J.speed < T.speed && J.cost === T.cost * 2 &&
+    J.weapon.damage === T.weapon.damage && J.weapon2.cooldown === S.UNIT_TYPES.sentry.weapon.cooldown);
+  const J2 = S.UNIT_TYPES.heavy2;
+  check('Juggernaut Mk II: researched, built by a Factory II, +40% damage on both guns, +50% armour, still slower than a Tank',
+    J2.base === 'heavy' && J2.requires === 'heavy2' && !!S.RESEARCH.heavy2 && S.BUILDING_TYPES.lab.researches.includes('heavy2') &&
+    S.BUILDING_TYPES.factory.upgrade.produces.includes('heavy2') &&
+    Math.abs(J2.weapon.damage / J.weapon.damage - 1.4) < 0.05 && Math.abs(J2.weapon2.damage / J.weapon2.damage - 1.4) < 0.05 &&
+    Math.abs(J2.hp / J.hp - 1.5) < 0.01 && J2.speed < T.speed && !!J2.weapon2);
+  const jug = S.addUnitNear(g, 'heavy', 1, rec.x - 300 * Math.sign(g.map.W * 16 - rec.x), rec.y);
+  const a = S.addUnitNear(g, 'scout', 2, jug.x + 150, jug.y - 40), b = S.addUnitNear(g, 'scout', 2, jug.x + 150, jug.y + 60);
+  for (const s2 of [a, b]) { s2.stance = 'stealth'; s2.hp = s2.maxHp = 5000; }
+  const hpA = a.hp, hpB = b.hp;
+  let split = false;
+  for (let i = 0; i < 30 * 6; i++) { S.stepGame(g); if (jug.target && jug.target2 && jug.target !== jug.target2) split = true; }
+  check('it fires at two targets at once', a.hp < hpA && b.hp < hpB && split, `${Math.round(hpA - a.hp)} and ${Math.round(hpB - b.hp)} damage`);
+}
+
+section('Drone Follow, the urban map');
+{
+  // A Repair Drone told to follow a vehicle stays with it and keeps it repaired.
+  const S = load();
+  const g = S.createGame({ seed: 7 });
+  const rec = g.entities.find(e => e.team === 1 && e.type === 'mobileRecycler');
+  const dir = Math.sign(g.map.W * 16 - rec.x);
+  const tank = S.addUnitNear(g, 'tank', 1, rec.x + 150 * dir, rec.y), drone = S.addUnitNear(g, 'drone', 1, rec.x + 60 * dir, rec.y + 60);
+  S.issueCommand(g, 1, { type: 'follow', ids: [drone.id], targetId: tank.id });
+  const goal = S.nearestOpenTile(g, Math.floor((tank.x + 700 * dir) / 32), Math.floor(tank.y / 32));
+  S.issueCommand(g, 1, { type: 'move', ids: [tank.id], x: goal.x * 32 + 16, y: goal.y * 32 + 16 });
+  for (let i = 0; i < 30 * 25; i++) S.stepGame(g);
+  check('a drone on Follow stays with its vehicle as it drives off', drone.order.type === 'follow' && S.dist(drone, tank) < 110, `${Math.round(S.dist(drone, tank))} px apart`);
+  tank.hp = 150;
+  for (let i = 0; i < 30 * 12; i++) S.stepGame(g);
+  check('and repairs it when it is hurt', tank.hp === tank.maxHp, `${Math.round(tank.hp)} / ${tank.maxHp}`);
+  tank.hp = 0; S.stepGame(g); S.stepGame(g);
+  check('when its vehicle is lost it goes back to Auto repair', drone.order.type === 'automend');
+
+  // The ruined city.
+  let symOk = true, reachOk = true, canal = true, bridges = true, scarce = true;
+  for (const seed of [1, 7, 42]) {
+    const m = S.generateUrbanMap(seed), { W, H, tiles } = m;
+    for (let i = 0; i < W * H && symOk; i++) if (tiles[i] !== tiles[W * H - 1 - i] || m.noBuild[i] !== m.noBuild[W * H - 1 - i]) symOk = false;
+    const pass = i => tiles[i] !== S.TILE_ROCK && tiles[i] !== S.TILE_WATER;
+    const reach = new Uint8Array(W * H), st = [m.bases[1].y * W + m.bases[1].x]; reach[st[0]] = 1;
+    while (st.length) { const i = st.pop(); for (const j of [i + 1, i - 1, i + W, i - W]) if (j >= 0 && j < W * H && !reach[j] && pass(j)) { reach[j] = 1; st.push(j); } }
+    for (const p of [m.bases[2], ...m.fields, ...m.geysers.map(gz => ({ x: gz.tx, y: gz.ty }))]) if (!reach[p.y * W + p.x]) reachOk = false;
+    let water = 0, bridge = 0, build = 0;
+    for (let i = 0; i < W * H; i++) { if (tiles[i] === S.TILE_WATER) water++; if (m.style[i] === 2) bridge++; if (pass(i) && !m.noBuild[i]) build++; }
+    if (water < 600) canal = false;
+    if (bridge < 40) bridges = false;
+    if (build / (W * H) > 0.35) scarce = false;
+  }
+  check('the city is mirrored, streets and all', symOk);
+  check('every geyser, scrap field and the other base can be driven to', reachOk);
+  check('a canal crosses the city, with bridges', canal && bridges);
+  check('building room is scarce (at most about a third of the city)', scarce);
+  const g2 = S.createGame({ seed: 7, mapType: 'urban' });
+  const m2 = g2.map, b1 = m2.bases[g2.corner[1]];
+  g2.teams[1].explored.fill(1);
+  let street = null;
+  for (let r = 3; r < 40 && !street; r++) for (let dx = -r; dx <= r && !street; dx++) for (const dy of [-r, r]) {
+    const x = b1.x + dx, y = b1.y + dy;
+    if (x > 1 && y > 1 && x < m2.W - 2 && y < m2.H - 2 && m2.noBuild[y * m2.W + x] && !S.isBlockedTile(g2, x, y)) { street = { x, y }; break; }
+  }
+  const onStreet = S.canPlaceBuilding(g2, 1, 'tower', street.x, street.y);
+  check("you can't build on the streets", !onStreet.ok && /street/.test(onStreet.why), onStreet.why);
+  const p2 = S.findPath(g2, (m2.bases[1].x + 0.5) * 32, (m2.bases[1].y + 0.5) * 32, (m2.bases[2].x + 0.5) * 32, (m2.bases[2].y + 0.5) * 32);
+  check('there is a route across the city between the bases', !!(p2 && p2.length));
+}
+
+section('Fixed guns, Tidal Flats, the Armory');
+{
+  // Guns firing from a fixed spot are steadier.
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const tower = placeDone(S, g, 1, 'tower', rec);
+  const tank = S.addUnitNear(g, 'tank', 1, rec.x + 120, rec.y), sentry = S.addUnitNear(g, 'sentry', 1, rec.x + 160, rec.y);
+  const foe = S.addUnitNear(g, 'scout', 2, rec.x + 200, rec.y - 100);
+  foe.movingTick = g.tick;
+  const pTank = S.hitChance(g, tank, foe, 180, tank.def.weapon), pTower = S.hitChance(g, tower, foe, 180, tower.def.weapon);
+  sentry.legE = 0; const packed = S.hitChance(g, sentry, foe, 180); sentry.legE = 1; const dug = S.hitChance(g, sentry, foe, 180);
+  check('a Gun Tower and a dug-in Sentry hit a moving target more often than guns on vehicles', pTower > pTank && dug > packed, `tower ${pTower.toFixed(2)} vs tank ${pTank.toFixed(2)}; sentry ${dug.toFixed(2)} dug in vs ${packed.toFixed(2)}`);
+}
+{
+  // Tidal Flats.
+  const S = load();
+  let sym = true, high = true, low = true;
+  for (const seed of [1, 7, 42]) {
+    const m = S.generateTidalMap(seed), { W, H, tiles } = m;
+    for (let i = 0; i < W * H && sym; i++) if (tiles[i] !== tiles[W * H - 1 - i] || m.tidal[i] !== m.tidal[W * H - 1 - i]) sym = false;
+    const reachFrom = (t) => { const r = new Uint8Array(W * H), st = [m.bases[1].y * W + m.bases[1].x]; r[st[0]] = 1;
+      while (st.length) { const i = st.pop(); for (const j of [i + 1, i - 1, i + W, i - W]) if (j >= 0 && j < W * H && !r[j] && t[j] !== S.TILE_ROCK && t[j] !== S.TILE_WATER) { r[j] = 1; st.push(j); } } return r; };
+    const rl = reachFrom(tiles);
+    for (const p of [m.bases[2], ...m.fields, ...m.geysers.map(gz => ({ x: gz.tx, y: gz.ty }))]) if (!rl[p.y * W + p.x]) low = false;
+    const ht = tiles.slice(); for (let i = 0; i < W * H; i++) if (m.tidal[i]) ht[i] = S.TILE_WATER;
+    if (!reachFrom(ht)[m.bases[2].y * W + m.bases[2].x]) high = false;
+  }
+  check('Tidal Flats is mirrored, sand and all', sym);
+  check('at low tide every geyser and scrap field can be reached over the sand', low);
+  check('at high tide the causeways still join the two bases', high);
+  const g = S.createGame({ seed: 7, mapType: 'tidal', aiTeams: [] });
+  const m = g.map;
+  let sand = -1; for (let i = 0; i < m.W * m.H; i++) if (m.tidal[i] && m.tidal[i + 1] && m.tidal[i - 1] && m.tidal[i + m.W] && m.tidal[i - m.W]) { sand = i; break; }
+  const tank = S.addUnit(g, 'tank', 1, (sand % m.W + 0.5) * 32, (Math.floor(sand / m.W) + 0.5) * 32);
+  g.teams[1].explored.fill(1);
+  const onSand = S.canPlaceBuilding(g, 1, 'tower', sand % m.W, Math.floor(sand / m.W));
+  check("nothing can be built on the sand", !onSand.ok, onSand.why);
+  check('the battle starts at low tide, with the sand dry', m.tide === 'low' && m.tiles[sand] === S.TILE_DIRT);
+  const scrapBefore = g.scrap.length;
+  run(g, S, S.CONFIG.TIDE.low + 1);
+  const ti = Math.floor(tank.y / 32) * m.W + Math.floor(tank.x / 32);
+  check('the tide comes in on time: the sand floods', m.tide === 'high' && m.tiles[sand] === S.TILE_WATER);
+  check('a vehicle caught on the sand is swamped and washed up on dry ground', !m.tidal[ti] && tank.hp < tank.maxHp && tank.hp > 0, `${Math.round(tank.hp)} / ${tank.maxHp}`);
+  run(g, S, S.CONFIG.TIDE.high);
+  check('then it goes out again and fresh scrap washes up on the sand', m.tide === 'low' && m.tiles[sand] === S.TILE_DIRT && g.scrap.length === scrapBefore + 2 * S.CONFIG.TIDE.washup, `${g.scrap.length - scrapBefore} new piles`);
+}
+{
+  // The Armory: research a weapon, fit it at the Factory, new vehicles carry it.
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const armory = placeDone(S, g, 1, 'armory', rec), factory = placeDone(S, g, 1, 'factory', rec);
+  check('an Armory researches 31 weapons across five kinds of hardpoint', armory && armory.def.researches.length === 31 && Object.keys(S.WEAPONS).length === 31 &&
+    ['cannon', 'gun', 'rocket', 'artillery', 'special'].every(t => Object.values(S.WEAPONS).some(w => w.slot === t)));
+  check('hardpoints per vehicle: Scout gun (+special on Mk II), Sentry 2 guns, Hornet rocket, Tank cannon (+2 guns on Mk II), Juggernaut Mk II 2 cannons + 3 guns + special, Artillery (+special on Mk II)',
+    (() => { const U = S.UNIT_TYPES, sig = t => U[t].slots.map(x => x.type + (x.count > 1 ? x.count : '')).join(',');
+      return sig('scout') === 'gun' && sig('scout2') === 'gun,special' && sig('sentry') === 'gun2' && sig('hornet') === 'rocket' && sig('tank') === 'cannon' &&
+        sig('tank2') === 'cannon,gun2' && sig('heavy2') === 'cannon2,gun3,special' && sig('artillery') === 'artillery' && sig('artillery2') === 'artillery,special'; })());
+  S.issueCommand(g, 1, { type: 'loadout', unit: 'tank', slot: 'cannon', weapon: 'railgun', buildingId: factory.id });
+  check('a weapon must be researched before it can be fitted', !(factory.loadouts && factory.loadouts.tank));
+  const old = S.addUnitNear(g, 'tank', 1, rec.x + 100, rec.y);
+  g.teams[1].scrap = 900;
+  S.issueCommand(g, 1, { type: 'research', buildingId: armory.id, key: 'w_railgun' });
+  run(g, S, S.RESEARCH.w_railgun.time + 1);
+  S.issueCommand(g, 1, { type: 'loadout', unit: 'tank', slot: 'cannon', weapon: 'railgun', buildingId: factory.id });
+  g.teams[1].scrap = 900;
+  S.issueCommand(g, 1, { type: 'produce', buildingId: factory.id, unit: 'tank' });
+  run(g, S, 12);
+  const fresh = g.entities.find(e => e.team === 1 && e.type === 'tank' && e !== old && e.def.loadout);
+  check('new Tanks come out with the Railgun', fresh && fresh.def.weapon.projectile === 'rail' && fresh.def.weapon.damage > S.UNIT_TYPES.tank.weapon.damage * 2 && fresh.def.weapon.range > S.UNIT_TYPES.tank.weapon.range,
+    fresh ? `damage ${fresh.def.weapon.damage}, range ${fresh.def.weapon.range}` : 'none built');
+  check('vehicles built before keep their stock weapon', old.def === S.UNIT_TYPES.tank);
+  check('a weapon scales with the vehicle (Tank Mk II railgun > Tank railgun)', S.makeWeapon(S.UNIT_TYPES.tank2.weapon, 'railgun').damage > S.makeWeapon(S.UNIT_TYPES.tank.weapon, 'railgun').damage);
+  const dmg = (wk, targetType) => {
+    const g2 = deployedGame(S), r2 = mine(g2, 1, 'recycler')[0];
+    const tgt = S.addUnitNear(g2, targetType, 2, r2.x + 200, r2.y); tgt.hp = tgt.maxHp = 10000;
+    const w = S.makeWeapon(S.UNIT_TYPES.tank.weapon, wk);
+    S.damageForTest(g2, tgt, w.damage, { kind: w.projectile, vsHeavy: w.vsHeavy, vsLight: w.vsLight });
+    return 10000 - tgt.hp;
+  };
+  check('Sabot rounds hit heavy armour harder and light vehicles softer', dmg('sabot', 'tank') > dmg('stock', 'tank') * 1.4 && dmg('sabot', 'scout') < dmg('sabot', 'tank'), `vs Tank ${dmg('sabot', 'tank')}, vs Scout ${dmg('sabot', 'scout')}`);
+
+  // A small arena: weapons and specials in action.
+  const arena = () => { const g3 = deployedGame(S), r3 = mine(g3, 1, 'recycler')[0], dir = Math.sign(g3.map.W * 16 - r3.x);
+    for (const e of g3.entities) if (e.kind === 'unit') e.hp = 0;   // an empty arena
+    S.stepGame(g3);
+    for (const t of Object.keys(S.WEAPONS)) g3.teams[1].research['w_' + t] = g3.teams[2].research['w_' + t] = true;
+    const mk = (type, team, dx, dy, lo) => { const u = S.addUnitNear(g3, type, team, r3.x + dx * dir, r3.y + dy); if (lo) { g3.teams[team].loadouts[S.UNIT_TYPES[type].base || type] = lo; u.def = S.loadoutDef(u.type, lo); if (u.def.shield) u.shield = u.def.shield; } return u; };
+    return { g3, mk, dir }; };
+  {
+    const { g3, mk } = arena();
+    const flamer = mk('scout', 1, 200, -120, { gun: 'flamer' }), rocketHornet = mk('hornet', 1, 200, 120, { rocket: 'battery' }), shocker = mk('scout2', 1, 200, 0, { special: 'shock' });
+    const a = mk('tank', 2, 270, -120), b = mk('tank', 2, 285, -100), victim = mk('scout', 2, 300, 0), rocketTarget = mk('tank', 2, 330, 120);
+    for (const e of [a, b, victim, rocketTarget]) { e.hp = e.maxHp = 9000; e.stance = 'stealth'; }
+    let salvo = 0;
+    for (let i = 0; i < 30 * 5; i++) { S.stepGame(g3); salvo = Math.max(salvo, g3.projectiles.filter(p => p.owner === rocketHornet.id).length); }
+    check('a Flamethrower burns the vehicles around its target too', a.hp < 9000 && b.hp < 9000, `${Math.round(9000 - a.hp)} and ${Math.round(9000 - b.hp)} damage`);
+    check('a Scout Mk II\'s Shock Emitter slows what it hits', victim.shockUntil > g3.time - 3 && victim.shockMul < 1);
+    check('a Rocket Battery fires its three rockets in quick succession', salvo >= 3, `${salvo} in the air`);
+  }
+  {
+    // A Tank Mk II uses its machine guns on light vehicles and its cannon on armour.
+    const { g3, mk } = arena();
+    const t2 = mk('tank2', 1, 200, 0);
+    const scout = mk('scout', 2, 340, 0); scout.hp = scout.maxHp = 9000; scout.stance = 'stealth';
+    let gunShots = 0, cannonShots = 0;
+    for (let i = 0; i < 30 * 4; i++) { S.stepGame(g3); for (const p of g3.projectiles) if (p.owner === t2.id && !p.seen) { p.seen = true; if (p.kind === 'bullet') gunShots++; else cannonShots++; } }
+    scout.hp = 0; const tank = mk('tank', 2, 340, 30); tank.hp = tank.maxHp = 9000; tank.stance = 'stealth';
+    let gun2 = 0, cannon2 = 0;
+    for (let i = 0; i < 30 * 5; i++) { S.stepGame(g3); for (const p of g3.projectiles) if (p.owner === t2.id && !p.seen) { p.seen = true; if (p.kind === 'bullet') gun2++; else cannon2++; } }
+    check('a Tank Mk II picks its weapon: machine guns on a Scout, the cannon on a Tank', gunShots > cannonShots && cannon2 > gun2, `vs Scout ${gunShots} gun / ${cannonShots} cannon; vs Tank ${gun2} gun / ${cannon2} cannon`);
+  }
+  {
+    // EMP stalls everything in the blast, friend or foe; Shields collapse and come back.
+    const { g3, mk } = arena();
+    const target = mk('tank', 2, 300, 0, null), friend = mk('tank', 1, 300, 40, null), shielded = mk('heavy2', 2, 300, -40, { special: 'shield' });
+    for (const e of [target, friend, shielded]) e.stance = 'stealth';   // nobody fights: just the EMP
+    const sh0 = shielded.shield;
+    g3.projectiles.push({ kind: 'missile', team: 1, owner: 0, x: target.x - 5, y: target.y, tx: target.x, ty: target.y, targetId: target.id, speed: 400, damage: 5, emp: 80, empTime: 2.5 });
+    S.stepGame(g3); S.stepGame(g3);
+    check('an EMP stalls vehicles in its blast, your own too, and knocks out shields', target.empUntil > g3.time && friend.empUntil > g3.time && sh0 > 0 && shielded.shield === 0, `shield ${sh0} -> ${shielded.shield}`);
+    const hx = target.x, hy = target.y;
+    S.issueCommand(g3, 2, { type: 'move', ids: [target.id], x: hx + 300, y: hy });
+    for (let i = 0; i < 30; i++) S.stepGame(g3);
+    check('a stalled vehicle can\'t move until the EMP wears off', Math.hypot(target.x - hx, target.y - hy) < 5);
+    for (let i = 0; i < 30 * 12; i++) S.stepGame(g3);
+    check('a collapsed Shield reboots and recharges', shielded.shield > 0);
+  }
+  {
+    // Cloak: unseen by the enemy (but seen by its owner); a Sensor Pulse finds it.
+    const { g3, mk } = arena();
+    const cloaker = mk('scout2', 1, 250, 0, { special: 'cloak' }), watcher = mk('tank', 2, 330, 0);
+    cloaker.stance = 'stealth'; watcher.stance = 'stealth';
+    for (let i = 0; i < 30 * 2; i++) S.stepGame(g3);
+    const hidden = cloaker.cloakOn && !S.isVisibleTo(g3, 2, cloaker) && S.isVisibleTo(g3, 1, cloaker);
+    const pulser = mk('scout2', 2, 340, 30, { special: 'sensor' });
+    for (let i = 0; i < 3; i++) S.stepGame(g3);
+    check('a cloaked Scout is invisible to the enemy but not to you', hidden);
+    check('a Sensor Pulse reveals cloaked units', S.isVisibleTo(g3, 2, cloaker));
+  }
+  {
+    // Point Defence shoots down incoming shells; mines go off under an enemy; smoke hides what's inside.
+    const { g3, mk } = arena();
+    const pdUnit = mk('heavy2', 2, 300, 0, { special: 'pointdef' });
+    for (let k = 0; k < 20; k++) { g3.projectiles.push({ kind: 'artillery', team: 1, owner: 0, x: pdUnit.x - 200, y: pdUnit.y, tx: pdUnit.x, ty: pdUnit.y, speed: 260, total: 200, damage: 1, splash: 10 }); }
+    let downed = 0;
+    for (let i = 0; i < 30 * 2; i++) { S.stepGame(g3); downed += g3.effects.filter(e => e.kind === 'beam' && e.laser && !e.counted && (e.counted = true)).length; }
+    check('Point Defence shoots at incoming shells', downed >= 1, `${downed} interceptions`);
+    g3.mines = [{ x: pdUnit.x + 60, y: pdUnit.y, team: 1, owner: 0, armAt: 0, damage: 140, splash: 45 }];
+    const foe = mk('tank', 2, 360, 0); foe.x = pdUnit.x + 60; foe.y = pdUnit.y; foe.stance = 'stealth'; const hp0 = foe.hp;
+    S.stepGame(g3); S.stepGame(g3);
+    check('a mine goes off under an enemy', foe.hp < hp0 && !g3.mines.length);
+    g3.smokes = [{ x: foe.x, y: foe.y, r: 95, until: g3.time + 10, born: g3.time }];
+    check('a smoke cloud hides what is inside it', !S.isVisibleTo(g3, 1, foe));
+  }
+  {
+    // Gun Towers: guns to start; a tower's weapon is chosen once and then locked.
+    const tw = placeDone(S, g, 1, 'tower', rec);
+    g.teams[1].research.w_hmg = true; g.teams[1].research.w_laser = true;
+    check('a Gun Tower has a Gun hardpoint (twin machine guns)', tw.def.slots[0].type === 'gun' && tw.def.weapon.projectile === 'bullet');
+    S.issueCommand(g, 1, { type: 'fitTower', buildingId: tw.id, weapon: 'hmg' });
+    const fitted = tw.def.weapon.name;
+    S.issueCommand(g, 1, { type: 'fitTower', buildingId: tw.id, weapon: 'laser' });
+    check('a tower\'s weapon is fitted once and locked for good', fitted === 'Heavy Machine Gun' && tw.def.weapon.name === 'Heavy Machine Gun' && tw.weaponLocked);
+  }
+  // A saved game keeps the loadout.
+  const text = S.saveGame(g);
+  const back = S.loadGame(text).game;
+  const b2 = back.entities.find(e => e.id === fresh.id);
+  check('a saved game keeps each vehicle\'s weapons and the loadouts', b2 && b2.def.weapon.projectile === 'rail' && back.entities.find(e => e.id === factory.id).loadouts.tank.cannon === 'railgun');
+}
+
+section('Loadouts per Factory, Extractor II, radar reach');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const f1 = placeDone(S, g, 1, 'factory', rec), f2 = placeDone(S, g, 1, 'factory', rec);
+  g.teams[1].research.w_swarm = true; g.teams[1].research.w_battery = true;
+  S.issueCommand(g, 1, { type: 'loadout', unit: 'hornet', slot: 'rocket', weapon: 'swarm', buildingId: f1.id });
+  S.issueCommand(g, 1, { type: 'loadout', unit: 'hornet', slot: 'rocket', weapon: 'battery', buildingId: f2.id });
+  S.issueCommand(g, 1, { type: 'loadout', unit: 'hornet', slot: 'rocket', weapon: 'swarm' });   // no Factory named: ignored
+  check('each Factory keeps its own loadout', f1.loadouts.hornet.rocket === 'swarm' && f2.loadouts.hornet.rocket === 'battery');
+  g.teams[1].scrap = 2000;
+  const before = new Set(g.entities.map(e => e.id));
+  S.issueCommand(g, 1, { type: 'produce', buildingId: f1.id, unit: 'hornet' });
+  S.issueCommand(g, 1, { type: 'produce', buildingId: f2.id, unit: 'hornet' });
+  run(g, S, S.UNIT_TYPES.hornet.buildTime + 3);
+  const made = g.entities.filter(e => !before.has(e.id) && e.type === 'hornet');
+  check('and its vehicles come out with that loadout', made.length === 2 && made.map(u => u.def.weapon.name).sort().join() === [S.WEAPONS.swarm.name, S.WEAPONS.battery.name].sort().join(),
+    made.map(u => u.def.weapon.name).join(', '));
+  // Extractor II pumps faster and is tougher.
+  const ex = g.entities.find(e => e.team === 1 && e.type === 'extractor') || (() => { const gy = g.geysers.find(q => !q.occupied); return gy && S.addBuilding(g, 'extractor', 1, Math.floor(gy.x / 32), Math.floor(gy.y / 32)); })();
+  if (ex) {
+    ex.built = 1; const inc = ex.def.income, hp = ex.maxHp;
+    g.teams[1].scrap = 2000;
+    S.issueCommand(g, 1, { type: 'upgrade', buildingId: ex.id });
+    run(g, S, S.BUILDING_TYPES.extractor.upgrade.time + 2);
+    check('Extractor II pumps 40% faster and has far more health', ex.def.income >= inc * 1.39 && ex.maxHp >= hp * 1.4 && ex.def.store > S.BUILDING_TYPES.extractor.store, `${inc} -> ${ex.def.income}, ${hp} -> ${ex.maxHp} hp`);
+  } else check('Extractor II pumps 40% faster and has far more health', false, 'no extractor');
+  const R = S.BUILDING_TYPES.radar;
+  check('each Radar upgrade reaches much farther', R.levels[0].radius > R.ping.radius * 1.3 && R.levels[1].radius > R.levels[0].radius * 1.3, `${R.ping.radius} -> ${R.levels[0].radius} -> ${R.levels[1].radius}`);
+}
+
+section('Plasma and Shield Projector II');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  const R = S.RESEARCH.w_plasma;
+  check('Plasma is a high-end weapon: 375 scrap, 150 s to research', R.cost === 375 && R.time === 150);
+  const f = placeDone(S, g, 1, 'factory', rec);
+  const plain = S.buildCost(f, 'tank');
+  g.teams[1].research.w_plasma = true;
+  S.issueCommand(g, 1, { type: 'loadout', unit: 'tank', slot: 'cannon', weapon: 'plasma', buildingId: f.id });
+  check('a vehicle with a Plasma Cannon costs 20% more to build', S.buildCost(f, 'tank') === Math.round(plain * 1.2), `${plain} -> ${S.buildCost(f, 'tank')}`);
+  g.teams[1].scrap = 1000;
+  S.issueCommand(g, 1, { type: 'produce', buildingId: f.id, unit: 'tank' });
+  S.stepGame(g);
+  check('and that is what is paid', Math.round(1000 - g.teams[1].scrap) >= Math.round(plain * 1.2) - 1, `${Math.round(1000 - g.teams[1].scrap)} paid`);
+  // Shield Projector II: wider, tougher, quicker to reboot, hungrier.
+  g.teams[1].research.shields = true;
+  const gen = placeDone(S, g, 1, 'generator', rec);
+  const sh = [0, 1, 2, 3].map(() => placeDone(S, g, 1, 'shield', rec));
+  run(g, S, 1);
+  check('one Generator runs four Shield Projectors', sh.every(b => b.powered));
+  g.teams[1].scrap = 2000;
+  S.issueCommand(g, 1, { type: 'upgrade', buildingId: sh[0].id });
+  run(g, S, S.BUILDING_TYPES.shield.upgrade.time + 1);
+  const F = sh[0].def.field;
+  check('Shield Projector II: a wider, tougher field that reboots sooner', F.length === 280 && F.hp > S.BUILDING_TYPES.shield.field.hp * 1.35 && F.reboot < 13.5);
+  check('it draws more power: one Generator no longer runs all four', sh.filter(b => b.powered).length === 3);
+}
+
+section('Commanders');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  for (const e of g.entities) if (e.kind === 'unit' && e.def.role === 'combat') e.hp = 0;
+  S.stepGame(g);
+  const dir = Math.sign(g.map.W * 16 - rec.x);
+  const squad = [];
+  for (let i = 0; i < 6; i++) squad.push(S.addUnitNear(g, 'tank', 1, rec.x + (150 + (i % 3) * 30) * dir, rec.y + 120 + Math.floor(i / 3) * 30));
+  squad[3].rank = 2; squad[3].kills = 6;
+  const ids = squad.map(u => u.id);
+  S.issueCommand(g, 1, { type: 'promote', unitId: squad[0].id, ids });
+  check('commanders need Field Command research', !(g.teams[1].commands || []).length);
+  g.teams[1].research.command = true;
+  S.issueCommand(g, 1, { type: 'promote', unitId: squad[0].id, ids, n: '1' });
+  const c = g.teams[1].commands[0];
+  check('a vehicle of a battle group can be made its commander, keeping the group\'s number', c && c.n === 1 && c.cmdrId === squad[0].id && c.members.length === 6 && squad.every(u => u.cmdId === c.id));
+  const extra = [];
+  for (let i = 0; i < 6; i++) extra.push(S.addUnitNear(g, 'scout', 1, rec.x + 120 * dir, rec.y - 150));
+  S.issueCommand(g, 1, { type: 'cmdAssign', cmdId: c.id, ids: extra.map(u => u.id) });
+  check(`a commander leads ${S.COMMAND.size} vehicles at most`, c.members.length === S.COMMAND.size, `${c.members.length}`);
+  // Up to three commanders.
+  const solo = () => { const u = S.addUnitNear(g, 'tank', 1, rec.x - 100 * dir, rec.y); return u; };
+  for (let k = 0; k < 3; k++) { const u = solo(); S.issueCommand(g, 1, { type: 'promote', unitId: u.id, ids: [u.id], n: String(k + 2) }); }
+  check(`${S.COMMAND.max} commanders at most`, g.teams[1].commands.length === S.COMMAND.max);
+  for (const x of g.teams[1].commands.slice(1)) S.issueCommand(g, 1, { type: 'cmdRelease', cmdId: x.id });
+  check('taking back command frees the group', g.teams[1].commands.length === 1);
+  // The commander's experience lifts the group's aim.
+  run(g, S, 1);
+  const tgt = S.addUnit(g, 'tank', 2, squad[1].x + 150, squad[1].y);
+  const plain = S.addUnitNear(g, 'tank', 1, rec.x, rec.y + 200);
+  check('the group aims better under a commander', S.hitChance(g, squad[1], tgt, 150) > S.hitChance(g, plain, tgt, 150));
+  tgt.hp = 0;
+  // Guard our Extractors: one on each, the rest patrol or wait in reserve.
+  const exs = [];
+  for (const gy of g.geysers.filter(q => !q.occupied).sort((a, b) => S.dist(a, rec) - S.dist(b, rec)).slice(0, 3)) {
+    const b = S.addBuilding(g, 'extractor', 1, Math.floor(gy.x / 32), Math.floor(gy.y / 32)); if (b) { b.built = 1; exs.push(b); }
+  }
+  S.issueCommand(g, 1, { type: 'cmdOrder', cmdId: c.id, kind: 'guard', target: 'extractors' });
+  run(g, S, 4);
+  const guarding = squad.concat(extra).filter(u => u.cmdId && u.order.type === 'guard' && exs.some(b => b.id === u.order.targetId));
+  const posts = new Set(guarding.map(u => u.order.targetId));
+  check('"Guard our Extractors": the commander posts guards on them and keeps the rest busy', exs.length && posts.size >= Math.min(2, exs.length) &&
+    squad.concat(extra).filter(u => u.cmdId).every(u => u.order.type !== 'idle'), `${c.style}: ${guarding.length} guards on ${posts.size}/${exs.length}`);
+  // Delegated: your direct orders don't reach them, only general orders do.
+  const before = squad[2].order.type;
+  S.issueCommand(g, 1, { type: 'move', ids: [squad[2].id], x: rec.x, y: rec.y + 300 });
+  check('a delegated group takes only general orders (direct orders are ignored)', squad[2].order.type === before && !(squad[2].order.type === 'move' && squad[2].order.x === rec.x));
+  // Attack: the group goes for the enemy base it knows of.
+  const theirs = mine(g, 2, 'recycler')[0];
+  theirs.seen[1] = true;
+  S.issueCommand(g, 1, { type: 'cmdOrder', cmdId: c.id, kind: 'attack', target: 'base' });
+  run(g, S, 4);
+  const going = squad.concat(extra).filter(u => u.cmdId && u.order.type === 'move');
+  check('"Attack the enemy base": they move out on the commander\'s plan', going.length >= 6, `${c.style}: ${going.length} on the move`);
+  // The commander falls: the most experienced takes over.
+  squad[0].hp = 0;
+  run(g, S, 1);
+  check('if the commander falls, the most experienced vehicle takes command', c.cmdrId === squad[3].id && g.teams[1].commands.length === 1);
+  const text = S.saveGame(g), back = S.loadGame(text).game;
+  check('a saved game keeps its commanders', back.teams[1].commands[0].cmdrId === squad[3].id && back.byId.get(squad[1].id).cmdId === c.id);
+}
+
+section('No walls');
+{
+  const S = load();
+  const B = S.BUILDING_TYPES, U = S.UNIT_TYPES;
+  check('walls, corners, gates, bastions and the Heavy Constructor are gone', !B.wallblock && !B.wallcorner && !B.wall && !B.gate && !B.bastion && !U.heavyBuilder);
+  check('the Recycler II no longer builds a Heavy Constructor', !B.recycler.upgrade.produces.includes('heavyBuilder'));
+  check('no weapon carries a bonus against walls', Object.values(S.WEAPONS).every(w => !(w.mod && 'vsWall' in w.mod)));
+  // A game saved with walls in it (from before) still loads: the walls are
+  // gone, their ground is free again, and Heavy Constructors are Constructors.
+  const g = deployedGame(S), T = 32;
+  const rec = g.entities.find(e => e.team === 1 && e.type === 'recycler');
+  const tw = S.addBuilding(g, 'tower', 1, Math.floor(rec.x / T) + 6, Math.floor(rec.y / T) - 6, true);
+  const con = S.addUnit(g, 'constructor', 1, rec.x + 80, rec.y);
+  const snap = JSON.parse(S.saveGame(g));
+  const ents = snap.game.entities.$a;
+  const tEnc = ents.find(e => e.id && (e.id.$n ? +e.id.$n : e.id) === tw.id), cEnc = ents.find(e => e.id && (e.id.$n ? +e.id.$n : e.id) === con.id);
+  tEnc.def = { $s: 'b:wallblock' }; tEnc.type = 'wallblock';
+  cEnc.def = { $s: 'u:heavyBuilder' }; cEnc.type = 'heavyBuilder';
+  const back = S.loadGame(JSON.stringify(snap)).game, i = tw.ty * g.map.W + tw.tx;
+  check('an older save with walls loads: the walls are gone and their ground is free', !back.entities.some(e => e.type === 'wallblock') && back.occupied[i] === 0);
+  check('...and its Heavy Constructors are now Constructors', back.byId.get(con.id).type === 'constructor');
+  for (let k = 0; k < 60; k++) S.stepGame(back);
+  check('...and the game carries on', !!back.byId.get(rec.id));
+}
+
+section('Workers look after themselves');
+{
+  const S = load();
+  const g = deployedGame(S);
+  const rec = mine(g, 1, 'recycler')[0];
+  for (const e of g.entities) if (e.kind === 'unit' && e.def.role !== 'harvester') e.hp = 0;
+  for (const e of g.entities) if (e.kind === 'unit' && e.team === 2) e.hp = 0;
+  S.stepGame(g);
+  const scav = mine(g, 1, 'scavenger')[0];
+  for (const o of mine(g, 1, 'scavenger')) if (o !== scav) o.hp = 0;
+  // Two scrap piles: a near one where a fight has just happened, a farther quiet one.
+  const dir = Math.sign(g.map.W * 16 - rec.x);
+  g.scrap.length = 0;
+  g.scrap.push({ id: 9001, x: rec.x + 200 * dir, y: rec.y - 150, amount: 300, max: 300 }, { id: 9002, x: rec.x + 650 * dir, y: rec.y - 150, amount: 300, max: 300 });
+  g.teams[1].explored.fill(1);
+  g.fighting = [{ x: rec.x + 200 * dir, y: rec.y - 150, t: g.time }];
+  S.issueCommand(g, 1, { type: 'stop', ids: [scav.id] });
+  scav.order = { type: 'idle', gx: scav.x, gy: scav.y };
+  const node = (() => { let best = null, bd = Infinity; for (const sp of g.scrap) { const d = S.dist(scav, sp); if (d < bd && !S.scrapIsDangerous(g, 1, sp)) { bd = d; best = sp; } } return best; })();
+  check('a Scavenger skips scrap where there has just been fighting', node && node.id === 9002);
+  g.time += 30;
+  check('and goes back to it once it has been quiet for a while', !S.scrapIsDangerous(g, 1, g.scrap[0]));
+  // An enemy tank comes at it: it backs off toward home.
+  g.time -= 30; g.fighting = [];
+  scav.x = rec.x + 300 * dir; scav.y = rec.y - 150; scav.order = { type: 'harvest', nodeId: 9002, phase: 'toNode' }; scav.path = [];
+  const tank = S.addUnit(g, 'tank', 2, scav.x + 200 * dir, scav.y);
+  tank.stance = 'stealth';
+  const d0 = S.dist(scav, rec);
+  for (let i = 0; i < 30 * 3; i++) S.stepGame(g);
+  check('a Scavenger backs away from an enemy combat vehicle', S.dist(scav, rec) < d0 - 30, `${Math.round(d0)} -> ${Math.round(S.dist(scav, rec))} px from home`);
+  tank.hp = 0;
+  // Badly hurt, it goes to the Repair Pad, then back to work.
+  const pad = placeDone(S, g, 1, 'repairpad', rec);
+  for (let i = 0; i < 30 * 5; i++) S.stepGame(g);
+  scav.hp = scav.maxHp * 0.3;
+  let reachedPad = false;
+  for (let i = 0; i < 30 * 60 && scav.hp < scav.maxHp; i++) { S.stepGame(g); if (S.dist(scav, pad) < pad.radius) reachedPad = true; }
+  check('a badly hurt worker gets itself repaired at the Repair Pad', reachedPad && scav.hp >= scav.maxHp * 0.98);
+  for (let i = 0; i < 30 * 3; i++) S.stepGame(g);
+  check('and then goes back to work', !scav.patching && scav.order.type === 'harvest');
+}
+
+
+section('Three or four sides');
+{
+  const S = load();
+  const g = S.createGame({ seed: 9, aiTeams: [], sides: 4 });
+  const W = g.map.W, H = g.map.H, T = 32;
+  check('four sides: four teams on a four-cornered map', g.sides.length === 4 && g.map.quad && [1, 2, 3, 4].every(t => g.teams[t]));
+  const recs = g.sides.map(t => mine(g, t, 'mobileRecycler')[0]);
+  const corners = new Set(recs.map(r => (r.x < W * 16 ? 'L' : 'R') + (r.y < H * 16 ? 'T' : 'B')));
+  check('each side starts in its own corner', corners.size === 4);
+  // Every corner is a mirror image of the others: the map and where everyone starts.
+  let asym = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const v = g.map.tiles[y * W + x]; if (v !== g.map.tiles[y * W + W - 1 - x] || v !== g.map.tiles[(H - 1 - y) * W + x]) asym++; }
+  check('the four-cornered map is mirrored left-right and top-bottom', asym === 0, `${asym} squares differ`);
+  const r1 = recs[0];
+  check('starting forces are mirror images in every corner', recs.every(r => [[W * T - r1.x, r1.y], [r1.x, H * T - r1.y], [W * T - r1.x, H * T - r1.y], [r1.x, r1.y]].some(([x, y]) => Math.abs(r.x - x) < 1 && Math.abs(r.y - y) < 1)));
+  check('32 geysers, at least 20 squares apart', g.geysers.length === 32 && g.geysers.every(a => g.geysers.every(b => a === b || Math.hypot(a.tx - b.tx, a.ty - b.ty) >= 20)));
+  for (const type of ['urban', 'tidal']) {
+    const m = S.createGame({ seed: 9, aiTeams: [], sides: 4, mapType: type }).map;
+    let a = 0;
+    for (let y = 0; y < m.H; y++) for (let x = 0; x < m.W; x++) { const v = m.tiles[y * m.W + x]; if (v !== m.tiles[y * m.W + m.W - 1 - x] || v !== m.tiles[(m.H - 1 - y) * m.W + x]) a++; }
+    check(`the ${type === 'urban' ? 'ruined city' : 'Tidal Flats'} can be fought by four, mirrored the same way`, m.quad && a === 0 && Object.keys(m.bases).length === 4, `${a} squares differ`);
+  }
+  // Routes are as good from every corner.
+  const lens = recs.map(r => { const p = S.findPath(g, r.x, r.y, W * 16, H * 16); let L = 0, prev = r; for (const q of p) { L += S.dist(prev, q); prev = q; } return Math.round(L); });
+  check('a route to the middle is the same length from every corner', Math.max(...lens) - Math.min(...lens) <= 2, lens.join(', '));
+
+  // Three sides: lose your Recycler and you are out; last one standing wins.
+  const g3 = S.createGame({ seed: 4, aiTeams: [], sides: 3 });
+  check('three sides use the four-cornered map', g3.sides.length === 3 && g3.map.quad);
+  const tank2 = S.addUnit(g3, 'tank', 2, 3000, 3000);
+  mine(g3, 2, 'mobileRecycler')[0].hp = 0;
+  run(g3, S, 1);
+  check('a side that loses its Recycler is out, and what it had left falls apart', g3.out[2] > 0 && tank2.hp <= 0 && !g3.entities.some(e => e.team === 2) && !g3.winner);
+  mine(g3, 3, 'mobileRecycler')[0].hp = 0;
+  run(g3, S, 1);
+  check('the last side standing wins', g3.winner === 1 && /last side standing/.test(g3.endReason), g3.endReason);
+
+  // Uplinks with four sides: five of them, hold three.
+  const gu = S.createGame({ seed: 4, aiTeams: [], sides: 4, uplinks: true });
+  check('a four-sided uplink battle has five uplinks; hold three to win', gu.uplinks.length === 5 && gu.uplinkNeed === 3 && gu.uplinks.every(u => !S.isBlockedAt(gu, u.x, u.y)));
+  // A save keeps the sides and who is out.
+  const back = S.loadGame(S.saveGame(g3)).game;
+  check('a saved game keeps its sides and who is out', back.sides.length === 3 && back.out[2] > 0 && back.winner === 1);
+}
+
+section('Iron Dominion and Vex Swarm');
+{
+  const S = load();
+  const U = S.UNIT_TYPES, dom = S.unitDef('dominion', 'tank'), vex = S.unitDef('vex', 'tank');
+  const DK = S.FACTIONS.dominion.traits.unit, VK = S.FACTIONS.vex.traits.unit;
+  check('Dominion vehicles: more health, range and damage; slower and dearer', DK.hp > 1 && DK.speed < 1 && DK.cost > 1 && DK.range > 1 &&
+    dom.hp === Math.round(U.tank.hp * DK.hp) && dom.speed === Math.round(U.tank.speed * DK.speed) && dom.cost === Math.round(U.tank.cost * DK.cost) && dom.weapon.range === Math.round(U.tank.weapon.range * DK.range));
+  check('Vex beasts: cheaper, quicker to build and faster; frail and softer-hitting', VK.hp < 1 && VK.speed > 1 && VK.cost < 1 && VK.damage < 1 &&
+    vex.hp === Math.round(U.tank.hp * VK.hp) && vex.speed === Math.round(U.tank.speed * VK.speed) && vex.cost === Math.round(U.tank.cost * VK.cost) && vex.buildTime < U.tank.buildTime && vex.weapon.damage < U.tank.weapon.damage);
+  check('workers only get the health change, so every faction earns at the same pace', S.unitDef('vex', 'scavenger').speed === U.scavenger.speed && S.unitDef('dominion', 'scavenger').cost === U.scavenger.cost && S.unitDef('dominion', 'scavenger').hp > U.scavenger.hp);
+  check('Scrapline and the Kethra keep the standard numbers', S.unitDef('scrapline', 'tank') === U.tank && S.unitDef('kethra', 'tank') === U.tank);
+  check('Dominion buildings are tougher and their towers reach further', S.buildingDef('dominion', 'tower').hp > S.BUILDING_TYPES.tower.hp && S.buildingDef('dominion', 'tower').weapon.range > S.BUILDING_TYPES.tower.weapon.range);
+  check('Dominion towers keep the longer reach after their upgrade', S.buildingDef('dominion', 'tower').upgrades.every((o, i) => o.weapon.range > S.BUILDING_TYPES.tower.upgrades[i].weapon.range));
+  const g = S.createGame({ seed: 3, aiTeams: [], sides: 4, factions: { 1: 'scrapline', 2: 'kethra', 3: 'dominion', 4: 'vex' } });
+  check('unit caps: 80 for the Dominion, 140 for the Swarm, 100 for the rest', S.unitCap(g, 3) === 80 && S.unitCap(g, 4) === 140 && S.unitCap(g, 1) === 100);
+  check('each side gets its own faction\'s vehicles', mine(g, 3, 'tank')[0].def === dom && mine(g, 4, 'tank')[0].def === vex && mine(g, 1, 'tank')[0].def === U.tank);
+  // Brace: a Dominion vehicle that has stood still takes less damage.
+  const a = S.addUnit(g, 'tank', 3, 4000, 3000), b = S.addUnit(g, 'tank', 3, 4100, 3000);
+  run(g, S, 3);
+  b.movingTick = g.tick;
+  const shot = { damage: 100, kind: 'shell', owner: 0, team: 1 };
+  const h0 = a.hp, h1 = b.hp;
+  S.damageForTest(g, a, 100, shot); S.damageForTest(g, b, 100, shot);
+  check('a Dominion vehicle that stands still braces: 25% less damage', Math.abs((h0 - a.hp) - 75) < 0.01 && Math.abs((h1 - b.hp) - 100) < 0.01, `${h0 - a.hp} vs ${h1 - b.hp}`);
+  // Regrowth: a Vex beast heals once left alone.
+  const v = S.addUnit(g, 'tank', 4, 5000, 4000);
+  S.damageForTest(g, v, 100, shot);
+  const hurt = v.hp;
+  run(g, S, 4);
+  const early = v.hp;
+  run(g, S, 6);
+  check('a Vex beast heals itself once it has not been hit for 6 seconds', early === hurt && v.hp > hurt, `${hurt} → ${early} → ${Math.round(v.hp)}`);
+  // Pack: a Vex beast with three of its pack around it attacks faster.
+  const alone = S.addUnit(g, 'tank', 4, 2000, 5200), foe = S.addUnit(g, 'tank', 1, 2150, 5200);
+  const packed = S.addUnit(g, 'tank', 4, 6000, 5200), foe2 = S.addUnit(g, 'tank', 1, 6150, 5200);
+  for (const [dx, dy] of [[-40, 0], [0, 40], [0, -40]]) S.addUnit(g, 'tank', 4, 6000 + dx, 5200 + dy);
+  for (const u of [foe, foe2]) u.stance = 'stealth';
+  let ca = 0, cp = 0;
+  for (let i = 0; i < 30 * 4 && (!ca || !cp); i++) { S.stepGame(g); if (alone.lastShot !== undefined && !ca) ca = alone.cooldown; if (packed.lastShot !== undefined && !cp) cp = packed.cooldown; }
+  const PR = S.FACTIONS.vex.traits.pack.reload;
+  check('a Vex beast in a pack of three or more reloads faster', ca > 0 && cp > 0 && Math.abs(cp / ca - PR) < 0.06, `${ca.toFixed(2)} alone, ${cp.toFixed(2)} in a pack`);
+  check('messages use each faction\'s own names, with "a" and "an" right', S.factionText('dominion', 'Scavenger deploying as an Extractor') === 'Hauler deploying as a Derrick' && S.factionText('vex', 'Build a Gun Tower') === 'Build a Spine Tower');
+  // Saves keep each faction's own numbers.
+  const back = S.loadGame(S.saveGame(g)).game;
+  check('a saved game keeps each faction\'s own vehicles', back.byId.get(a.id).def.hp === dom.hp && back.byId.get(v.id).def.speed === vex.speed);
+  check('four team colours', [1, 2, 3, 4].every(t => S.TEAMS[t] && S.TEAMS[t].color));
+}
+
+section('Computer opponents with four sides');
+{
+  const S = load();
+  const g = S.createGame({ seed: 5, difficulty: 'normal', aiTeams: [1, 2, 3, 4], sides: 4, factions: { 1: 'scrapline', 2: 'kethra', 3: 'dominion', 4: 'vex' } });
+  for (let i = 0; i < 30 * 60 * 6; i++) { for (const t of g.aiTeams) S.aiUpdate(g, t); S.stepGame(g); g.events.length = 0; }
+  check('all four computer opponents set up a base', g.sides.every(t => g.entities.some(e => e.team === t && e.type === 'recycler')));
+  check('and build an army', g.sides.every(t => g.entities.filter(e => e.team === t && e.kind === 'unit' && e.def.role === 'combat').length >= 4), g.sides.map(t => g.entities.filter(e => e.team === t && e.kind === 'unit' && e.def.role === 'combat').length).join(', '));
+  check('each picks a side to fight', g.sides.every(t => g.ai[t].rival && g.ai[t].rival !== t));
+}
+
+console.log(`\n${passes} passed, ${fails} failed`);
+process.exit(fails ? 1 : 0);

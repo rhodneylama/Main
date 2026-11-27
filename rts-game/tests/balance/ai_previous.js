@@ -1,0 +1,258 @@
+// The previous computer opponent (before the October 2026 battle tactics),
+// with its functions renamed (aiUpdateOld, ...) so it can play against the
+// current one in duel.js. Do not load this in the game.
+// =============================================================================
+// ai.js — THE ENEMY COMMANDER
+//
+// The computer opponent plays by exactly the same rules as you. It can only
+// act through issueCommand(), the same way your taps and clicks do. How hard
+// it plays is set by DIFFICULTY in config.js.
+//
+// Its plan: gather scrap, build a base and defences, expand toward scrap
+// by deploying Scavengers onto scrap geysers, then attack in waves until
+// your Recycler falls.
+// =============================================================================
+
+function aiUpdateOld(game, team) {
+  const diff = DIFFICULTY[game.difficulty];
+  const ai = game.ai[team] || (game.ai[team] = { next: 0, nextWave: diff.firstAttack });
+  if (game.time < ai.next) return;
+  // A little jitter so the two commanders don't always think on the same tick
+  // (whoever acts first on a shared tick would get a small, unfair edge).
+  ai.next = game.time + diff.thinkEvery * (0.85 + game.rng() * 0.3);
+
+  const mine = game.entities.filter(e => e.team === team);
+  const units = mine.filter(e => e.kind === 'unit');
+  const buildings = mine.filter(e => e.kind === 'building');
+  const tm = game.teams[team];
+  const enemy = 3 - team;
+  const hq = buildings.find(b => b.type === 'recycler');
+  if (!hq) {
+    // Still on wheels: deploy the Recycler on the nearest free geyser.
+    const mobile = units.find(u => u.type === 'mobileRecycler');
+    if (mobile && mobile.order.type !== 'deploy') {
+      const g = game.geysers.filter(x => !geyserTaken(game, x)).sort((a, b) => dist(a, mobile) - dist(b, mobile))[0];
+      if (g) issueCommand(game, team, { type: 'deploy', ids: [mobile.id], geyserId: g.id });
+    }
+    return;
+  }
+  // Counts by basic kind, so a Tank Mk II counts as a tank.
+  const count = type => units.filter(u => baseType(u) === type).length +
+    buildings.reduce((n, b) => n + b.queue.filter(q => (UNIT_TYPES[q].base || q) === type).length, 0);
+  const has = type => buildings.filter(b => b.type === type).length;
+  const cmd = c => issueCommand(game, team, c);
+  const toCenter = angleTo(hq, { x: game.map.W * CONFIG.TILE / 2, y: game.map.H * CONFIG.TILE / 2 });
+  const rally = { x: hq.x + Math.cos(toCenter) * 220, y: hq.y + Math.sin(toCenter) * 220 };
+
+  // --- Economy -------------------------------------------------------------
+  const extractors = buildings.filter(b => b.type === 'extractor' && b.built >= 1);
+  // Geysers are the long-term income, so once some are pumping the AI keeps
+  // fewer Scavengers on loose scrap (one fewer per two Extractors, at least 3).
+  const scavWanted = Math.max(3, Math.min(diff.maxScavengers, 3 + Math.floor(game.time / 150)) - Math.floor(extractors.length / 2));
+  // --- Recycler upgrade: needed for Scavenger IIs (geysers) and Constructor IIs (repairs)
+  const upgraded = hq.level > 1;
+  const scavType = upgraded ? 'scavenger2' : 'scavenger', conType = upgraded ? 'constructor2' : 'constructor';
+  ai.savingUp = false;
+  if (!upgraded && hq.upgrading === null && game.time > diff.upgradeBaseAfter && has('factory')) {
+    if (tm.scrap >= BUILDING_TYPES.recycler.upgrade.cost) cmd({ type: 'upgrade', buildingId: hq.id });
+    else ai.savingUp = true;
+  }
+  const deployers = units.filter(u => u.def.canDeploy && u.order.type !== 'deploy');
+  const wantsGeyser = upgraded && has('extractor') < diff.maxExtractors && expansionTargetOld(game, team, hq);
+  if (!hq.queue.length && hq.upgrading === null) {
+    if (count('constructor') < 1 && tm.scrap >= UNIT_TYPES[conType].cost) cmd({ type: 'produce', buildingId: hq.id, unit: conType });
+    // One Constructor II so buildings can be repaired.
+    else if (upgraded && !units.some(u => u.type === 'constructor2') && count('constructor') < 2 && tm.scrap >= UNIT_TYPES.constructor2.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'constructor2' });
+    // A Scavenger II to claim the next geyser.
+    else if (wantsGeyser && !deployers.length && tm.scrap >= UNIT_TYPES.scavenger2.cost) cmd({ type: 'produce', buildingId: hq.id, unit: 'scavenger2' });
+    else if (count('scavenger') < scavWanted && tm.scrap >= UNIT_TYPES[scavType].cost) cmd({ type: 'produce', buildingId: hq.id, unit: scavType });
+  }
+
+  // --- Expansion: turn a Scavenger into an Extractor on a free geyser --------
+  const easy = game.difficulty === 'easy';
+  const deploying = units.some(u => u.order.type === 'deploy');
+  if (!deploying && wantsGeyser && game.time > (easy ? 360 : 90) && game.time - (ai.lastDeploy || -99) > 30) {
+    const geyser = wantsGeyser;
+    if (deployers.length) {
+      const scav = deployers.sort((a, b) => dist(a, geyser) - dist(b, geyser))[0];
+      cmd({ type: 'deploy', ids: [scav.id], geyserId: geyser.id });
+      ai.lastDeploy = game.time;
+    }
+  }
+
+  // --- Construction --------------------------------------------------------
+  // Prefer a Constructor II, since only it can repair.
+  const idleBuilders = units.filter(u => u.def.role === 'builder' && u.order.type === 'idle');
+  const builder = idleBuilders.find(u => u.def.canRepair) || idleBuilders[0];
+  if (builder && !ai.savingUp) {
+    const damaged = buildings.find(b => b.built >= 1 && b.hp < b.maxHp * 0.6);
+    const unfinished = buildings.find(b => b.built < 1);
+    let want = null, near = null;
+    if (unfinished) cmd({ type: 'repair', ids: [builder.id], targetId: unfinished.id });
+    else if (damaged && builder.def.canRepair) cmd({ type: 'repair', ids: [builder.id], targetId: damaged.id });
+    else if (!has('factory')) want = 'factory';
+    else if (has('tower') < 1 && game.time > (easy ? 300 : 90)) want = 'tower';
+    // More storage once the bank keeps filling up.
+    else if (has('basesilo') < diff.maxBaseSilos && tm.scrap >= scrapCapacity(game, team) * 0.7 && game.time > 150) want = 'basesilo';
+    else if (diff.labAfter && !has('lab') && game.time > diff.labAfter) want = 'lab';
+    else if (diff.radarAfter && !has('radar') && game.time > diff.radarAfter) want = 'radar';
+    else if (diff.secondFactory && has('factory') < 2 && game.time > 300) want = 'factory';
+    else if (has('tower') < 1 + has('extractor') && game.time > 200) {
+      // Guard the outpost that has the fewest towers nearby.
+      want = 'tower';
+      const outposts = buildings.filter(b => b.type === 'extractor' && b.built >= 1);
+      near = outposts.find(s => !buildings.some(t => t.type === 'tower' && dist(t, s) < 260)) || null;
+    }
+    if (want === 'factory' || want === 'basesilo' || want === 'lab' || want === 'radar') near = null;  // these go around the Recycler
+    ai.saving = want === 'basesilo' && tm.scrap < BUILDING_TYPES[want].cost;
+    if (want && tm.scrap >= BUILDING_TYPES[want].cost) {
+      const spot = findBuildSpotOld(game, team, want, hq, toCenter, near);
+      if (spot) cmd({ type: 'build', ids: [builder.id], building: want, tx: spot.x, ty: spot.y });
+    }
+  }
+
+  // --- Research and Factory upgrades ------------------------------------------
+  for (const lab of buildings.filter(b => b.type === 'lab' && b.built >= 1 && !b.researching)) {
+    const next = ['tank2', 'scout2', 'artillery2'].find(k => !tm.research[k] &&
+      !buildings.some(b => b.researching && b.researching.key === k));
+    // Save up for it: army production pauses until it can be afforded.
+    if (next && tm.scrap >= RESEARCH[next].cost) cmd({ type: 'research', buildingId: lab.id, key: next });
+    else if (next) ai.savingUp = true;
+  }
+  if (Object.keys(tm.research).length) {
+    const f = buildings.find(b => b.type === 'factory' && b.built >= 1 && b.level === 1 && b.upgrading === null);
+    if (f && !buildings.some(b => b.type === 'factory' && b.upgrading !== null)) {
+      if (tm.scrap >= BUILDING_TYPES.factory.upgrade.cost) cmd({ type: 'upgrade', buildingId: f.id });
+      else ai.savingUp = true;
+    }
+  }
+
+  // --- Gun Tower upgrades: one at a time. Towers at home become Heavy Gun
+  // Towers; towers out at the Extractors become Artillery Towers (more reach).
+  if (diff.towerUpgradeAfter && game.time > diff.towerUpgradeAfter && !ai.saving && !ai.savingUp &&
+      !buildings.some(b => b.type === 'tower' && b.upgrading !== null)) {
+    const t = buildings.find(b => b.type === 'tower' && b.built >= 1 && b.level === 1);
+    if (t) {
+      const opt = BUILDING_TYPES.tower.upgrades.find(o => o.key === (dist(t, hq) < 500 ? 'heavytower' : 'arttower'));
+      if (tm.scrap >= opt.cost) cmd({ type: 'upgrade', buildingId: t.id, option: opt.key });
+    }
+  }
+
+  // --- Army production -----------------------------------------------------
+  const army = units.filter(u => u.def.role === 'combat');
+  // Lower difficulties grow their army slowly, so you have time to prepare.
+  const armyCap = diff.armyPerMinute ? Math.min(diff.maxArmy, 3 + Math.floor(game.time / 60 * diff.armyPerMinute)) : diff.maxArmy;
+  for (const f of buildings.filter(b => b.type === 'factory' && b.built >= 1)) {
+    if (f.queue.length >= 2 || count('scout') + count('tank') + count('artillery') >= armyCap) continue;
+    if (units.length >= CONFIG.UNIT_CAP - 2) continue;
+    const scouts = count('scout'), tanks = count('tank'), arty = count('artillery');
+    let pick = 'tank';
+    if (scouts < 2 || scouts * 4 < army.length) pick = 'scout';
+    else if (arty * 4 < tanks && game.time > diff.artilleryAfter) pick = 'artillery';
+    // Keep a reserve for the builder, and hold off while saving for a Base Silo.
+    if (ai.saving || ai.savingUp || f.upgrading !== null) continue;
+    // Build the Mk II version when researched and this Factory is upgraded.
+    if (f.level > 1 && tm.research[pick + '2']) pick = pick + '2';
+    if (tm.scrap >= UNIT_TYPES[pick].cost + (builder ? 60 : 0)) cmd({ type: 'produce', buildingId: f.id, unit: pick });
+    if (!f.rally) cmd({ type: 'rally', buildingId: f.id, x: rally.x, y: rally.y });
+  }
+
+  // --- Defence -------------------------------------------------------------
+  const intruder = game.entities.find(e => e.team === enemy && e.kind === 'unit' && e.def.role === 'combat' &&
+    buildings.some(b => dist(b, e) < 380) && isVisibleTo(game, team, e));
+  if (intruder) {
+    const defenders = army.filter(u => dist(u, hq) < 1400 && u.order.type !== 'attack');
+    if (defenders.length) cmd({ type: 'move', ids: defenders.map(u => u.id), x: intruder.x, y: intruder.y, attackMove: true });
+    return;
+  }
+
+  // --- Attack --------------------------------------------------------------
+  const idle = army.filter(u => u.order.type === 'idle' && !u.target);
+  const atHome = idle.filter(u => dist(u, rally) < 300);
+  const inField = idle.filter(u => dist(u, rally) >= 300);
+  const objective = pickObjectiveOld(game, team, hq);
+
+  // Units already out attacking keep pushing to the next target.
+  if (inField.length && objective && game.time >= diff.firstAttack) {
+    cmd({ type: 'move', ids: inField.map(u => u.id), x: objective.x, y: objective.y, attackMove: true });
+  } else if (inField.length) {
+    cmd({ type: 'move', ids: inField.map(u => u.id), x: rally.x, y: rally.y });
+  }
+
+  // Launch a wave once it's time and enough units have gathered.
+  const waveSize = Math.min(diff.maxArmy, diff.waveBase + Math.floor(Math.max(0, game.time - diff.firstAttack) / 60 * diff.waveGrowth));
+  if (objective && game.time >= ai.nextWave && atHome.length >= waveSize) {
+    // Send the wave; anything extra stays home to defend.
+    const wave = atHome.sort((a, b) => dist(a, objective) - dist(b, objective)).slice(0, waveSize);
+    cmd({ type: 'move', ids: wave.map(u => u.id), x: objective.x, y: objective.y, attackMove: true });
+    ai.nextWave = game.time + diff.waveEvery;
+    pushEvent(game, enemy, 'Enemy attack force spotted, heading your way!', 'bad');
+  }
+}
+
+// Attack the enemy building closest to our base: outposts first, then the HQ.
+function pickObjectiveOld(game, team, hq) {
+  let best = null, bd = Infinity;
+  for (const b of game.entities) {
+    if (b.team === team) continue;
+    // Everyone knows where the enemy HQ is, deployed or still on wheels.
+    const hqTarget = b.type === 'recycler' || b.type === 'mobileRecycler';
+    if (!hqTarget && (b.kind !== 'building' || !b.seen[team])) continue;
+    const d = dist(hq, b);
+    if (d < bd) { bd = d; best = b; }
+  }
+  return best;
+}
+
+// The nearest free scrap geyser on our side of the map.
+function expansionTargetOld(game, team, hq) {
+  const foe = game.entities.find(e => e.team !== team && e.type === 'recycler');
+  let best = null, bd = Infinity;
+  for (const g of game.geysers) {
+    if (geyserTaken(game, g)) continue;
+    if (foe && dist(foe, g) < dist(hq, g)) continue;
+    const d = dist(hq, g);
+    if (d < bd) { bd = d; best = g; }
+  }
+  return best;
+}
+
+// Find a legal spot for a building. With `near`, try to get as close to that
+// point as the rules allow; otherwise place it around the base.
+// The search runs as if we were Blue, bottom-left, and the answer is mirrored
+// for Red, so both sides place buildings in exactly the same way.
+function findBuildSpotOld(game, team, type, hq, towardAngle, near) {
+  const T = CONFIG.TILE, size = BUILDING_TYPES[type].size, W = game.map.W, H = game.map.H;
+  const flip = !inMirroredHalf(game, hq.x, hq.y);  // based in the top-right corner
+  const local = p => flip ? { x: W * T - p.x, y: H * T - p.y } : { x: p.x, y: p.y };
+  const world = (tx, ty) => flip ? { x: W - size - tx, y: H - size - ty } : { x: tx, y: ty };
+  const ok = (tx, ty) => { const w = world(tx, ty); return canPlaceBuilding(game, team, type, w.x, w.y).ok; };
+  // Leave a gap around buildings so units can drive between them.
+  const fits = BUILDING_TYPES[type].adjacent ? ok : (tx, ty) => ok(tx - 1, ty - 1) && ok(tx, ty) && ok(tx + 1, ty + 1);
+  const home = local(hq);
+  if (near) {
+    const goal = local(near);
+    // Walk from the target back toward home until a spot is allowed.
+    const steps = Math.ceil(dist(home, goal) / T);
+    for (let i = 0; i <= steps; i++) {
+      const x = goal.x + (home.x - goal.x) * i / steps, y = goal.y + (home.y - goal.y) * i / steps;
+      for (const [ox, oy] of [[0, 0], [2, 0], [-2, 0], [0, 2], [0, -2]]) {
+        const tx = Math.round(x / T - size / 2) + ox, ty = Math.round(y / T - size / 2) + oy;
+        if (fits(tx, ty)) return world(tx, ty);
+      }
+    }
+    return null;
+  }
+  const toward = angleTo(home, { x: W * T / 2, y: H * T / 2 });
+  const baseDist = type === 'tower' ? 8 : 5;
+  const htx = home.x / T, hty = home.y / T;
+  for (let ring = 0; ring < 6; ring++) {
+    for (let k = 0; k < 12; k++) {
+      const a = toward + ((k % 2 ? 1 : -1) * Math.ceil(k / 2)) * 0.28 + (game.rng() - 0.5) * 0.2;
+      const r = baseDist + ring * 1.5;
+      const tx = Math.round(htx + Math.cos(a) * r - size / 2), ty = Math.round(hty + Math.sin(a) * r - size / 2);
+      if (fits(tx, ty)) return world(tx, ty);
+    }
+  }
+  return null;
+}
